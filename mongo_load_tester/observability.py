@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import sys
+import threading
 from collections import deque
 from dataclasses import dataclass
 from logging.handlers import RotatingFileHandler
@@ -95,4 +98,44 @@ def configure_logging(config: LoggingConfig) -> tuple[logging.Logger, InMemoryLo
     # Keep third-party noise manageable by default.
     logging.getLogger("pymongo").setLevel(logging.WARNING)
     logging.getLogger("dash").setLevel(logging.WARNING)
+    install_global_exception_handlers(logger)
     return logger, buffer
+
+
+def install_global_exception_handlers(logger: logging.Logger) -> None:
+    """Install global hooks so uncaught exceptions are always logged."""
+
+    def handle_sys_exception(exc_type, exc_value, exc_traceback):
+        if issubclass(exc_type, KeyboardInterrupt):
+            logger.warning("KeyboardInterrupt received; shutting down gracefully.")
+            return
+        logger.critical(
+            "Unhandled exception reached sys.excepthook",
+            exc_info=(exc_type, exc_value, exc_traceback),
+        )
+
+    def handle_thread_exception(args: threading.ExceptHookArgs):
+        if args.exc_type is KeyboardInterrupt:
+            logger.warning("KeyboardInterrupt in thread %s", args.thread.name if args.thread else "unknown")
+            return
+        logger.critical(
+            "Unhandled exception in thread %s",
+            args.thread.name if args.thread else "unknown",
+            exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
+        )
+
+    def handle_asyncio_exception(loop: asyncio.AbstractEventLoop, context: dict):
+        message = context.get("message", "Unhandled asyncio exception")
+        exc = context.get("exception")
+        if exc is None:
+            logger.critical("%s | context=%s", message, context)
+            return
+        logger.critical("%s", message, exc_info=(type(exc), exc, exc.__traceback__))
+
+    sys.excepthook = handle_sys_exception
+    threading.excepthook = handle_thread_exception
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        return
+    loop.set_exception_handler(handle_asyncio_exception)

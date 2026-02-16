@@ -65,6 +65,11 @@ class LoadTestRunner:
         with self._state_lock:
             return self._last_error
 
+    def _set_last_error(self, message: str) -> None:
+        with self._state_lock:
+            if not self._last_error:
+                self._last_error = message
+
     def stop(self) -> None:
         self._logger.info("Stop requested by user/UI.")
         self._stop_event.set()
@@ -125,11 +130,9 @@ class LoadTestRunner:
                     )
                     next_progress_log = time.monotonic() + self._config.logging.progress_log_interval_seconds
                 time.sleep(0.2)
-        except Exception as exc:  # pragma: no cover - runtime safety
-            with self._state_lock:
-                self._last_error = str(exc)
+        except BaseException as exc:  # pragma: no cover - runtime safety
+            self._set_last_error(str(exc))
             self._logger.exception("Load test run failed.")
-            raise
         finally:
             self._stop_event.set()
             for thread in workers:
@@ -148,6 +151,8 @@ class LoadTestRunner:
                 snapshot.avg_latency_ms,
                 snapshot.p95_latency_ms,
             )
+            if self.last_error:
+                self._logger.error("Run completed with captured failure: %s", self.last_error)
 
     def _build_assignments(self) -> list[_WorkerAssignment]:
         users = self._config.load.virtual_users
@@ -170,68 +175,74 @@ class LoadTestRunner:
         return assignments
 
     def _worker_loop(self, assignment: _WorkerAssignment, run_deadline: float) -> None:
-        if assignment.startup_delay_seconds > 0:
-            startup_remaining = assignment.startup_delay_seconds
-            while startup_remaining > 0 and not self._stop_event.is_set():
-                sleep_chunk = min(0.2, startup_remaining)
-                time.sleep(sleep_chunk)
-                startup_remaining -= sleep_chunk
-        if self._stop_event.is_set():
-            return
-
-        seed = self._config.random_seed + assignment.worker_id * 10_007
-        rng = random.Random(seed)
         worker_logger = self._logger.getChild(f"worker.{assignment.worker_id}")
-        worker_logger.info(
-            "Worker started simulated_users=%d startup_delay=%.2fs",
-            assignment.simulated_users,
-            assignment.startup_delay_seconds,
-        )
-        namespace_selector = NamespaceSelector(self._config.namespace, rng)
-        operation_selector = OperationSelector(self._config.operation_mix, rng)
-        generator = DocumentGenerator(self._config.document_schema, rng)
-        assert self._client is not None
-        executor = MongoOperationExecutor(
-            client=self._client,
-            namespace_selector=namespace_selector,
-            operation_selector=operation_selector,
-            document_generator=generator,
-            id_registry=self._id_registry,
-            retry_policy=self._retry_policy,
-            logger=worker_logger,
-            rng=rng,
-        )
+        try:
+            if assignment.startup_delay_seconds > 0:
+                startup_remaining = assignment.startup_delay_seconds
+                while startup_remaining > 0 and not self._stop_event.is_set():
+                    sleep_chunk = min(0.2, startup_remaining)
+                    time.sleep(sleep_chunk)
+                    startup_remaining -= sleep_chunk
+            if self._stop_event.is_set():
+                return
 
-        think_min = self._config.load.think_time_ms_min / 1000.0
-        think_max = self._config.load.think_time_ms_max / 1000.0
-        target_rate = self._config.load.target_ops_per_user_per_sec
-        cycle_target_seconds = (1.0 / target_rate) if target_rate else 0.0
+            seed = self._config.random_seed + assignment.worker_id * 10_007
+            rng = random.Random(seed)
+            worker_logger.info(
+                "Worker started simulated_users=%d startup_delay=%.2fs",
+                assignment.simulated_users,
+                assignment.startup_delay_seconds,
+            )
+            namespace_selector = NamespaceSelector(self._config.namespace, rng)
+            operation_selector = OperationSelector(self._config.operation_mix, rng)
+            generator = DocumentGenerator(self._config.document_schema, rng)
+            assert self._client is not None
+            executor = MongoOperationExecutor(
+                client=self._client,
+                namespace_selector=namespace_selector,
+                operation_selector=operation_selector,
+                document_generator=generator,
+                id_registry=self._id_registry,
+                retry_policy=self._retry_policy,
+                logger=worker_logger,
+                rng=rng,
+            )
 
-        while not self._stop_event.is_set() and time.monotonic() < run_deadline:
-            cycle_start = time.perf_counter()
-            for _ in range(assignment.simulated_users):
-                if self._stop_event.is_set() or time.monotonic() >= run_deadline:
-                    break
-                result = executor.execute_once()
-                self._metrics.record(result)
-                if not result.success and self._config.logging.log_operation_failures:
-                    worker_logger.error(
-                        "Operation failed op=%s ns=%s.%s attempts=%d latency_ms=%.2f error=%s",
-                        result.operation.value,
-                        result.database,
-                        result.collection,
-                        result.attempts,
-                        result.latency_ms,
-                        result.error,
-                    )
-                if think_max > 0:
-                    time.sleep(rng.uniform(think_min, think_max))
+            think_min = self._config.load.think_time_ms_min / 1000.0
+            think_max = self._config.load.think_time_ms_max / 1000.0
+            target_rate = self._config.load.target_ops_per_user_per_sec
+            cycle_target_seconds = (1.0 / target_rate) if target_rate else 0.0
 
-            if cycle_target_seconds > 0:
-                cycle_elapsed = time.perf_counter() - cycle_start
-                if cycle_elapsed < cycle_target_seconds:
-                    time.sleep(cycle_target_seconds - cycle_elapsed)
-        worker_logger.info("Worker exiting.")
+            while not self._stop_event.is_set() and time.monotonic() < run_deadline:
+                cycle_start = time.perf_counter()
+                for _ in range(assignment.simulated_users):
+                    if self._stop_event.is_set() or time.monotonic() >= run_deadline:
+                        break
+                    result = executor.execute_once()
+                    self._metrics.record(result)
+                    if not result.success and self._config.logging.log_operation_failures:
+                        worker_logger.error(
+                            "Operation failed op=%s ns=%s.%s attempts=%d latency_ms=%.2f error=%s",
+                            result.operation.value,
+                            result.database,
+                            result.collection,
+                            result.attempts,
+                            result.latency_ms,
+                            result.error,
+                        )
+                    if think_max > 0:
+                        time.sleep(rng.uniform(think_min, think_max))
+
+                if cycle_target_seconds > 0:
+                    cycle_elapsed = time.perf_counter() - cycle_start
+                    if cycle_elapsed < cycle_target_seconds:
+                        time.sleep(cycle_target_seconds - cycle_elapsed)
+        except BaseException as exc:  # pragma: no cover - runtime safety
+            self._set_last_error(f"Worker {assignment.worker_id} crashed: {exc}")
+            worker_logger.exception("Worker crashed unexpectedly.")
+            self._stop_event.set()
+        finally:
+            worker_logger.info("Worker exiting.")
 
     def _seed_initial_documents(self, client: MongoClient) -> None:
         seed_count = self._config.load.initial_seed_per_collection

@@ -8,6 +8,7 @@ A configurable Python load/stress testing tool for MongoDB clusters, designed fo
 - schema-driven payload generation
 - live dashboard with timelines and latency metrics
 - live log stream in dashboard (with level/tail filters)
+- fail-safe exception capture with graceful error reporting
 - in-browser export (CSV, PNG, PDF)
 
 ## Architecture
@@ -176,6 +177,13 @@ Key knobs:
 - `schema.fields`: generated document fields
 - `logging.*`: log level, file rotation, UI buffer, and progress log cadence
 - `retry.*`: max attempts + exponential backoff + jitter for transient Mongo errors
+
+### Exception safety
+
+- Global exception hooks capture uncaught exceptions in main/threaded/async contexts.
+- Runner and workers capture unexpected failures, log full stack traces, and shut down gracefully.
+- CLI commands return controlled non-zero exits instead of crashing with unhandled traces.
+- Dashboard callbacks are guarded to avoid hard UI breakage from callback/runtime errors.
 
 ### Retry strategy
 
