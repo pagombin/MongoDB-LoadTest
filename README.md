@@ -31,49 +31,102 @@ mongo_load_tester/
     export.py             # CSV/PNG/PDF export helpers
 ```
 
-## Install
+## Installation and Running the Script
+
+### 1) Prerequisites
+
+- Python 3.10+
+- Network access to your MongoDB cluster
+- A valid MongoDB connection string
+
+### 2) Create and activate a virtual environment
 
 ```bash
-pip install -e .
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install --upgrade pip
 ```
 
-Optional dev dependencies:
+### 3) Install the project
 
 ```bash
-pip install -e ".[dev]"
+python3 -m pip install -e .
 ```
 
-## Quick Start
-
-1. Generate starter config:
+Optional dev dependencies (tests, etc.):
 
 ```bash
-mongo-load-tester init-config --output config/loadtest.yaml
+python3 -m pip install -e ".[dev]"
 ```
 
-2. Validate config:
+### 4) Create a config file
+
+Generate a starter config:
 
 ```bash
-mongo-load-tester validate --config config/loadtest.yaml
+python3 -m mongo_load_tester.cli init-config --output config/loadtest.yaml
 ```
 
-3. Run with dashboard:
+Or copy and edit `config/loadtest.sample.yaml`.
+
+### 5) Configure your MongoDB URI
+
+Open `config/loadtest.yaml` and set:
+
+```yaml
+mongo:
+  uri: "mongodb://<username>:<password>@<host1>:27017,<host2>:27017/?replicaSet=<rs_name>"
+```
+
+### 6) Validate config
+
+```bash
+python3 -m mongo_load_tester.cli validate --config config/loadtest.yaml
+```
+
+### 7) Run with dashboard (recommended)
+
+```bash
+python3 -m mongo_load_tester.cli run --config config/loadtest.yaml
+```
+
+Open the dashboard in your browser at:
+
+```text
+http://<dashboard-host>:<dashboard-port>
+```
+
+Defaults are `127.0.0.1:8050` unless changed in config.
+
+### 8) Run headless (no UI)
+
+```bash
+python3 -m mongo_load_tester.cli run --config config/loadtest.yaml --no-dashboard
+```
+
+### CLI shortcut
+
+After installation, you can also use the console script directly:
 
 ```bash
 mongo-load-tester run --config config/loadtest.yaml
 ```
 
-4. Run headless:
+If that command is not in your PATH, use the `python3 -m mongo_load_tester.cli ...` form above.
 
-```bash
-mongo-load-tester run --config config/loadtest.yaml --no-dashboard
-```
+## Dashboard UX Highlights
 
-The dashboard has buttons to export:
-
-- timeline metrics as CSV
-- operations chart as PNG
-- summary report as PDF
+- Live status badge (running/completed/failed/initializing)
+- Runtime progress bar with elapsed and remaining time
+- Adjustable timeline window (1m, 5m, 15m, all)
+- KPI cards for throughput, error rate, and latency percentiles
+- Operation and latency timelines with unified hover tracking
+- Operation distribution chart and per-operation summary table
+- One-click exports from browser:
+  - timeline CSV
+  - PNG chart image
+  - PDF report
+- In-dashboard "Stop test" control for graceful shutdown
 
 ## Config Model
 
