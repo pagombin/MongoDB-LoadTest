@@ -1,0 +1,67 @@
+mongo:
+  uri: "mongodb://localhost:27017/?replicaSet=rs0"
+  app_name: "mongo-load-tester"
+  max_pool_size: 400
+  min_pool_size: 20
+  connect_timeout_ms: 8000
+  socket_timeout_ms: 120000
+  server_selection_timeout_ms: 8000
+  retry_writes: true
+  tls: false
+
+namespace:
+  database_prefix: "oltp_sim"
+  collection_prefix: "orders"
+  databases: 4
+  collections_per_database: 8
+
+schema:
+  fields:
+    - name: "tenant_id"
+      field_type: "string"
+      length: 8
+    - name: "order_total"
+      field_type: "float"
+      min_value: 10
+      max_value: 5000
+    - name: "status"
+      field_type: "string"
+      choices: ["new", "paid", "shipped", "cancelled"]
+    - name: "priority"
+      field_type: "int"
+      min_value: 1
+      max_value: 5
+    - name: "is_gift"
+      field_type: "bool"
+    - name: "updated_at"
+      field_type: "datetime"
+
+operation_mix:
+  read: 0.75
+  insert: 0.15
+  update: 0.08
+  delete: 0.02
+
+load:
+  virtual_users: 1000
+  worker_threads: 200
+  duration_seconds: 900
+  ramp_up_seconds: 120
+  think_time_ms_min: 1
+  think_time_ms_max: 20
+  target_ops_per_user_per_sec: 1.5
+  initial_seed_per_collection: 1000
+
+dashboard:
+  enabled: true
+  host: "0.0.0.0"
+  port: 8050
+  refresh_interval_ms: 1000
+  history_window_seconds: 1200
+
+export:
+  output_dir: "artifacts"
+  default_png_width: 1600
+  default_png_height: 900
+
+random_seed: 42
