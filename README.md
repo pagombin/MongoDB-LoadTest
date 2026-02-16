@@ -75,8 +75,38 @@ Open `config/loadtest.yaml` and set:
 
 ```yaml
 mongo:
-  uri: "mongodb://<username>:<password>@<host1>:27017,<host2>:27017/?replicaSet=<rs_name>"
+  uri: "mongodb://<user>:<pass>@<host1>:27017/?authSource=admin"
+  # Keep null to use URI defaults (recommended, especially for mongodb+srv)
+  tls: null
 ```
+
+Supported connection string patterns:
+
+- Replica set:
+
+```yaml
+mongo:
+  uri: "mongodb://<user>:<pass>@<host1>:27017,<host2>:27017,<host3>:27017/?replicaSet=<rs_name>&authSource=admin"
+  tls: null
+```
+
+- Sharded cluster (mongos routers):
+
+```yaml
+mongo:
+  uri: "mongodb://<user>:<pass>@<mongos1>:27017,<mongos2>:27017/?authSource=admin"
+  tls: null
+```
+
+- SRV (Atlas/managed):
+
+```yaml
+mongo:
+  uri: "mongodb+srv://<user>:<pass>@<cluster>.mongodb.net/?retryWrites=true&w=majority"
+  tls: null
+```
+
+The runner uses PyMongo topology discovery, so it works with replica set and sharded deployments as long as the URI is valid and reachable.
 
 ### 6) Validate config
 

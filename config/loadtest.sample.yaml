@@ -1,5 +1,10 @@
 mongo:
-  uri: "mongodb://localhost:27017/?replicaSet=rs0"
+  # Replica set example:
+  # uri: "mongodb://user:pass@host1:27017,host2:27017,host3:27017/?replicaSet=rs0&authSource=admin"
+  # Sharded example (mongos routers):
+  # uri: "mongodb://user:pass@mongos1:27017,mongos2:27017/?authSource=admin"
+  # SRV example (Atlas/managed):
+  uri: "mongodb+srv://user:pass@cluster0.example.mongodb.net/?retryWrites=true&w=majority"
   app_name: "mongo-load-tester"
   max_pool_size: 400
   min_pool_size: 20
@@ -7,7 +12,8 @@ mongo:
   socket_timeout_ms: 120000
   server_selection_timeout_ms: 8000
   retry_writes: true
-  tls: false
+  # Keep null to use URI defaults (recommended). Set true/false only if you must override.
+  tls: null
 
 namespace:
   database_prefix: "oltp_sim"

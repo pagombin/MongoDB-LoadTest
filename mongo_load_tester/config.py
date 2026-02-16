@@ -20,7 +20,10 @@ class MongoConnectionConfig(BaseModel):
     socket_timeout_ms: int = Field(default=120_000, ge=1_000)
     server_selection_timeout_ms: int = Field(default=8_000, ge=100)
     retry_writes: bool = True
-    tls: bool = False
+    tls: bool | None = Field(
+        default=None,
+        description="Optional TLS override. Keep null to use connection-string defaults.",
+    )
 
     model_config = ConfigDict(extra="forbid")
 
