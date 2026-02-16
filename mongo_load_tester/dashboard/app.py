@@ -19,6 +19,7 @@ from mongo_load_tester.dashboard.figures import (
 from mongo_load_tester.engine.metrics import MetricsStore
 from mongo_load_tester.engine.runner import LoadTestRunner
 from mongo_load_tester.models import MetricsSnapshot
+from mongo_load_tester.observability import InMemoryLogBuffer
 
 CARD_STYLE = {"background": "white", "border": "1px solid #e5e7eb", "borderRadius": "10px", "padding": "14px"}
 ACTION_BUTTON_STYLE = {
@@ -46,7 +47,12 @@ STATUS_STYLE_MAP = {
 }
 
 
-def create_dashboard(config: AppConfig, metrics_store: MetricsStore, runner: LoadTestRunner) -> Dash:
+def create_dashboard(
+    config: AppConfig,
+    metrics_store: MetricsStore,
+    runner: LoadTestRunner,
+    log_buffer: InMemoryLogBuffer,
+) -> Dash:
     app = Dash(__name__, title="MongoDB Load Tester")
     operation_mix = config.operation_mix.normalized()
     namespace_total = config.namespace.databases * config.namespace.collections_per_database
@@ -199,6 +205,72 @@ def create_dashboard(config: AppConfig, metrics_store: MetricsStore, runner: Loa
                 ],
                 style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "1.5fr 2.5fr", "gap": "12px"},
             ),
+            html.Div(
+                [
+                    html.Div("Live logs", style={"fontWeight": "600", "fontSize": "16px"}),
+                    html.Div(
+                        [
+                            html.Div(
+                                [
+                                    html.Div("Minimum level", style={"fontSize": "12px", "color": "#6b7280"}),
+                                    dcc.Dropdown(
+                                        id="log-level-filter",
+                                        options=[
+                                            {"label": "DEBUG", "value": "DEBUG"},
+                                            {"label": "INFO", "value": "INFO"},
+                                            {"label": "WARNING", "value": "WARNING"},
+                                            {"label": "ERROR", "value": "ERROR"},
+                                        ],
+                                        value="INFO",
+                                        clearable=False,
+                                        style={"marginTop": "6px"},
+                                    ),
+                                ],
+                                style={"minWidth": "170px"},
+                            ),
+                            html.Div(
+                                [
+                                    html.Div("Tail lines", style={"fontSize": "12px", "color": "#6b7280"}),
+                                    dcc.Dropdown(
+                                        id="log-line-count",
+                                        options=[
+                                            {"label": "100 lines", "value": 100},
+                                            {"label": "250 lines", "value": 250},
+                                            {"label": "500 lines", "value": 500},
+                                            {"label": "1000 lines", "value": 1000},
+                                        ],
+                                        value=_default_log_tail(config.logging.ui_default_tail_lines),
+                                        clearable=False,
+                                        style={"marginTop": "6px"},
+                                    ),
+                                ],
+                                style={"minWidth": "170px"},
+                            ),
+                            html.Div(
+                                id="log-meta",
+                                style={"fontSize": "12px", "color": "#6b7280", "alignSelf": "end", "paddingBottom": "6px"},
+                            ),
+                        ],
+                        style={"display": "flex", "gap": "10px", "alignItems": "stretch", "marginTop": "8px"},
+                    ),
+                    html.Pre(
+                        id="log-view",
+                        style={
+                            "marginTop": "10px",
+                            "background": "#111827",
+                            "color": "#e5e7eb",
+                            "padding": "12px",
+                            "borderRadius": "8px",
+                            "fontSize": "12px",
+                            "lineHeight": "1.45",
+                            "maxHeight": "340px",
+                            "overflowY": "auto",
+                            "whiteSpace": "pre-wrap",
+                        },
+                    ),
+                ],
+                style={**CARD_STYLE, "marginTop": "12px"},
+            ),
             dcc.Download(id="download-csv"),
             dcc.Download(id="download-png"),
             dcc.Download(id="download-pdf"),
@@ -226,10 +298,14 @@ def create_dashboard(config: AppConfig, metrics_store: MetricsStore, runner: Loa
         Output("distribution-graph", "figure"),
         Output("operation-table", "children"),
         Output("stop-test-btn", "disabled"),
+        Output("log-view", "children"),
+        Output("log-meta", "children"),
         Input("refresh", "n_intervals"),
         Input("timeline-window", "value"),
+        Input("log-level-filter", "value"),
+        Input("log-line-count", "value"),
     )
-    def refresh_dashboard(_: int, timeline_window: int):
+    def refresh_dashboard(_: int, timeline_window: int, log_level: str, log_line_count: int):
         snapshot = metrics_store.snapshot()
         window_seconds = int(timeline_window or 0)
         filtered_snapshot = _filter_snapshot_timeline(snapshot, window_seconds)
@@ -238,6 +314,11 @@ def create_dashboard(config: AppConfig, metrics_store: MetricsStore, runner: Loa
         runtime_meta, progress_value, progress_label = _build_runtime_ui(runner, config.load.duration_seconds)
         last_updated = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
         stop_disabled = not runner.is_running
+        min_level = _parse_log_level(log_level)
+        line_limit = int(log_line_count or config.logging.ui_default_tail_lines)
+        lines = log_buffer.tail(limit=line_limit, min_level=min_level)
+        log_text = "\n".join(lines) if lines else "No log entries yet."
+        log_meta = f"Showing {len(lines)} line(s), level >= {(log_level or 'INFO').upper()}."
 
         return (
             status_text,
@@ -265,6 +346,8 @@ def create_dashboard(config: AppConfig, metrics_store: MetricsStore, runner: Loa
             build_operation_distribution(snapshot),
             _build_operation_table(snapshot),
             stop_disabled,
+            log_text,
+            log_meta,
         )
 
     @callback(Output("stop-feedback", "children"), Input("stop-test-btn", "n_clicks"), prevent_initial_call=True)
@@ -436,3 +519,26 @@ def _format_duration(seconds: int) -> str:
 
 def _fmt(value: int) -> str:
     return f"{value:,}"
+
+
+def _parse_log_level(level_name: str | None) -> int:
+    if not level_name:
+        return 20
+    normalized = level_name.upper()
+    if normalized == "DEBUG":
+        return 10
+    if normalized == "INFO":
+        return 20
+    if normalized == "WARNING":
+        return 30
+    if normalized == "ERROR":
+        return 40
+    return 20
+
+
+def _default_log_tail(value: int) -> int:
+    supported = [100, 250, 500, 1000]
+    if value in supported:
+        return value
+    nearest = min(supported, key=lambda item: abs(item - value))
+    return nearest

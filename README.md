@@ -7,6 +7,7 @@ A configurable Python load/stress testing tool for MongoDB clusters, designed fo
 - multiple databases and collections
 - schema-driven payload generation
 - live dashboard with timelines and latency metrics
+- live log stream in dashboard (with level/tail filters)
 - in-browser export (CSV, PNG, PDF)
 
 ## Architecture
@@ -16,11 +17,13 @@ mongo_load_tester/
   config.py               # Typed config models + YAML loader
   models.py               # Shared metric/result data classes
   cli.py                  # Commands: run, validate, init-config
+  observability.py        # Logging setup + in-memory UI log buffer
   engine/
     client.py             # MongoClient factory
     executor.py           # Single-op execution logic (read/write/update/delete)
     id_registry.py        # Thread-safe known _id cache for realistic reads/updates
     metrics.py            # Lock-safe rolling aggregation + snapshots
+    retry.py              # Retry controller (exponential backoff + jitter)
     runner.py             # Concurrency orchestration + ramp-up + seeding
   workload/
     schema.py             # Synthetic document generation from schema config
@@ -152,6 +155,7 @@ If that command is not in your PATH, use the `python3 -m mongo_load_tester.cli .
 - KPI cards for throughput, error rate, and latency percentiles
 - Operation and latency timelines with unified hover tracking
 - Operation distribution chart and per-operation summary table
+- Live logs panel in UI (INFO/WARNING/ERROR filters and adjustable tail lines)
 - One-click exports from browser:
   - timeline CSV
   - PNG chart image
@@ -170,6 +174,20 @@ Key knobs:
 - `operation_mix`: traffic mix percentages
 - `namespace.databases` + `namespace.collections_per_database`: namespace spread
 - `schema.fields`: generated document fields
+- `logging.*`: log level, file rotation, UI buffer, and progress log cadence
+- `retry.*`: max attempts + exponential backoff + jitter for transient Mongo errors
+
+### Retry strategy
+
+The runner uses a centralized retry controller for transient MongoDB failures:
+
+- exponential backoff with jitter
+- configurable max attempts and bounds
+- retry classification for common transient PyMongo exceptions and retry labels
+- applies to:
+  - connection ping
+  - initial seeding batches
+  - runtime read/insert/update/delete operations
 
 ## Notes for Production-Scale Runs
 

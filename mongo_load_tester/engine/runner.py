@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import random
 import threading
 import time
@@ -15,6 +16,7 @@ from mongo_load_tester.engine.client import build_client
 from mongo_load_tester.engine.executor import MongoOperationExecutor
 from mongo_load_tester.engine.id_registry import DocumentIdRegistry
 from mongo_load_tester.engine.metrics import MetricsStore
+from mongo_load_tester.engine.retry import RetryController, RetryFailure, RetryPolicy
 from mongo_load_tester.workload.schema import DocumentGenerator
 from mongo_load_tester.workload.selection import NamespaceSelector, OperationSelector
 
@@ -29,7 +31,7 @@ class _WorkerAssignment:
 class LoadTestRunner:
     """Coordinates MongoDB load generation and metrics collection."""
 
-    def __init__(self, config: AppConfig, metrics: MetricsStore):
+    def __init__(self, config: AppConfig, metrics: MetricsStore, logger: logging.Logger | None = None):
         self._config = config
         self._metrics = metrics
         self._id_registry = DocumentIdRegistry()
@@ -40,6 +42,8 @@ class LoadTestRunner:
         self._finished_at: datetime | None = None
         self._last_error: str | None = None
         self._client: MongoClient | None = None
+        self._logger = logger or logging.getLogger("mongo_load_tester.runner")
+        self._retry_policy = RetryPolicy.from_config(config.retry)
 
     @property
     def is_running(self) -> bool:
@@ -62,23 +66,38 @@ class LoadTestRunner:
             return self._last_error
 
     def stop(self) -> None:
+        self._logger.info("Stop requested by user/UI.")
         self._stop_event.set()
 
     def run(self) -> None:
         workers: list[threading.Thread] = []
+        lifecycle_rng = random.Random(self._config.random_seed + 9_111)
+        lifecycle_retry = RetryController(
+            policy=self._retry_policy,
+            rng=lifecycle_rng,
+            log_warning=self._logger.warning,
+        )
         with self._state_lock:
             self._running = True
             self._started_at = datetime.now(UTC)
             self._finished_at = None
             self._last_error = None
+        self._logger.info(
+            "Load test starting users=%d workers=%d duration=%ds ramp_up=%ds",
+            self._config.load.virtual_users,
+            self._config.load.worker_threads,
+            self._config.load.duration_seconds,
+            self._config.load.ramp_up_seconds,
+        )
         try:
             self._client = build_client(self._config.mongo)
-            # Fail fast if cluster is unreachable.
-            self._client.admin.command("ping")
+            _, ping_attempts = lifecycle_retry.run("admin.ping", lambda: self._client.admin.command("ping"))
+            self._logger.info("Connected to MongoDB cluster (ping attempts=%d).", ping_attempts)
             self._seed_initial_documents(self._client)
 
             assignments = self._build_assignments()
             run_deadline = time.monotonic() + self._config.load.duration_seconds
+            next_progress_log = time.monotonic() + self._config.logging.progress_log_interval_seconds
             for assignment in assignments:
                 thread = threading.Thread(
                     target=self._worker_loop,
@@ -88,15 +107,28 @@ class LoadTestRunner:
                 )
                 thread.start()
                 workers.append(thread)
+            self._logger.info("Started %d worker thread(s).", len(workers))
 
             while not self._stop_event.is_set() and any(thread.is_alive() for thread in workers):
                 if time.monotonic() >= run_deadline:
                     self._stop_event.set()
                     break
+                if time.monotonic() >= next_progress_log:
+                    snapshot = self._metrics.snapshot()
+                    self._logger.info(
+                        "Progress total_ops=%d success=%d errors=%d ops_per_sec=%.2f p95_ms=%.2f",
+                        snapshot.total_ops,
+                        snapshot.success_ops,
+                        snapshot.error_ops,
+                        snapshot.ops_per_second,
+                        snapshot.p95_latency_ms,
+                    )
+                    next_progress_log = time.monotonic() + self._config.logging.progress_log_interval_seconds
                 time.sleep(0.2)
         except Exception as exc:  # pragma: no cover - runtime safety
             with self._state_lock:
                 self._last_error = str(exc)
+            self._logger.exception("Load test run failed.")
             raise
         finally:
             self._stop_event.set()
@@ -107,6 +139,15 @@ class LoadTestRunner:
             with self._state_lock:
                 self._running = False
                 self._finished_at = datetime.now(UTC)
+            snapshot = self._metrics.snapshot()
+            self._logger.info(
+                "Load test finished total_ops=%d success=%d errors=%d avg_latency_ms=%.2f p95_ms=%.2f",
+                snapshot.total_ops,
+                snapshot.success_ops,
+                snapshot.error_ops,
+                snapshot.avg_latency_ms,
+                snapshot.p95_latency_ms,
+            )
 
     def _build_assignments(self) -> list[_WorkerAssignment]:
         users = self._config.load.virtual_users
@@ -140,6 +181,12 @@ class LoadTestRunner:
 
         seed = self._config.random_seed + assignment.worker_id * 10_007
         rng = random.Random(seed)
+        worker_logger = self._logger.getChild(f"worker.{assignment.worker_id}")
+        worker_logger.info(
+            "Worker started simulated_users=%d startup_delay=%.2fs",
+            assignment.simulated_users,
+            assignment.startup_delay_seconds,
+        )
         namespace_selector = NamespaceSelector(self._config.namespace, rng)
         operation_selector = OperationSelector(self._config.operation_mix, rng)
         generator = DocumentGenerator(self._config.document_schema, rng)
@@ -150,6 +197,8 @@ class LoadTestRunner:
             operation_selector=operation_selector,
             document_generator=generator,
             id_registry=self._id_registry,
+            retry_policy=self._retry_policy,
+            logger=worker_logger,
             rng=rng,
         )
 
@@ -165,6 +214,16 @@ class LoadTestRunner:
                     break
                 result = executor.execute_once()
                 self._metrics.record(result)
+                if not result.success and self._config.logging.log_operation_failures:
+                    worker_logger.error(
+                        "Operation failed op=%s ns=%s.%s attempts=%d latency_ms=%.2f error=%s",
+                        result.operation.value,
+                        result.database,
+                        result.collection,
+                        result.attempts,
+                        result.latency_ms,
+                        result.error,
+                    )
                 if think_max > 0:
                     time.sleep(rng.uniform(think_min, think_max))
 
@@ -172,24 +231,64 @@ class LoadTestRunner:
                 cycle_elapsed = time.perf_counter() - cycle_start
                 if cycle_elapsed < cycle_target_seconds:
                     time.sleep(cycle_target_seconds - cycle_elapsed)
+        worker_logger.info("Worker exiting.")
 
     def _seed_initial_documents(self, client: MongoClient) -> None:
         seed_count = self._config.load.initial_seed_per_collection
         if seed_count <= 0:
+            self._logger.info("Initial seeding skipped (initial_seed_per_collection=%d).", seed_count)
             return
 
         rng = random.Random(self._config.random_seed)
+        retry_rng = random.Random(self._config.random_seed + 123_456)
+        retry_controller = RetryController(
+            policy=self._retry_policy,
+            rng=retry_rng,
+            log_warning=self._logger.warning,
+        )
         namespace_selector = NamespaceSelector(self._config.namespace, rng)
         generator = DocumentGenerator(self._config.document_schema, rng)
         batch_size = 500
+        total_targets = len(namespace_selector.targets)
+        self._logger.info(
+            "Starting initial seed per_collection=%d targets=%d batch_size=%d",
+            seed_count,
+            total_targets,
+            batch_size,
+        )
 
         for target in namespace_selector.targets:
             remaining = seed_count
             collection = client[target.database][target.collection]
+            inserted_for_target = 0
             while remaining > 0 and not self._stop_event.is_set():
                 current_batch_size = min(batch_size, remaining)
                 docs = [generator.generate_document() for _ in range(current_batch_size)]
-                insert_result = collection.insert_many(docs, ordered=False)
+                operation_name = (
+                    f"seed insert_many {target.database}.{target.collection} "
+                    f"batch_size={current_batch_size}"
+                )
+                try:
+                    insert_result, _ = retry_controller.run(
+                        operation_name=operation_name,
+                        func=lambda docs=docs, collection=collection: collection.insert_many(docs, ordered=False),
+                    )
+                except RetryFailure as exc:
+                    self._logger.error(
+                        "Seeding failed namespace=%s.%s attempts=%d error=%s",
+                        target.database,
+                        target.collection,
+                        exc.attempts,
+                        exc.last_exception,
+                    )
+                    raise
                 for inserted_id in insert_result.inserted_ids:
                     self._id_registry.add_id(target.database, target.collection, inserted_id)
                 remaining -= current_batch_size
+                inserted_for_target += current_batch_size
+            self._logger.info(
+                "Seeded namespace=%s.%s inserted=%d",
+                target.database,
+                target.collection,
+                inserted_for_target,
+            )

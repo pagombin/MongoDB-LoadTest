@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import random
 import time
 from datetime import UTC, datetime
@@ -10,6 +11,7 @@ from typing import Any
 from bson import ObjectId
 from pymongo import MongoClient
 
+from mongo_load_tester.engine.retry import RetryController, RetryFailure, RetryPolicy
 from mongo_load_tester.engine.id_registry import DocumentIdRegistry
 from mongo_load_tester.models import OperationResult, OperationType
 from mongo_load_tester.workload.schema import DocumentGenerator
@@ -26,6 +28,8 @@ class MongoOperationExecutor:
         operation_selector: OperationSelector,
         document_generator: DocumentGenerator,
         id_registry: DocumentIdRegistry,
+        retry_policy: RetryPolicy,
+        logger: logging.Logger,
         rng: random.Random,
     ):
         self._client = client
@@ -33,7 +37,13 @@ class MongoOperationExecutor:
         self._operation_selector = operation_selector
         self._document_generator = document_generator
         self._id_registry = id_registry
+        self._logger = logger
         self._rng = rng
+        self._retry_controller = RetryController(
+            policy=retry_policy,
+            rng=rng,
+            log_warning=self._logger.warning,
+        )
 
     def execute_once(self) -> OperationResult:
         target = self._namespace_selector.choose()
@@ -42,21 +52,28 @@ class MongoOperationExecutor:
         start = time.perf_counter()
         success = True
         error: str | None = None
+        attempts = 1
+        operation_name = f"{operation.value} {target.database}.{target.collection}"
 
         try:
-            if operation == OperationType.READ:
-                self._run_read(collection, target.database, target.collection)
-            elif operation == OperationType.INSERT:
-                self._run_insert(collection, target.database, target.collection)
-            elif operation == OperationType.UPDATE:
-                self._run_update(collection, target.database, target.collection)
-            elif operation == OperationType.DELETE:
-                self._run_delete(collection, target.database, target.collection)
-            else:
-                raise ValueError(f"Unsupported operation type: {operation}")
+            _, attempts = self._retry_controller.run(
+                operation_name=operation_name,
+                func=lambda: self._dispatch_operation(operation, collection, target.database, target.collection),
+            )
+        except RetryFailure as exc:
+            success = False
+            attempts = exc.attempts
+            error = str(exc.last_exception)
         except Exception as exc:  # pragma: no cover - runtime safety
             success = False
+            attempts = 1
             error = str(exc)
+            self._logger.exception(
+                "Unexpected executor failure op=%s db=%s coll=%s",
+                operation.value,
+                target.database,
+                target.collection,
+            )
 
         latency_ms = (time.perf_counter() - start) * 1000.0
         return OperationResult(
@@ -67,7 +84,23 @@ class MongoOperationExecutor:
             latency_ms=latency_ms,
             success=success,
             error=error,
+            attempts=attempts,
         )
+
+    def _dispatch_operation(self, operation: OperationType, collection: Any, database: str, coll: str) -> None:
+        if operation == OperationType.READ:
+            self._run_read(collection, database, coll)
+            return
+        if operation == OperationType.INSERT:
+            self._run_insert(collection, database, coll)
+            return
+        if operation == OperationType.UPDATE:
+            self._run_update(collection, database, coll)
+            return
+        if operation == OperationType.DELETE:
+            self._run_delete(collection, database, coll)
+            return
+        raise ValueError(f"Unsupported operation type: {operation}")
 
     def _run_read(self, collection: Any, database: str, coll: str) -> None:
         document_id = self._choose_known_id(collection, database, coll)

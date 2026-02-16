@@ -145,6 +145,40 @@ class ExportConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class LoggingConfig(BaseModel):
+    """Application logging options."""
+
+    level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    enable_file_output: bool = True
+    log_file_path: str = "artifacts/mongo-load-tester.log"
+    max_file_bytes: int = Field(default=20_000_000, ge=50_000)
+    backup_count: int = Field(default=5, ge=1, le=50)
+    ui_buffer_lines: int = Field(default=5_000, ge=200)
+    ui_default_tail_lines: int = Field(default=250, ge=50, le=2_000)
+    progress_log_interval_seconds: int = Field(default=5, ge=1, le=300)
+    log_operation_failures: bool = True
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class RetryConfig(BaseModel):
+    """Retry controls for transient MongoDB errors."""
+
+    max_attempts: int = Field(default=5, ge=1, le=50)
+    initial_backoff_ms: int = Field(default=50, ge=1)
+    max_backoff_ms: int = Field(default=2_000, ge=1)
+    backoff_multiplier: float = Field(default=2.0, ge=1.0, le=10.0)
+    jitter_ratio: float = Field(default=0.2, ge=0.0, le=1.0)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def validate_backoff_bounds(self) -> "RetryConfig":
+        if self.max_backoff_ms < self.initial_backoff_ms:
+            raise ValueError("max_backoff_ms must be >= initial_backoff_ms")
+        return self
+
+
 class AppConfig(BaseModel):
     """Root configuration object."""
 
@@ -155,6 +189,8 @@ class AppConfig(BaseModel):
     load: UserLoadConfig = Field(default_factory=UserLoadConfig)
     dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
     export: ExportConfig = Field(default_factory=ExportConfig)
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    retry: RetryConfig = Field(default_factory=RetryConfig)
     random_seed: int = Field(default=42, ge=0)
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)

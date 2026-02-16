@@ -70,4 +70,22 @@ export:
   default_png_width: 1600
   default_png_height: 900
 
+logging:
+  level: "INFO"
+  enable_file_output: true
+  log_file_path: "artifacts/mongo-load-tester.log"
+  max_file_bytes: 20000000
+  backup_count: 5
+  ui_buffer_lines: 5000
+  ui_default_tail_lines: 250
+  progress_log_interval_seconds: 5
+  log_operation_failures: true
+
+retry:
+  max_attempts: 5
+  initial_backoff_ms: 50
+  max_backoff_ms: 2000
+  backoff_multiplier: 2.0
+  jitter_ratio: 0.2
+
 random_seed: 42

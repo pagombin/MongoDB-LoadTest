@@ -12,6 +12,7 @@ from mongo_load_tester.config import default_config, load_config
 from mongo_load_tester.dashboard.app import create_dashboard
 from mongo_load_tester.engine.metrics import MetricsStore
 from mongo_load_tester.engine.runner import LoadTestRunner
+from mongo_load_tester.observability import configure_logging
 
 app = typer.Typer(help="MongoDB load/stress test runner with live dashboard.")
 
@@ -24,20 +25,35 @@ def run_load_test(
     """Run a load test from YAML config."""
 
     app_config = load_config(config)
+    logger, log_buffer = configure_logging(app_config.logging)
+    logger.info("Loaded config file: %s", config)
     metrics = MetricsStore(history_window_seconds=app_config.dashboard.history_window_seconds)
-    runner = LoadTestRunner(app_config, metrics)
+    runner = LoadTestRunner(app_config, metrics, logger=logger)
 
     if no_dashboard or not app_config.dashboard.enabled:
+        logger.info("Running in headless mode.")
         typer.echo("Starting headless load test...")
         runner.run()
         snapshot = metrics.snapshot()
+        logger.info(
+            "Headless run completed total_ops=%d success=%d errors=%d p95_ms=%.2f",
+            snapshot.total_ops,
+            snapshot.success_ops,
+            snapshot.error_ops,
+            snapshot.p95_latency_ms,
+        )
         typer.echo(f"Completed. Total ops={snapshot.total_ops} p95={snapshot.p95_latency_ms:.2f}ms")
         return
 
     worker_thread = threading.Thread(target=runner.run, daemon=True, name="runner-main")
     worker_thread.start()
-    dashboard = create_dashboard(app_config, metrics, runner)
+    dashboard = create_dashboard(app_config, metrics, runner, log_buffer)
     typer.echo(f"Dashboard available at http://{app_config.dashboard.host}:{app_config.dashboard.port}")
+    logger.info(
+        "Dashboard available at http://%s:%d",
+        app_config.dashboard.host,
+        app_config.dashboard.port,
+    )
     try:
         dashboard.run(
             host=app_config.dashboard.host,

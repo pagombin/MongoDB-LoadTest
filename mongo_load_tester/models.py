@@ -31,6 +31,7 @@ class OperationResult:
     latency_ms: float
     success: bool
     error: str | None = None
+    attempts: int = 1
 
 
 @dataclass(slots=True)
