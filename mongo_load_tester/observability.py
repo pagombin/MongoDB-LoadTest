@@ -135,7 +135,7 @@ def install_global_exception_handlers(logger: logging.Logger) -> None:
     sys.excepthook = handle_sys_exception
     threading.excepthook = handle_thread_exception
     try:
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
     except RuntimeError:
         return
     loop.set_exception_handler(handle_asyncio_exception)
