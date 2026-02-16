@@ -142,7 +142,7 @@ class LoadTestRunner:
         rng = random.Random(seed)
         namespace_selector = NamespaceSelector(self._config.namespace, rng)
         operation_selector = OperationSelector(self._config.operation_mix, rng)
-        generator = DocumentGenerator(self._config.schema, rng)
+        generator = DocumentGenerator(self._config.document_schema, rng)
         assert self._client is not None
         executor = MongoOperationExecutor(
             client=self._client,
@@ -180,7 +180,7 @@ class LoadTestRunner:
 
         rng = random.Random(self._config.random_seed)
         namespace_selector = NamespaceSelector(self._config.namespace, rng)
-        generator = DocumentGenerator(self._config.schema, rng)
+        generator = DocumentGenerator(self._config.document_schema, rng)
         batch_size = 500
 
         for target in namespace_selector.targets:

@@ -147,14 +147,14 @@ class AppConfig(BaseModel):
 
     mongo: MongoConnectionConfig = Field(default_factory=MongoConnectionConfig)
     namespace: NamespaceConfig = Field(default_factory=NamespaceConfig)
-    schema: SchemaConfig = Field(default_factory=SchemaConfig)
+    document_schema: SchemaConfig = Field(default_factory=SchemaConfig, alias="schema")
     operation_mix: OperationMixConfig = Field(default_factory=OperationMixConfig)
     load: UserLoadConfig = Field(default_factory=UserLoadConfig)
     dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
     export: ExportConfig = Field(default_factory=ExportConfig)
     random_seed: int = Field(default=42, ge=0)
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     @field_validator("random_seed")
     @classmethod

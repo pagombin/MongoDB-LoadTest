@@ -73,7 +73,7 @@ def init_config(
     output.parent.mkdir(parents=True, exist_ok=True)
     config_obj = default_config()
     with output.open("w", encoding="utf-8") as file_obj:
-        yaml.safe_dump(config_obj.model_dump(mode="json"), file_obj, sort_keys=False)
+        yaml.safe_dump(config_obj.model_dump(mode="json", by_alias=True), file_obj, sort_keys=False)
     typer.echo(f"Wrote starter config: {output}")
 
 
