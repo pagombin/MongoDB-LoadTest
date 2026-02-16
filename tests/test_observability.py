@@ -11,7 +11,7 @@ def test_in_memory_log_buffer_filters_by_level() -> None:
         LoggingConfig(
             level="INFO",
             enable_file_output=False,
-            ui_buffer_lines=100,
+            ui_buffer_lines=300,
         )
     )
     logger.info("system started")
@@ -31,7 +31,7 @@ def test_in_memory_log_buffer_tail_limit() -> None:
         LoggingConfig(
             level="DEBUG",
             enable_file_output=False,
-            ui_buffer_lines=10,
+            ui_buffer_lines=200,
         )
     )
     for idx in range(8):
