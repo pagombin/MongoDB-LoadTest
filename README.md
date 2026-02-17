@@ -43,6 +43,8 @@ mongo_load_tester/
 - Network access to your MongoDB cluster
 - A valid MongoDB connection string
 
+If you see an error like `Unable to evaluate type annotation 'bool | None'`, you are likely running Python 3.9. Recreate your virtual environment using Python 3.10+.
+
 ### 2) Create and activate a virtual environment
 
 ```bash
