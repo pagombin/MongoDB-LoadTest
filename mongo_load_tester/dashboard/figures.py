@@ -24,6 +24,7 @@ def build_operations_timeline(snapshot: MetricsSnapshot) -> go.Figure:
     insert_counts = [point.op_counts.get("insert", 0) for point in snapshot.timeline]
     update_counts = [point.op_counts.get("update", 0) for point in snapshot.timeline]
     delete_counts = [point.op_counts.get("delete", 0) for point in snapshot.timeline]
+    write_counts = [ins + upd + dele for ins, upd, dele in zip(insert_counts, update_counts, delete_counts)]
     total_counts = [point.total_ops for point in snapshot.timeline]
 
     figure = go.Figure()
@@ -42,44 +43,26 @@ def build_operations_timeline(snapshot: MetricsSnapshot) -> go.Figure:
             y=read_counts,
             mode="lines",
             name="read_ops",
-            line={"width": 2, "color": OP_COLORS["read"]},
+            line={"width": 2.5, "color": OP_COLORS["read"]},
         )
     )
     figure.add_trace(
         go.Scatter(
             x=x_values,
-            y=insert_counts,
+            y=write_counts,
             mode="lines",
-            name="insert_ops",
-            line={"width": 2, "color": OP_COLORS["insert"]},
-        )
-    )
-    figure.add_trace(
-        go.Scatter(
-            x=x_values,
-            y=update_counts,
-            mode="lines",
-            name="update_ops",
-            line={"width": 2, "color": OP_COLORS["update"]},
-        )
-    )
-    figure.add_trace(
-        go.Scatter(
-            x=x_values,
-            y=delete_counts,
-            mode="lines",
-            name="delete_ops",
-            line={"width": 2, "color": OP_COLORS["delete"]},
+            name="write_ops",
+            line={"width": 2.5, "color": OP_COLORS["insert"]},
         )
     )
     figure.update_layout(
         title="Operations Timeline (per second)",
-        xaxis={"title": "Time (UTC)", "title_standoff": 18},
+        xaxis={"title": "", "title_standoff": 0},
         yaxis_title="Operations / sec",
         template="plotly_white",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        legend=dict(orientation="h", yanchor="bottom", y=1.12, xanchor="left", x=0),
         hovermode="x unified",
-        margin={"l": 42, "r": 20, "t": 70, "b": 80},
+        margin={"l": 42, "r": 20, "t": 80, "b": 50},
         plot_bgcolor="#f8fafc",
         paper_bgcolor="white",
     )
@@ -113,12 +96,12 @@ def build_latency_timeline(snapshot: MetricsSnapshot) -> go.Figure:
     )
     figure.update_layout(
         title="Latency Timeline",
-        xaxis={"title": "Time (UTC)", "title_standoff": 18},
+        xaxis={"title": "", "title_standoff": 0},
         yaxis_title="Latency (ms)",
         template="plotly_white",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        legend=dict(orientation="h", yanchor="bottom", y=1.12, xanchor="left", x=0),
         hovermode="x unified",
-        margin={"l": 42, "r": 20, "t": 70, "b": 80},
+        margin={"l": 42, "r": 20, "t": 80, "b": 50},
         plot_bgcolor="#f8fafc",
         paper_bgcolor="white",
     )
@@ -129,6 +112,7 @@ def build_latency_timeline(snapshot: MetricsSnapshot) -> go.Figure:
 def build_user_ramp_timeline(snapshot: MetricsSnapshot) -> go.Figure:
     x_values = [point.second for point in snapshot.timeline]
     users = [point.active_users for point in snapshot.timeline]
+    target = max(users) if users else 0
     figure = go.Figure()
     figure.add_trace(
         go.Scatter(
@@ -141,14 +125,24 @@ def build_user_ramp_timeline(snapshot: MetricsSnapshot) -> go.Figure:
             fillcolor="rgba(139, 92, 246, 0.14)",
         )
     )
+    if target > 0:
+        figure.add_trace(
+            go.Scatter(
+                x=x_values,
+                y=[target for _ in x_values],
+                mode="lines",
+                name="target_users",
+                line={"width": 1.8, "color": "#334155", "dash": "dash"},
+            )
+        )
     figure.update_layout(
-        title="Users Ramp Timeline",
-        xaxis={"title": "Time (UTC)", "title_standoff": 18},
+        title="Virtual Users Ramp-Up / Ramp-Down",
+        xaxis={"title": "Time (UTC)", "title_standoff": 16},
         yaxis_title="Active virtual users",
         template="plotly_white",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        legend=dict(orientation="h", yanchor="bottom", y=1.12, xanchor="left", x=0),
         hovermode="x unified",
-        margin={"l": 42, "r": 20, "t": 70, "b": 80},
+        margin={"l": 42, "r": 20, "t": 80, "b": 70},
         plot_bgcolor="#f8fafc",
         paper_bgcolor="white",
     )

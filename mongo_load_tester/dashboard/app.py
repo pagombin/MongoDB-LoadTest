@@ -221,15 +221,39 @@ def create_dashboard(
             ),
             html.Div(
                 [
-                    dcc.Graph(id="ops-graph", style={**CARD_STYLE}),
-                    dcc.Graph(id="latency-graph", style={**CARD_STYLE}),
+                    html.Div(
+                        [
+                            html.Div("Operations Throughput", style={"fontWeight": "600", "marginBottom": "6px", "color": "#312e81"}),
+                            dcc.Graph(id="ops-graph", style={"height": "360px"}),
+                        ],
+                        style={**CARD_STYLE},
+                    ),
+                    html.Div(
+                        [
+                            html.Div("Users Ramp View", style={"fontWeight": "600", "marginBottom": "6px", "color": "#312e81"}),
+                            dcc.Graph(id="users-graph", style={"height": "360px"}),
+                        ],
+                        style={**CARD_STYLE},
+                    ),
                 ],
                 style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "1fr 1fr", "gap": "12px"},
             ),
             html.Div(
                 [
-                    dcc.Graph(id="users-graph", style={**CARD_STYLE}),
-                    dcc.Graph(id="distribution-graph", style={**CARD_STYLE}),
+                    html.Div(
+                        [
+                            html.Div("Latency Health", style={"fontWeight": "600", "marginBottom": "6px", "color": "#312e81"}),
+                            dcc.Graph(id="latency-graph", style={"height": "340px"}),
+                        ],
+                        style={**CARD_STYLE},
+                    ),
+                    html.Div(
+                        [
+                            html.Div("Operation Mix", style={"fontWeight": "600", "marginBottom": "6px", "color": "#312e81"}),
+                            dcc.Graph(id="distribution-graph", style={"height": "340px"}),
+                        ],
+                        style={**CARD_STYLE},
+                    ),
                 ],
                 style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "1fr 1fr", "gap": "12px"},
             ),
