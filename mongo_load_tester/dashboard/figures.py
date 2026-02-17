@@ -9,11 +9,12 @@ import plotly.graph_objects as go
 from mongo_load_tester.models import MetricsSnapshot
 
 OP_COLORS = {
-    "read": "#2563eb",
-    "insert": "#10b981",
+    "read": "#3b82f6",
+    "insert": "#22c55e",
     "update": "#f59e0b",
     "delete": "#ef4444",
-    "total": "#0f172a",
+    "total": "#111827",
+    "users": "#8b5cf6",
 }
 
 
@@ -32,7 +33,7 @@ def build_operations_timeline(snapshot: MetricsSnapshot) -> go.Figure:
             y=total_counts,
             mode="lines",
             name="total_ops",
-            line={"width": 2.5, "color": OP_COLORS["total"]},
+            line={"width": 3, "color": OP_COLORS["total"]},
         )
     )
     figure.add_trace(
@@ -73,12 +74,14 @@ def build_operations_timeline(snapshot: MetricsSnapshot) -> go.Figure:
     )
     figure.update_layout(
         title="Operations Timeline (per second)",
-        xaxis_title="Time (UTC)",
+        xaxis={"title": "Time (UTC)", "title_standoff": 18},
         yaxis_title="Operations / sec",
         template="plotly_white",
-        legend=dict(orientation="h"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
         hovermode="x unified",
-        margin={"l": 40, "r": 20, "t": 50, "b": 40},
+        margin={"l": 42, "r": 20, "t": 70, "b": 80},
+        plot_bgcolor="#f8fafc",
+        paper_bgcolor="white",
     )
     figure.update_yaxes(rangemode="tozero")
     return figure
@@ -105,17 +108,49 @@ def build_latency_timeline(snapshot: MetricsSnapshot) -> go.Figure:
             y=p95_values,
             mode="lines",
             name="p95_latency_ms",
-            line={"width": 2.5, "color": "#ef4444"},
+            line={"width": 2.5, "color": "#ec4899"},
         )
     )
     figure.update_layout(
         title="Latency Timeline",
-        xaxis_title="Time (UTC)",
+        xaxis={"title": "Time (UTC)", "title_standoff": 18},
         yaxis_title="Latency (ms)",
         template="plotly_white",
-        legend=dict(orientation="h"),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
         hovermode="x unified",
-        margin={"l": 40, "r": 20, "t": 50, "b": 40},
+        margin={"l": 42, "r": 20, "t": 70, "b": 80},
+        plot_bgcolor="#f8fafc",
+        paper_bgcolor="white",
+    )
+    figure.update_yaxes(rangemode="tozero")
+    return figure
+
+
+def build_user_ramp_timeline(snapshot: MetricsSnapshot) -> go.Figure:
+    x_values = [point.second for point in snapshot.timeline]
+    users = [point.active_users for point in snapshot.timeline]
+    figure = go.Figure()
+    figure.add_trace(
+        go.Scatter(
+            x=x_values,
+            y=users,
+            mode="lines",
+            name="active_virtual_users",
+            line={"width": 2.5, "color": OP_COLORS["users"]},
+            fill="tozeroy",
+            fillcolor="rgba(139, 92, 246, 0.14)",
+        )
+    )
+    figure.update_layout(
+        title="Users Ramp Timeline",
+        xaxis={"title": "Time (UTC)", "title_standoff": 18},
+        yaxis_title="Active virtual users",
+        template="plotly_white",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        hovermode="x unified",
+        margin={"l": 42, "r": 20, "t": 70, "b": 80},
+        plot_bgcolor="#f8fafc",
+        paper_bgcolor="white",
     )
     figure.update_yaxes(rangemode="tozero")
     return figure
@@ -141,6 +176,8 @@ def build_operation_distribution(snapshot: MetricsSnapshot) -> go.Figure:
             xaxis={"visible": False},
             yaxis={"visible": False},
             margin={"l": 20, "r": 20, "t": 50, "b": 20},
+            plot_bgcolor="#f8fafc",
+            paper_bgcolor="white",
         )
         return figure
 
@@ -154,5 +191,11 @@ def build_operation_distribution(snapshot: MetricsSnapshot) -> go.Figure:
             )
         ]
     )
-    figure.update_layout(title="Operation Distribution", template="plotly_white", margin={"l": 20, "r": 20, "t": 50, "b": 20})
+    figure.update_layout(
+        title="Operation Distribution",
+        template="plotly_white",
+        margin={"l": 20, "r": 20, "t": 50, "b": 20},
+        plot_bgcolor="#f8fafc",
+        paper_bgcolor="white",
+    )
     return figure

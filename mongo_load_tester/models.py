@@ -43,6 +43,7 @@ class TimelinePoint:
     error_ops: int
     avg_latency_ms: float
     p95_latency_ms: float
+    active_users: int = 0
     op_counts: dict[str, int] = field(default_factory=dict)
 
 
@@ -60,6 +61,10 @@ class MetricsSnapshot:
     p50_latency_ms: float
     p95_latency_ms: float
     p99_latency_ms: float
+    active_virtual_users_current: int
+    retried_ops: int
+    total_attempts: int
+    avg_attempts_per_op: float
     operation_counts: dict[str, int]
     operation_latency_avg_ms: dict[str, float]
     timeline: list[TimelinePoint]
