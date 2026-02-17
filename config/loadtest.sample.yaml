@@ -1,0 +1,91 @@
+mongo:
+  # Replica set example:
+  # uri: "mongodb://user:pass@host1:27017,host2:27017,host3:27017/?replicaSet=rs0&authSource=admin"
+  # Sharded example (mongos routers):
+  # uri: "mongodb://user:pass@mongos1:27017,mongos2:27017/?authSource=admin"
+  # SRV example (Atlas/managed):
+  uri: "mongodb+srv://user:pass@cluster0.example.mongodb.net/?retryWrites=true&w=majority"
+  app_name: "mongo-load-tester"
+  max_pool_size: 400
+  min_pool_size: 20
+  connect_timeout_ms: 8000
+  socket_timeout_ms: 120000
+  server_selection_timeout_ms: 8000
+  retry_writes: true
+  # Keep null to use URI defaults (recommended). Set true/false only if you must override.
+  tls: null
+
+namespace:
+  database_prefix: "oltp_sim"
+  collection_prefix: "orders"
+  databases: 4
+  collections_per_database: 8
+
+schema:
+  fields:
+    - name: "tenant_id"
+      field_type: "string"
+      length: 8
+    - name: "order_total"
+      field_type: "float"
+      min_value: 10
+      max_value: 5000
+    - name: "status"
+      field_type: "string"
+      choices: ["new", "paid", "shipped", "cancelled"]
+    - name: "priority"
+      field_type: "int"
+      min_value: 1
+      max_value: 5
+    - name: "is_gift"
+      field_type: "bool"
+    - name: "updated_at"
+      field_type: "datetime"
+
+operation_mix:
+  read: 0.75
+  insert: 0.15
+  update: 0.08
+  delete: 0.02
+
+load:
+  virtual_users: 1000
+  worker_threads: 200
+  duration_seconds: 900
+  ramp_up_seconds: 120
+  think_time_ms_min: 1
+  think_time_ms_max: 20
+  target_ops_per_user_per_sec: 1.5
+  initial_seed_per_collection: 1000
+
+dashboard:
+  enabled: true
+  host: "0.0.0.0"
+  port: 8050
+  refresh_interval_ms: 1000
+  history_window_seconds: 1200
+
+export:
+  output_dir: "artifacts"
+  default_png_width: 1600
+  default_png_height: 900
+
+logging:
+  level: "INFO"
+  enable_file_output: true
+  log_file_path: "artifacts/mongo-load-tester.log"
+  max_file_bytes: 20000000
+  backup_count: 5
+  ui_buffer_lines: 5000
+  ui_default_tail_lines: 250
+  progress_log_interval_seconds: 5
+  log_operation_failures: true
+
+retry:
+  max_attempts: 5
+  initial_backoff_ms: 50
+  max_backoff_ms: 2000
+  backoff_multiplier: 2.0
+  jitter_ratio: 0.2
+
+random_seed: 42
