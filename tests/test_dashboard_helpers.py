@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from mongo_load_tester.dashboard.app import _filter_snapshot_timeline, _format_duration, _window_message
+from mongo_load_tester.dashboard.app import (
+    _filter_snapshot_timeline,
+    _format_duration,
+    _remove_incomplete_live_second,
+    _window_message,
+)
 from mongo_load_tester.models import MetricsSnapshot, TimelinePoint
 
 
@@ -36,6 +41,10 @@ def _snapshot_with_points(now: datetime) -> MetricsSnapshot:
         p50_latency_ms=3.0,
         p95_latency_ms=6.5,
         p99_latency_ms=7.0,
+        active_virtual_users_current=120,
+        retried_ops=2,
+        total_attempts=23,
+        avg_attempts_per_op=1.0952,
         operation_counts={"read": 15, "insert": 5, "update": 1},
         operation_latency_avg_ms={"read": 3.1, "insert": 4.5, "update": 5.2},
         timeline=timeline,
@@ -59,3 +68,22 @@ def test_duration_and_window_labels_are_human_readable() -> None:
     assert _format_duration(3600) == "1h"
     assert _window_message(0) == "Showing all captured points."
     assert _window_message(300) == "Showing last 5m of timeline data."
+
+
+def test_remove_incomplete_live_second_filters_latest_partial_point() -> None:
+    now = datetime.now(UTC).replace(microsecond=500_000)
+    snapshot = _snapshot_with_points(now)
+    snapshot.timeline.append(
+        TimelinePoint(
+            second=now.replace(microsecond=0),
+            total_ops=2,
+            error_ops=0,
+            avg_latency_ms=1.0,
+            p95_latency_ms=1.5,
+            op_counts={"read": 2},
+        )
+    )
+
+    filtered = _remove_incomplete_live_second(snapshot, is_running=True)
+
+    assert all(point.second < now.replace(microsecond=0) for point in filtered.timeline)

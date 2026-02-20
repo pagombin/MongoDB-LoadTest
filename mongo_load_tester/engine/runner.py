@@ -36,11 +36,17 @@ class LoadTestRunner:
         self._metrics = metrics
         self._id_registry = DocumentIdRegistry()
         self._stop_event = threading.Event()
+        self._pause_event = threading.Event()
         self._state_lock = threading.Lock()
         self._running = False
         self._started_at: datetime | None = None
         self._finished_at: datetime | None = None
         self._last_error: str | None = None
+        self._started_virtual_users = 0
+        self._target_duration_seconds = config.load.duration_seconds
+        self._run_started_monotonic: float | None = None
+        self._paused_started_monotonic: float | None = None
+        self._paused_accumulated_seconds = 0.0
         self._client: MongoClient | None = None
         self._logger = logger or logging.getLogger("mongo_load_tester.runner")
         self._retry_policy = RetryPolicy.from_config(config.retry)
@@ -70,6 +76,57 @@ class LoadTestRunner:
             if not self._last_error:
                 self._last_error = message
 
+    @property
+    def is_paused(self) -> bool:
+        return self._pause_event.is_set()
+
+    @property
+    def target_duration_seconds(self) -> int:
+        with self._state_lock:
+            return self._target_duration_seconds
+
+    @property
+    def active_virtual_users(self) -> int:
+        with self._state_lock:
+            if self._pause_event.is_set():
+                return 0
+            return max(self._started_virtual_users, 0)
+
+    def active_elapsed_seconds(self) -> float:
+        with self._state_lock:
+            return self._active_elapsed_seconds_locked()
+
+    def pause(self) -> bool:
+        with self._state_lock:
+            if not self._running or self._pause_event.is_set():
+                return False
+            self._pause_event.set()
+            self._paused_started_monotonic = time.monotonic()
+        self._logger.warning("Load test paused.")
+        self._metrics.record_active_users(0)
+        return True
+
+    def resume(self) -> bool:
+        with self._state_lock:
+            if not self._running or not self._pause_event.is_set():
+                return False
+            now = time.monotonic()
+            if self._paused_started_monotonic is not None:
+                self._paused_accumulated_seconds += max(now - self._paused_started_monotonic, 0.0)
+            self._paused_started_monotonic = None
+            self._pause_event.clear()
+            resumed_users = max(self._started_virtual_users, 0)
+        self._logger.warning("Load test resumed.")
+        self._metrics.record_active_users(resumed_users)
+        return True
+
+    def update_duration_seconds(self, duration_seconds: int) -> int:
+        safe_duration = max(int(duration_seconds), 1)
+        with self._state_lock:
+            self._target_duration_seconds = safe_duration
+        self._logger.info("Run duration updated to %ds.", safe_duration)
+        return safe_duration
+
     def stop(self) -> None:
         self._logger.info("Stop requested by user/UI.")
         self._stop_event.set()
@@ -87,6 +144,13 @@ class LoadTestRunner:
             self._started_at = datetime.now(UTC)
             self._finished_at = None
             self._last_error = None
+            self._started_virtual_users = 0
+            self._target_duration_seconds = self._config.load.duration_seconds
+            self._run_started_monotonic = time.monotonic()
+            self._paused_started_monotonic = None
+            self._paused_accumulated_seconds = 0.0
+            self._pause_event.clear()
+        self._metrics.record_active_users(0)
         self._logger.info(
             "Load test starting users=%d workers=%d duration=%ds ramp_up=%ds",
             self._config.load.virtual_users,
@@ -101,12 +165,11 @@ class LoadTestRunner:
             self._seed_initial_documents(self._client)
 
             assignments = self._build_assignments()
-            run_deadline = time.monotonic() + self._config.load.duration_seconds
             next_progress_log = time.monotonic() + self._config.logging.progress_log_interval_seconds
             for assignment in assignments:
                 thread = threading.Thread(
                     target=self._worker_loop,
-                    args=(assignment, run_deadline),
+                    args=(assignment,),
                     daemon=True,
                     name=f"load-worker-{assignment.worker_id}",
                 )
@@ -115,18 +178,21 @@ class LoadTestRunner:
             self._logger.info("Started %d worker thread(s).", len(workers))
 
             while not self._stop_event.is_set() and any(thread.is_alive() for thread in workers):
-                if time.monotonic() >= run_deadline:
+                self._sample_active_users()
+                if self._duration_reached():
                     self._stop_event.set()
                     break
                 if time.monotonic() >= next_progress_log:
                     snapshot = self._metrics.snapshot()
                     self._logger.info(
-                        "Progress total_ops=%d success=%d errors=%d ops_per_sec=%.2f p95_ms=%.2f",
+                        "Progress total_ops=%d success=%d errors=%d ops_per_sec=%.2f p95_ms=%.2f active_users=%d paused=%s",
                         snapshot.total_ops,
                         snapshot.success_ops,
                         snapshot.error_ops,
                         snapshot.ops_per_second,
                         snapshot.p95_latency_ms,
+                        snapshot.active_virtual_users_current,
+                        self.is_paused,
                     )
                     next_progress_log = time.monotonic() + self._config.logging.progress_log_interval_seconds
                 time.sleep(0.2)
@@ -139,17 +205,24 @@ class LoadTestRunner:
                 thread.join(timeout=5)
             if self._client is not None:
                 self._client.close()
+            self._sample_active_users()
             with self._state_lock:
+                if self._paused_started_monotonic is not None:
+                    self._paused_accumulated_seconds += max(time.monotonic() - self._paused_started_monotonic, 0.0)
+                    self._paused_started_monotonic = None
                 self._running = False
                 self._finished_at = datetime.now(UTC)
+                self._started_virtual_users = 0
+                self._pause_event.clear()
             snapshot = self._metrics.snapshot()
             self._logger.info(
-                "Load test finished total_ops=%d success=%d errors=%d avg_latency_ms=%.2f p95_ms=%.2f",
+                "Load test finished total_ops=%d success=%d errors=%d avg_latency_ms=%.2f p95_ms=%.2f active_elapsed=%.2fs",
                 snapshot.total_ops,
                 snapshot.success_ops,
                 snapshot.error_ops,
                 snapshot.avg_latency_ms,
                 snapshot.p95_latency_ms,
+                self.active_elapsed_seconds(),
             )
             if self.last_error:
                 self._logger.error("Run completed with captured failure: %s", self.last_error)
@@ -174,8 +247,9 @@ class LoadTestRunner:
             )
         return assignments
 
-    def _worker_loop(self, assignment: _WorkerAssignment, run_deadline: float) -> None:
+    def _worker_loop(self, assignment: _WorkerAssignment) -> None:
         worker_logger = self._logger.getChild(f"worker.{assignment.worker_id}")
+        worker_users_registered = False
         try:
             if assignment.startup_delay_seconds > 0:
                 startup_remaining = assignment.startup_delay_seconds
@@ -193,6 +267,8 @@ class LoadTestRunner:
                 assignment.simulated_users,
                 assignment.startup_delay_seconds,
             )
+            self._adjust_started_users(assignment.simulated_users)
+            worker_users_registered = True
             namespace_selector = NamespaceSelector(self._config.namespace, rng)
             operation_selector = OperationSelector(self._config.operation_mix, rng)
             generator = DocumentGenerator(self._config.document_schema, rng)
@@ -213,10 +289,14 @@ class LoadTestRunner:
             target_rate = self._config.load.target_ops_per_user_per_sec
             cycle_target_seconds = (1.0 / target_rate) if target_rate else 0.0
 
-            while not self._stop_event.is_set() and time.monotonic() < run_deadline:
+            while not self._stop_event.is_set() and not self._duration_reached():
+                self._wait_if_paused()
+                if self._stop_event.is_set() or self._duration_reached():
+                    break
                 cycle_start = time.perf_counter()
                 for _ in range(assignment.simulated_users):
-                    if self._stop_event.is_set() or time.monotonic() >= run_deadline:
+                    self._wait_if_paused()
+                    if self._stop_event.is_set() or self._duration_reached():
                         break
                     result = executor.execute_once()
                     self._metrics.record(result)
@@ -242,6 +322,8 @@ class LoadTestRunner:
             worker_logger.exception("Worker crashed unexpectedly.")
             self._stop_event.set()
         finally:
+            if worker_users_registered:
+                self._adjust_started_users(-assignment.simulated_users)
             worker_logger.info("Worker exiting.")
 
     def _seed_initial_documents(self, client: MongoClient) -> None:
@@ -303,3 +385,33 @@ class LoadTestRunner:
                 target.collection,
                 inserted_for_target,
             )
+
+    def _adjust_started_users(self, delta: int) -> None:
+        with self._state_lock:
+            self._started_virtual_users = max(self._started_virtual_users + delta, 0)
+            active_users = 0 if self._pause_event.is_set() else self._started_virtual_users
+        self._metrics.record_active_users(active_users)
+
+    def _wait_if_paused(self) -> None:
+        while self._pause_event.is_set() and not self._stop_event.is_set():
+            self._sample_active_users()
+            time.sleep(0.1)
+
+    def _duration_reached(self) -> bool:
+        with self._state_lock:
+            elapsed = self._active_elapsed_seconds_locked()
+            return elapsed >= self._target_duration_seconds
+
+    def _active_elapsed_seconds_locked(self) -> float:
+        if self._run_started_monotonic is None:
+            return 0.0
+        now = time.monotonic()
+        paused_total = self._paused_accumulated_seconds
+        if self._pause_event.is_set() and self._paused_started_monotonic is not None:
+            paused_total += max(now - self._paused_started_monotonic, 0.0)
+        return max(now - self._run_started_monotonic - paused_total, 0.0)
+
+    def _sample_active_users(self) -> None:
+        with self._state_lock:
+            active_users = 0 if self._pause_event.is_set() else self._started_virtual_users
+        self._metrics.record_active_users(active_users)

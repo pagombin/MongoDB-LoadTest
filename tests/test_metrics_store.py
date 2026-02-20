@@ -19,8 +19,10 @@ def test_metrics_snapshot_calculations() -> None:
                 latency_ms=latency,
                 success=idx != 3,
                 error=None if idx != 3 else "boom",
+                attempts=3 if idx == 2 else 1,
             )
         )
+    store.record_active_users(25)
 
     snapshot = store.snapshot()
     assert snapshot.total_ops == 4
@@ -30,3 +32,7 @@ def test_metrics_snapshot_calculations() -> None:
     assert snapshot.p50_latency_ms == 2.0
     assert snapshot.p95_latency_ms == 4.0
     assert snapshot.p99_latency_ms == 4.0
+    assert snapshot.retried_ops == 1
+    assert snapshot.total_attempts == 6
+    assert snapshot.avg_attempts_per_op == 1.5
+    assert snapshot.active_virtual_users_current == 25
