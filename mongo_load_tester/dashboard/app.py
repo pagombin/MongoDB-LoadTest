@@ -228,25 +228,6 @@ def create_dashboard(
                 [
                     html.Div(
                         [
-                            html.Div("Operations Throughput", style={"fontWeight": "600", "marginBottom": "6px", "color": "#312e81"}),
-                            dcc.Graph(id="ops-graph", style={"height": "360px"}),
-                        ],
-                        style={**CARD_STYLE},
-                    ),
-                    html.Div(
-                        [
-                            html.Div("Users Ramp View", style={"fontWeight": "600", "marginBottom": "6px", "color": "#312e81"}),
-                            dcc.Graph(id="users-graph", style={"height": "360px"}),
-                        ],
-                        style={**CARD_STYLE},
-                    ),
-                ],
-                style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "1fr 1fr", "gap": "12px"},
-            ),
-            html.Div(
-                [
-                    html.Div(
-                        [
                             html.Div(
                                 "Timeline filter (applies to all metric charts)",
                                 style={"fontSize": "12px", "fontWeight": "600", "color": "#4c1d95"},
@@ -276,6 +257,25 @@ def create_dashboard(
                     ),
                 ],
                 style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "1fr", "gap": "12px"},
+            ),
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            html.Div("Operations Throughput", style={"fontWeight": "600", "marginBottom": "6px", "color": "#312e81"}),
+                            dcc.Graph(id="ops-graph", style={"height": "360px"}),
+                        ],
+                        style={**CARD_STYLE},
+                    ),
+                    html.Div(
+                        [
+                            html.Div("Users Ramp View", style={"fontWeight": "600", "marginBottom": "6px", "color": "#312e81"}),
+                            dcc.Graph(id="users-graph", style={"height": "360px"}),
+                        ],
+                        style={**CARD_STYLE},
+                    ),
+                ],
+                style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "1fr 1fr", "gap": "12px"},
             ),
             html.Div(
                 [
