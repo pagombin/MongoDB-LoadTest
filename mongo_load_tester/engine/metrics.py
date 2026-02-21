@@ -52,7 +52,9 @@ class MetricsStore:
         self._latency_samples: deque[float] = deque(maxlen=max_latency_samples)
         self._timeline: OrderedDict[int, _TimelineBucket] = OrderedDict()
         self._active_user_timeline: OrderedDict[int, int] = OrderedDict()
+        self._paused_timeline: OrderedDict[int, bool] = OrderedDict()
         self._latest_active_users = 0
+        self._latest_paused_state = False
 
     def record(self, result: OperationResult) -> None:
         op_name = result.operation.value
@@ -85,7 +87,12 @@ class MetricsStore:
 
             self._trim_history(second_epoch)
 
-    def record_active_users(self, active_users: int, timestamp: datetime | None = None) -> None:
+    def record_active_users(
+        self,
+        active_users: int,
+        paused: bool = False,
+        timestamp: datetime | None = None,
+    ) -> None:
         """Record a sampled active-user count for the current second."""
 
         when = timestamp or datetime.now(UTC)
@@ -93,7 +100,9 @@ class MetricsStore:
         safe_value = max(active_users, 0)
         with self._lock:
             self._latest_active_users = safe_value
+            self._latest_paused_state = bool(paused)
             self._active_user_timeline[second_epoch] = safe_value
+            self._paused_timeline[second_epoch] = bool(paused)
             self._trim_history(second_epoch)
 
     def snapshot(self) -> MetricsSnapshot:
@@ -110,11 +119,16 @@ class MetricsStore:
                 if count
             }
             timeline = []
-            all_seconds = sorted(set(self._timeline.keys()) | set(self._active_user_timeline.keys()))
+            all_seconds = sorted(
+                set(self._timeline.keys()) | set(self._active_user_timeline.keys()) | set(self._paused_timeline.keys())
+            )
             active_users = 0
+            paused = False
             for second_epoch in all_seconds:
                 if second_epoch in self._active_user_timeline:
                     active_users = self._active_user_timeline[second_epoch]
+                if second_epoch in self._paused_timeline:
+                    paused = self._paused_timeline[second_epoch]
                 bucket = self._timeline.get(second_epoch, _TimelineBucket())
                 timeline_avg = bucket.latency_sum / bucket.total_ops if bucket.total_ops else 0.0
                 timeline_p95 = _percentile(sorted(bucket.latencies), 95)
@@ -126,6 +140,7 @@ class MetricsStore:
                         avg_latency_ms=timeline_avg,
                         p95_latency_ms=timeline_p95,
                         active_users=active_users,
+                        paused=paused,
                         op_counts=dict(bucket.op_counts),
                     )
                 )
@@ -155,11 +170,16 @@ class MetricsStore:
 
         with self._lock:
             rows: list[dict[str, str | int | float]] = []
-            all_seconds = sorted(set(self._timeline.keys()) | set(self._active_user_timeline.keys()))
+            all_seconds = sorted(
+                set(self._timeline.keys()) | set(self._active_user_timeline.keys()) | set(self._paused_timeline.keys())
+            )
             active_users = 0
+            paused = False
             for second_epoch in all_seconds:
                 if second_epoch in self._active_user_timeline:
                     active_users = self._active_user_timeline[second_epoch]
+                if second_epoch in self._paused_timeline:
+                    paused = self._paused_timeline[second_epoch]
                 bucket = self._timeline.get(second_epoch, _TimelineBucket())
                 rows.append(
                     {
@@ -175,6 +195,7 @@ class MetricsStore:
                         "update_ops": bucket.op_counts.get("update", 0),
                         "delete_ops": bucket.op_counts.get("delete", 0),
                         "active_virtual_users": active_users,
+                        "paused": paused,
                     }
                 )
             return rows
@@ -191,3 +212,8 @@ class MetricsStore:
             if oldest_second >= cutoff:
                 break
             self._active_user_timeline.popitem(last=False)
+        while self._paused_timeline:
+            oldest_second = next(iter(self._paused_timeline))
+            if oldest_second >= cutoff:
+                break
+            self._paused_timeline.popitem(last=False)

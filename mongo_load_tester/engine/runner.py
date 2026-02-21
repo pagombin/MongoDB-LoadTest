@@ -104,7 +104,7 @@ class LoadTestRunner:
             self._pause_event.set()
             self._paused_started_monotonic = time.monotonic()
         self._logger.warning("Load test paused.")
-        self._metrics.record_active_users(0)
+        self._metrics.record_active_users(0, paused=True)
         return True
 
     def resume(self) -> bool:
@@ -118,7 +118,7 @@ class LoadTestRunner:
             self._pause_event.clear()
             resumed_users = max(self._started_virtual_users, 0)
         self._logger.warning("Load test resumed.")
-        self._metrics.record_active_users(resumed_users)
+        self._metrics.record_active_users(resumed_users, paused=False)
         return True
 
     def update_duration_seconds(self, duration_seconds: int) -> int:
@@ -152,7 +152,7 @@ class LoadTestRunner:
             self._paused_accumulated_seconds = 0.0
             self._final_active_elapsed_seconds = None
             self._pause_event.clear()
-        self._metrics.record_active_users(0)
+        self._metrics.record_active_users(0, paused=False)
         self._logger.info(
             "Load test starting users=%d workers=%d duration=%ds ramp_up=%ds",
             self._config.load.virtual_users,
@@ -392,8 +392,9 @@ class LoadTestRunner:
     def _adjust_started_users(self, delta: int) -> None:
         with self._state_lock:
             self._started_virtual_users = max(self._started_virtual_users + delta, 0)
-            active_users = 0 if self._pause_event.is_set() else self._started_virtual_users
-        self._metrics.record_active_users(active_users)
+            paused = self._pause_event.is_set()
+            active_users = 0 if paused else self._started_virtual_users
+        self._metrics.record_active_users(active_users, paused=paused)
 
     def _wait_if_paused(self) -> None:
         while self._pause_event.is_set() and not self._stop_event.is_set():
@@ -418,5 +419,6 @@ class LoadTestRunner:
 
     def _sample_active_users(self) -> None:
         with self._state_lock:
-            active_users = 0 if self._pause_event.is_set() else self._started_virtual_users
-        self._metrics.record_active_users(active_users)
+            paused = self._pause_event.is_set()
+            active_users = 0 if paused else self._started_virtual_users
+        self._metrics.record_active_users(active_users, paused=paused)

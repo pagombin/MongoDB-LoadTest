@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import timedelta
 
 import plotly.graph_objects as go
 
@@ -67,6 +68,7 @@ def build_operations_timeline(snapshot: MetricsSnapshot) -> go.Figure:
         paper_bgcolor="white",
     )
     figure.update_yaxes(rangemode="tozero")
+    _add_pause_overlays(figure, snapshot)
     return figure
 
 
@@ -106,6 +108,7 @@ def build_latency_timeline(snapshot: MetricsSnapshot) -> go.Figure:
         paper_bgcolor="white",
     )
     figure.update_yaxes(rangemode="tozero")
+    _add_pause_overlays(figure, snapshot)
     return figure
 
 
@@ -147,6 +150,7 @@ def build_user_ramp_timeline(snapshot: MetricsSnapshot) -> go.Figure:
         paper_bgcolor="white",
     )
     figure.update_yaxes(rangemode="tozero")
+    _add_pause_overlays(figure, snapshot)
     return figure
 
 
@@ -193,3 +197,36 @@ def build_operation_distribution(snapshot: MetricsSnapshot) -> go.Figure:
         paper_bgcolor="white",
     )
     return figure
+
+
+def _add_pause_overlays(figure: go.Figure, snapshot: MetricsSnapshot) -> None:
+    pause_spans = _pause_spans(snapshot)
+    if not pause_spans:
+        return
+    for index, (start, end) in enumerate(pause_spans):
+        figure.add_vrect(
+            x0=start,
+            x1=end,
+            fillcolor="rgba(245, 158, 11, 0.14)",
+            line_width=0,
+            annotation_text="paused" if index == 0 else None,
+            annotation_position="top left",
+        )
+
+
+def _pause_spans(snapshot: MetricsSnapshot) -> list[tuple[object, object]]:
+    spans: list[tuple[object, object]] = []
+    if not snapshot.timeline:
+        return spans
+    start = None
+    prev = None
+    for point in snapshot.timeline:
+        if point.paused and start is None:
+            start = point.second
+        if (not point.paused) and start is not None:
+            spans.append((start, point.second))
+            start = None
+        prev = point
+    if start is not None and prev is not None:
+        spans.append((start, prev.second + timedelta(seconds=1)))
+    return spans

@@ -64,11 +64,13 @@ def test_filter_snapshot_timeline_applies_window() -> None:
 
 
 def test_duration_and_window_labels_are_human_readable() -> None:
+    now = datetime.now(UTC)
+    snapshot = _snapshot_with_points(now)
     assert _format_duration(45) == "45s"
     assert _format_duration(125) == "2m 5s"
     assert _format_duration(3600) == "1h"
-    assert _window_message(0) == "Showing all captured points."
-    assert _window_message(300) == "Showing last 5m of timeline data."
+    assert _window_message(0, snapshot) == "Showing all captured points."
+    assert _window_message(300, snapshot).startswith("Showing last 5m of timeline data.")
 
 
 def test_remove_incomplete_live_second_filters_latest_partial_point() -> None:

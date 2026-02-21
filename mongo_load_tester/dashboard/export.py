@@ -34,6 +34,7 @@ def build_csv_bytes(rows: list[dict[str, str | int | float]]) -> bytes:
             "update_ops",
             "delete_ops",
             "active_virtual_users",
+            "paused",
         ]
     writer = csv.DictWriter(output, fieldnames=fieldnames)
     writer.writeheader()

@@ -44,6 +44,7 @@ class TimelinePoint:
     avg_latency_ms: float
     p95_latency_ms: float
     active_users: int = 0
+    paused: bool = False
     op_counts: dict[str, int] = field(default_factory=dict)
 
 

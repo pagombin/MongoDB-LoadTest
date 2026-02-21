@@ -209,7 +209,12 @@ def create_dashboard(
             html.Div(
                 [
                     _metric_card("Total ops", "total-ops", KPI_THEMES[0]),
-                    _metric_card("Ops/sec", "ops-per-sec", KPI_THEMES[1]),
+                    _metric_card(
+                        "Ops/sec",
+                        "ops-per-sec",
+                        KPI_THEMES[1],
+                        tooltip="Computed from total ops divided by active run time (paused time excluded).",
+                    ),
                     _metric_card("Error rate", "error-rate", KPI_THEMES[2]),
                     _metric_card("Success rate", "success-rate", KPI_THEMES[3]),
                     _metric_card("Average latency", "avg-latency", KPI_THEMES[4]),
@@ -233,6 +238,10 @@ def create_dashboard(
                                             {"label": "Last 1 minute", "value": 60},
                                             {"label": "Last 5 minutes", "value": 300},
                                             {"label": "Last 15 minutes", "value": 900},
+                                            {"label": "Last 30 minutes", "value": 1800},
+                                            {"label": "Last 1 hour", "value": 3600},
+                                            {"label": "Last 8 hours", "value": 28_800},
+                                            {"label": "Last 24 hours", "value": 86_400},
                                             {"label": "All captured data", "value": 0},
                                         ],
                                         value=300,
@@ -434,7 +443,7 @@ def create_dashboard(
                 last_updated,
                 progress_value,
                 progress_label,
-                _window_message(window_seconds),
+                _window_message(window_seconds, snapshot),
                 duration_meta,
                 _fmt(snapshot.total_ops),
                 f"{stable_ops_per_sec:.2f}",
@@ -568,11 +577,29 @@ def create_dashboard(
     return app
 
 
-def _metric_card(label: str, value_id: str, theme: tuple[str, str]) -> html.Div:
+def _metric_card(label: str, value_id: str, theme: tuple[str, str], tooltip: str | None = None) -> html.Div:
     background, border = theme
+    label_node: list[object] = [label]
+    if tooltip:
+        label_node.append(
+            html.Span(
+                "  i",
+                title=tooltip,
+                style={
+                    "fontSize": "11px",
+                    "padding": "2px 6px",
+                    "marginLeft": "6px",
+                    "border": "1px solid #a5b4fc",
+                    "borderRadius": "999px",
+                    "color": "#4338ca",
+                    "cursor": "help",
+                    "fontWeight": "600",
+                },
+            )
+        )
     return html.Div(
         [
-            html.Div(label, style={"fontSize": "12px", "color": "#4b5563"}),
+            html.Div(label_node, style={"fontSize": "12px", "color": "#4b5563"}),
             html.Div(id=value_id, style={"fontSize": "22px", "fontWeight": "700", "marginTop": "6px", "color": "#111827"}),
         ],
         style={
@@ -717,13 +744,21 @@ def _remove_incomplete_live_second(snapshot: MetricsSnapshot, is_running: bool) 
     return replace(snapshot, timeline=filtered)
 
 
-def _window_message(window_seconds: int) -> str:
+def _window_message(window_seconds: int, snapshot: MetricsSnapshot) -> str:
     if window_seconds <= 0:
         return "Showing all captured points."
-    return f"Showing last {_format_duration(window_seconds)} of timeline data."
+    if not snapshot.timeline:
+        return f"Showing last {_format_duration(window_seconds)} (no data captured yet)."
+    coverage_seconds = int((snapshot.timeline[-1].second - snapshot.timeline[0].second).total_seconds())
+    message = f"Showing last {_format_duration(window_seconds)} of timeline data."
+    if coverage_seconds > 0 and coverage_seconds < window_seconds:
+        message += f" (currently {_format_duration(coverage_seconds)} available)"
+    return message
 
 
 def _format_duration(seconds: int) -> str:
+    if seconds <= 0:
+        return "0s"
     if seconds < 60:
         return f"{seconds}s"
     minutes = seconds // 60
