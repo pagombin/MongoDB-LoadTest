@@ -208,7 +208,11 @@ def create_dashboard(
                 [
                     _profile_chip("Virtual users", f"{config.load.virtual_users:,}"),
                     _profile_chip("Worker threads", f"{config.load.worker_threads:,}"),
-                    _profile_chip("Configured duration", _format_duration(config.load.duration_seconds)),
+                    _profile_chip(
+                        "Configured duration",
+                        _format_duration(config.load.duration_seconds),
+                        value_id="configured-duration-value",
+                    ),
                     _profile_chip("Ramp-up", _format_duration(config.load.ramp_up_seconds)),
                     _profile_chip(
                         "Namespaces",
@@ -493,6 +497,13 @@ def create_dashboard(
             return _refresh_error_payload(str(exc))
 
     @callback(
+        Output("configured-duration-value", "children"),
+        Input("refresh", "n_intervals"),
+    )
+    def refresh_configured_duration(_: int):
+        return _format_duration(runner.target_duration_seconds)
+
+    @callback(
         Output("control-feedback", "children"),
         Input("stop-test-btn", "n_clicks"),
         Input("pause-test-btn", "n_clicks"),
@@ -648,11 +659,16 @@ def _metric_card(label: str, value_id: str, theme: tuple[str, str], tooltip: str
     )
 
 
-def _profile_chip(label: str, value: str) -> html.Div:
+def _profile_chip(label: str, value: str, value_id: str | None = None) -> html.Div:
+    value_kwargs = {"id": value_id} if value_id else {}
     return html.Div(
         [
             html.Div(label, style={"fontSize": "11px", "color": "#6b7280"}),
-            html.Div(value, style={"fontSize": "14px", "fontWeight": "600", "marginTop": "6px", "color": "#111827"}),
+            html.Div(
+                value,
+                style={"fontSize": "14px", "fontWeight": "600", "marginTop": "6px", "color": "#111827"},
+                **value_kwargs,
+            ),
         ],
         style={**CARD_STYLE, "background": "#faf5ff", "border": "1px solid #d8b4fe"},
     )
