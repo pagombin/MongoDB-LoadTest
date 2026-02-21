@@ -740,9 +740,7 @@ def create_dashboard(
 
     @callback(
         Output("configured-duration-value", "children"),
-        Output("max-virtual-users-chip", "children"),
         Output("target-users-chip", "children"),
-        Output("worker-threads-chip", "children"),
         Output("read-write-mix-chip", "children"),
         Output("live-controls-meta", "children"),
         Output("runtime-change-events", "children"),
@@ -779,9 +777,7 @@ def create_dashboard(
                 event_items = [html.Li("No live runtime changes have been applied yet.")]
             return (
                 _format_duration(duration_seconds),
-                _fmt(max_users),
                 _fmt(target_users),
-                _fmt(worker_threads),
                 f"{read_pct:.1f}% / {write_pct:.1f}%",
                 live_meta,
                 event_items,
@@ -790,13 +786,24 @@ def create_dashboard(
             logger.exception("Live control state refresh failed.")
             return (
                 _format_duration(runner.target_duration_seconds),
-                _fmt(runner.max_virtual_users),
                 _fmt(runner.target_virtual_users),
-                _fmt(runner.target_worker_threads),
                 "N/A",
                 f"Live settings unavailable: {exc}",
                 [html.Li("Unable to load runtime change history.")],
             )
+
+    @callback(
+        Output("max-virtual-users-chip", "children"),
+        Output("worker-threads-chip", "children"),
+        Input("refresh", "n_intervals"),
+    )
+    def refresh_capacity_chips(_: int):
+        try:
+            settings = controller.live_settings_snapshot()
+            return _fmt(int(settings["max_virtual_users"])), _fmt(int(settings["target_worker_threads"]))
+        except Exception:  # pragma: no cover - UI safety
+            logger.exception("Capacity chip refresh failed.")
+            return _fmt(runner.max_virtual_users), _fmt(runner.target_worker_threads)
 
     @callback(
         Output("control-feedback", "children"),
