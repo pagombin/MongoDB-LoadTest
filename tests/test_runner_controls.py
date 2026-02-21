@@ -88,3 +88,19 @@ def test_runner_live_update_methods_sanitize_and_apply() -> None:
 
     events = runner.runtime_change_events(limit=5)
     assert events
+
+
+def test_worker_thread_updates_expand_pool_when_running() -> None:
+    config = AppConfig()
+    metrics = MetricsStore(history_window_seconds=config.dashboard.history_window_seconds)
+    runner = LoadTestRunner(config=config, metrics=metrics)
+
+    runner._running = True  # type: ignore[attr-defined]
+    runner._max_virtual_users = 120  # type: ignore[attr-defined]
+    runner._target_worker_threads = 4  # type: ignore[attr-defined]
+    runner._worker_assignments = runner._build_assignments()  # type: ignore[attr-defined]
+
+    applied_threads, pool_size = runner.update_worker_threads(25)
+
+    assert applied_threads == 25
+    assert pool_size >= 25

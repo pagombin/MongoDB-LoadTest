@@ -204,7 +204,10 @@ class LoadTestRunner:
         with self._state_lock:
             self._max_virtual_users = requested_users
             self._target_virtual_users = requested_users
+            self._target_worker_threads = min(max(self._target_worker_threads, 1), self._max_virtual_users)
             self._config.load.virtual_users = requested_users
+            if self._running:
+                self._ensure_worker_assignments_locked(self._target_worker_threads)
             self._rebalance_assignments_locked()
             max_users = self._max_virtual_users
             applied_users = self._target_virtual_users
@@ -220,14 +223,13 @@ class LoadTestRunner:
     def update_worker_threads(self, worker_threads: int) -> tuple[int, int]:
         requested_threads = max(int(worker_threads), 1)
         with self._state_lock:
-            pool_size = len(self._worker_assignments)
-            if self._running and pool_size > 0:
-                applied_threads = min(requested_threads, pool_size)
-            else:
-                applied_threads = requested_threads
+            applied_threads = min(requested_threads, self._max_virtual_users)
             self._target_worker_threads = applied_threads
             self._config.load.worker_threads = applied_threads
+            if self._running:
+                self._ensure_worker_assignments_locked(applied_threads)
             self._rebalance_assignments_locked()
+            pool_size = len(self._worker_assignments)
         self._logger.info(
             "Live worker thread target updated to %d (requested=%d, pool=%d).",
             applied_threads,
@@ -358,7 +360,7 @@ class LoadTestRunner:
         self._stop_event.set()
 
     def run(self) -> None:
-        workers: list[threading.Thread] = []
+        workers: dict[int, threading.Thread] = {}
         lifecycle_rng = random.Random(self._config.random_seed + 9_111)
         lifecycle_policy = self.retry_policy_snapshot()
         lifecycle_retry = RetryController(
@@ -402,20 +404,14 @@ class LoadTestRunner:
             assignments = self._build_assignments()
             with self._state_lock:
                 self._worker_assignments = assignments
+                self._ensure_worker_assignments_locked(self._target_worker_threads)
                 self._rebalance_assignments_locked()
             next_progress_log = time.monotonic() + self.progress_log_interval_seconds
-            for assignment in assignments:
-                thread = threading.Thread(
-                    target=self._worker_loop,
-                    args=(assignment,),
-                    daemon=True,
-                    name=f"load-worker-{assignment.worker_id}",
-                )
-                thread.start()
-                workers.append(thread)
+            self._reconcile_worker_pool(workers)
             self._logger.info("Started %d worker thread(s).", len(workers))
 
-            while not self._stop_event.is_set() and any(thread.is_alive() for thread in workers):
+            while not self._stop_event.is_set() and any(thread.is_alive() for thread in workers.values()):
+                self._reconcile_worker_pool(workers)
                 self._sample_active_users()
                 if self._duration_reached():
                     self._stop_event.set()
@@ -439,7 +435,7 @@ class LoadTestRunner:
             self._logger.exception("Load test run failed.")
         finally:
             self._stop_event.set()
-            for thread in workers:
+            for thread in workers.values():
                 thread.join(timeout=5)
             if self._client is not None:
                 self._client.close()
@@ -717,7 +713,11 @@ class LoadTestRunner:
     def _rebalance_assignments_locked(self) -> None:
         if not self._worker_assignments:
             return
-        active_threads = min(max(self._target_worker_threads, 1), len(self._worker_assignments))
+        active_threads = min(
+            max(self._target_worker_threads, 1),
+            len(self._worker_assignments),
+            max(self._max_virtual_users, 1),
+        )
         total_users = max(self._max_virtual_users, 1)
         base = total_users // active_threads
         remainder = total_users % active_threads
@@ -731,6 +731,45 @@ class LoadTestRunner:
             else:
                 assignment.simulated_users = 0
                 assignment.user_offset = user_offset
+
+    def _ensure_worker_assignments_locked(self, desired_threads: int) -> None:
+        desired = max(int(desired_threads), 1)
+        while len(self._worker_assignments) < desired:
+            worker_id = len(self._worker_assignments)
+            self._worker_assignments.append(
+                _WorkerAssignment(
+                    worker_id=worker_id,
+                    simulated_users=0,
+                    startup_delay_seconds=0.0,
+                    user_offset=0,
+                )
+            )
+
+    def _reconcile_worker_pool(self, workers: dict[int, threading.Thread]) -> None:
+        if self._stop_event.is_set() or self._duration_reached():
+            return
+        assignments_to_start: list[_WorkerAssignment] = []
+        with self._state_lock:
+            desired_threads = min(max(self._target_worker_threads, 1), max(self._max_virtual_users, 1))
+            self._ensure_worker_assignments_locked(desired_threads)
+            self._rebalance_assignments_locked()
+            for assignment in self._worker_assignments:
+                if assignment.worker_id >= desired_threads:
+                    continue
+                thread = workers.get(assignment.worker_id)
+                if thread is None or not thread.is_alive():
+                    assignments_to_start.append(assignment)
+        for assignment in assignments_to_start:
+            if self._stop_event.is_set():
+                break
+            thread = threading.Thread(
+                target=self._worker_loop,
+                args=(assignment,),
+                daemon=True,
+                name=f"load-worker-{assignment.worker_id}",
+            )
+            thread.start()
+            workers[assignment.worker_id] = thread
 
     def _record_runtime_change(self, message: str) -> None:
         with self._state_lock:

@@ -911,9 +911,9 @@ def create_dashboard(
                 )
                 rate_text = "unbounded" if applied_rate is None else f"{applied_rate:.2f} ops/user/sec"
                 pool_note = ""
-                if worker_threads < worker_threads_requested:
+                if worker_pool < worker_threads:
                     pool_note = (
-                        f" (running pool is {worker_pool}; restart to apply >{worker_pool} active threads)"
+                        f" (worker pool currently {worker_pool}; scaling in progress)"
                     )
                 return (
                     f"Live load controls applied: users {target_users}/{max_users}, "
