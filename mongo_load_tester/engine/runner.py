@@ -47,6 +47,7 @@ class LoadTestRunner:
         self._run_started_monotonic: float | None = None
         self._paused_started_monotonic: float | None = None
         self._paused_accumulated_seconds = 0.0
+        self._final_active_elapsed_seconds: float | None = None
         self._client: MongoClient | None = None
         self._logger = logger or logging.getLogger("mongo_load_tester.runner")
         self._retry_policy = RetryPolicy.from_config(config.retry)
@@ -149,6 +150,7 @@ class LoadTestRunner:
             self._run_started_monotonic = time.monotonic()
             self._paused_started_monotonic = None
             self._paused_accumulated_seconds = 0.0
+            self._final_active_elapsed_seconds = None
             self._pause_event.clear()
         self._metrics.record_active_users(0)
         self._logger.info(
@@ -210,6 +212,7 @@ class LoadTestRunner:
                 if self._paused_started_monotonic is not None:
                     self._paused_accumulated_seconds += max(time.monotonic() - self._paused_started_monotonic, 0.0)
                     self._paused_started_monotonic = None
+                self._final_active_elapsed_seconds = self._active_elapsed_seconds_locked()
                 self._running = False
                 self._finished_at = datetime.now(UTC)
                 self._started_virtual_users = 0
@@ -403,6 +406,8 @@ class LoadTestRunner:
             return elapsed >= self._target_duration_seconds
 
     def _active_elapsed_seconds_locked(self) -> float:
+        if self._final_active_elapsed_seconds is not None:
+            return self._final_active_elapsed_seconds
         if self._run_started_monotonic is None:
             return 0.0
         now = time.monotonic()

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from mongo_load_tester.dashboard.app import (
+    _compute_stable_ops_per_sec,
     _filter_snapshot_timeline,
     _format_duration,
     _remove_incomplete_live_second,
@@ -87,3 +88,9 @@ def test_remove_incomplete_live_second_filters_latest_partial_point() -> None:
     filtered = _remove_incomplete_live_second(snapshot, is_running=True)
 
     assert all(point.second < now.replace(microsecond=0) for point in filtered.timeline)
+
+
+def test_compute_stable_ops_per_sec_uses_active_elapsed() -> None:
+    assert _compute_stable_ops_per_sec(0, 5.0) == 0.0
+    assert _compute_stable_ops_per_sec(100, 0.0) == 0.0
+    assert _compute_stable_ops_per_sec(100, 4.0) == 25.0

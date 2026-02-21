@@ -224,6 +224,25 @@ def create_dashboard(
                     html.Div(
                         [
                             html.Div("Operations Throughput", style={"fontWeight": "600", "marginBottom": "6px", "color": "#312e81"}),
+                            html.Div(
+                                [
+                                    html.Div("Timeline filter", style={"fontSize": "12px", "color": "#6b7280"}),
+                                    dcc.Dropdown(
+                                        id="timeline-window",
+                                        options=[
+                                            {"label": "Last 1 minute", "value": 60},
+                                            {"label": "Last 5 minutes", "value": 300},
+                                            {"label": "Last 15 minutes", "value": 900},
+                                            {"label": "All captured data", "value": 0},
+                                        ],
+                                        value=300,
+                                        clearable=False,
+                                        style={"marginTop": "6px", "maxWidth": "240px"},
+                                    ),
+                                    html.Div(id="window-description", style={"marginTop": "6px", "fontSize": "12px", "color": "#6b7280"}),
+                                ],
+                                style={"marginBottom": "8px"},
+                            ),
                             dcc.Graph(id="ops-graph", style={"height": "360px"}),
                         ],
                         style={**CARD_STYLE},
@@ -278,25 +297,6 @@ def create_dashboard(
             ),
             html.Div(
                 [
-                    html.Div(
-                        [
-                            html.Div("Timeline view", style={"fontSize": "12px", "color": "#6b7280"}),
-                            dcc.Dropdown(
-                                id="timeline-window",
-                                options=[
-                                    {"label": "Last 1 minute", "value": 60},
-                                    {"label": "Last 5 minutes", "value": 300},
-                                    {"label": "Last 15 minutes", "value": 900},
-                                    {"label": "All captured data", "value": 0},
-                                ],
-                                value=300,
-                                clearable=False,
-                                style={"marginTop": "6px"},
-                            ),
-                            html.Div(id="window-description", style={"marginTop": "6px", "fontSize": "12px", "color": "#6b7280"}),
-                        ],
-                        style={"minWidth": "220px"},
-                    ),
                     html.Div(
                         [
                             html.Div("Minimum log level", style={"fontSize": "12px", "color": "#6b7280"}),
@@ -400,6 +400,7 @@ def create_dashboard(
             window_seconds = int(timeline_window or 0)
             filtered_snapshot = _filter_snapshot_timeline(snapshot, window_seconds)
             filtered_snapshot = _remove_incomplete_live_second(filtered_snapshot, runner.is_running)
+            stable_ops_per_sec = _compute_stable_ops_per_sec(snapshot.total_ops, runner.active_elapsed_seconds())
             error_rate = (snapshot.error_ops / snapshot.total_ops * 100.0) if snapshot.total_ops else 0.0
             success_rate = (snapshot.success_ops / snapshot.total_ops * 100.0) if snapshot.total_ops else 0.0
             retry_rate = (snapshot.retried_ops / snapshot.total_ops * 100.0) if snapshot.total_ops else 0.0
@@ -436,7 +437,7 @@ def create_dashboard(
                 _window_message(window_seconds),
                 duration_meta,
                 _fmt(snapshot.total_ops),
-                f"{snapshot.ops_per_second:.2f}",
+                f"{stable_ops_per_sec:.2f}",
                 f"{error_rate:.2f}%",
                 f"{success_rate:.2f}%",
                 f"{snapshot.avg_latency_ms:.2f} ms",
@@ -828,3 +829,11 @@ def _refresh_error_payload(error_message: str) -> tuple:
         "Dashboard refresh failed. Check application logs for details.",
         "Showing 0 line(s), level >= INFO.",
     )
+
+
+def _compute_stable_ops_per_sec(total_ops: int, active_elapsed_seconds: float) -> float:
+    if total_ops <= 0:
+        return 0.0
+    if active_elapsed_seconds <= 0:
+        return 0.0
+    return total_ops / active_elapsed_seconds
