@@ -203,13 +203,13 @@ def _add_pause_overlays(figure: go.Figure, snapshot: MetricsSnapshot) -> None:
     pause_spans = _pause_spans(snapshot)
     if not pause_spans:
         return
-    for index, (start, end) in enumerate(pause_spans):
+    for start, end in pause_spans:
         figure.add_vrect(
             x0=start,
             x1=end,
             fillcolor="rgba(245, 158, 11, 0.14)",
             line_width=0,
-            annotation_text="paused" if index == 0 else None,
+            annotation_text="paused",
             annotation_position="top left",
         )
 

@@ -229,29 +229,6 @@ def create_dashboard(
                     html.Div(
                         [
                             html.Div("Operations Throughput", style={"fontWeight": "600", "marginBottom": "6px", "color": "#312e81"}),
-                            html.Div(
-                                [
-                                    html.Div("Timeline filter", style={"fontSize": "12px", "color": "#6b7280"}),
-                                    dcc.Dropdown(
-                                        id="timeline-window",
-                                        options=[
-                                            {"label": "Last 1 minute", "value": 60},
-                                            {"label": "Last 5 minutes", "value": 300},
-                                            {"label": "Last 15 minutes", "value": 900},
-                                            {"label": "Last 30 minutes", "value": 1800},
-                                            {"label": "Last 1 hour", "value": 3600},
-                                            {"label": "Last 8 hours", "value": 28_800},
-                                            {"label": "Last 24 hours", "value": 86_400},
-                                            {"label": "All captured data", "value": 0},
-                                        ],
-                                        value=300,
-                                        clearable=False,
-                                        style={"marginTop": "6px", "maxWidth": "240px"},
-                                    ),
-                                    html.Div(id="window-description", style={"marginTop": "6px", "fontSize": "12px", "color": "#6b7280"}),
-                                ],
-                                style={"marginBottom": "8px"},
-                            ),
                             dcc.Graph(id="ops-graph", style={"height": "360px"}),
                         ],
                         style={**CARD_STYLE},
@@ -265,6 +242,40 @@ def create_dashboard(
                     ),
                 ],
                 style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "1fr 1fr", "gap": "12px"},
+            ),
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            html.Div(
+                                "Timeline filter (applies to all metric charts)",
+                                style={"fontSize": "12px", "fontWeight": "600", "color": "#4c1d95"},
+                            ),
+                            dcc.Dropdown(
+                                id="timeline-window",
+                                options=[
+                                    {"label": "Last 1 minute", "value": 60},
+                                    {"label": "Last 5 minutes", "value": 300},
+                                    {"label": "Last 15 minutes", "value": 900},
+                                    {"label": "Last 30 minutes", "value": 1800},
+                                    {"label": "Last 1 hour", "value": 3600},
+                                    {"label": "Last 8 hours", "value": 28_800},
+                                    {"label": "Last 24 hours", "value": 86_400},
+                                    {"label": "All captured data", "value": 0},
+                                ],
+                                value=300,
+                                clearable=False,
+                                style={"marginTop": "6px", "width": "260px"},
+                            ),
+                            html.Div(
+                                id="window-description",
+                                style={"marginTop": "6px", "fontSize": "12px", "color": "#6b7280"},
+                            ),
+                        ],
+                        style={**CARD_STYLE, "background": "#f8fafc", "border": "1px solid #c7d2fe"},
+                    ),
+                ],
+                style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "1fr", "gap": "12px"},
             ),
             html.Div(
                 [
