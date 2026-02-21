@@ -145,18 +145,6 @@ class ExportConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class SLOConfig(BaseModel):
-    """Client-side SLO checks derived from collected benchmark metrics."""
-
-    enabled: bool = True
-    p95_latency_ms_threshold: float = Field(default=80.0, gt=0)
-    error_rate_pct_threshold: float = Field(default=1.0, ge=0)
-    min_ops_per_sec_threshold: float = Field(default=100.0, ge=0)
-    evaluation_window_seconds: int = Field(default=300, ge=10, le=86_400)
-
-    model_config = ConfigDict(extra="forbid")
-
-
 class LoggingConfig(BaseModel):
     """Application logging options."""
 
@@ -201,7 +189,6 @@ class AppConfig(BaseModel):
     load: UserLoadConfig = Field(default_factory=UserLoadConfig)
     dashboard: DashboardConfig = Field(default_factory=DashboardConfig)
     export: ExportConfig = Field(default_factory=ExportConfig)
-    slo: SLOConfig = Field(default_factory=SLOConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     retry: RetryConfig = Field(default_factory=RetryConfig)
     random_seed: int = Field(default=42, ge=0)

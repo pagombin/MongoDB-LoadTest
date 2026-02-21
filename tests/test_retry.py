@@ -3,10 +3,10 @@ from __future__ import annotations
 import random
 
 import pytest
-from pymongo.errors import AutoReconnect, NetworkTimeout, OperationFailure
+from pymongo.errors import AutoReconnect
 
 from mongo_load_tester.config import RetryConfig
-from mongo_load_tester.engine.retry import RetryController, RetryFailure, RetryPolicy, classify_exception
+from mongo_load_tester.engine.retry import RetryController, RetryFailure, RetryPolicy
 
 
 def test_retry_controller_retries_transient_failures(monkeypatch) -> None:
@@ -79,14 +79,3 @@ def test_retry_controller_exhausts_retryable_failures(monkeypatch) -> None:
     assert exc.attempts == 3
     assert exc.retryable is True
     assert sleeps == [0.001, 0.002]
-
-
-def test_exception_classification_covers_timeout_and_auth() -> None:
-    category, is_timeout = classify_exception(NetworkTimeout("slow"))
-    assert category == "timeout"
-    assert is_timeout is True
-
-    auth_error = OperationFailure("denied", code=13)
-    category, is_timeout = classify_exception(auth_error)
-    assert category == "authentication"
-    assert is_timeout is False

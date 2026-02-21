@@ -11,7 +11,7 @@ import yaml
 from mongo_load_tester.config import default_config, load_config
 from mongo_load_tester.dashboard.app import create_dashboard
 from mongo_load_tester.engine.control import LoadTestController
-from mongo_load_tester.engine.metrics import MetricsStore, SLOPolicy
+from mongo_load_tester.engine.metrics import MetricsStore
 from mongo_load_tester.engine.runner import LoadTestRunner
 from mongo_load_tester.observability import configure_logging
 
@@ -35,16 +35,7 @@ def run_load_test(
         raise typer.Exit(code=1)
 
     logger.info("Loaded config file: %s", config)
-    metrics = MetricsStore(
-        history_window_seconds=app_config.dashboard.history_window_seconds,
-        slo_policy=SLOPolicy(
-            enabled=app_config.slo.enabled,
-            p95_latency_ms_threshold=app_config.slo.p95_latency_ms_threshold,
-            error_rate_pct_threshold=app_config.slo.error_rate_pct_threshold,
-            min_ops_per_sec_threshold=app_config.slo.min_ops_per_sec_threshold,
-            evaluation_window_seconds=app_config.slo.evaluation_window_seconds,
-        ),
-    )
+    metrics = MetricsStore(history_window_seconds=app_config.dashboard.history_window_seconds)
     runner = LoadTestRunner(app_config, metrics, logger=logger)
     controller = LoadTestController(runner=runner, metrics_store=metrics, logger=logger)
 

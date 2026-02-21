@@ -115,8 +115,7 @@ def build_latency_timeline(snapshot: MetricsSnapshot) -> go.Figure:
 def build_user_ramp_timeline(snapshot: MetricsSnapshot) -> go.Figure:
     x_values = [point.second for point in snapshot.timeline]
     users = [point.active_users for point in snapshot.timeline]
-    expected = [point.expected_users for point in snapshot.timeline]
-    user_delta = [point.user_delta for point in snapshot.timeline]
+    target = max(users) if users else 0
     figure = go.Figure()
     figure.add_trace(
         go.Scatter(
@@ -129,38 +128,20 @@ def build_user_ramp_timeline(snapshot: MetricsSnapshot) -> go.Figure:
             fillcolor="rgba(139, 92, 246, 0.14)",
         )
     )
-    if any(value > 0 for value in expected):
+    if target > 0:
         figure.add_trace(
             go.Scatter(
                 x=x_values,
-                y=expected,
+                y=[target for _ in x_values],
                 mode="lines",
-                name="expected_users",
+                name="target_users",
                 line={"width": 1.8, "color": "#334155", "dash": "dash"},
             )
         )
-    figure.add_trace(
-        go.Scatter(
-            x=x_values,
-            y=user_delta,
-            mode="lines",
-            name="ramp_delta",
-            line={"width": 1.5, "color": "#0f766e", "dash": "dot"},
-            yaxis="y2",
-        )
-    )
     figure.update_layout(
         title="Virtual Users Ramp-Up / Ramp-Down",
         xaxis={"title": "Time (UTC)", "title_standoff": 16},
         yaxis_title="Active virtual users",
-        yaxis2={
-            "title": "Delta users",
-            "overlaying": "y",
-            "side": "right",
-            "showgrid": False,
-            "zeroline": True,
-            "zerolinecolor": "#14b8a6",
-        },
         template="plotly_white",
         legend=dict(orientation="h", yanchor="bottom", y=1.12, xanchor="left", x=0),
         hovermode="x unified",

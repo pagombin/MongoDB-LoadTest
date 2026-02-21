@@ -103,9 +103,8 @@ class LoadTestRunner:
                 return False
             self._pause_event.set()
             self._paused_started_monotonic = time.monotonic()
-            expected_users = self._expected_users_locked()
         self._logger.warning("Load test paused.")
-        self._metrics.record_active_users(0, paused=True, expected_users=expected_users)
+        self._metrics.record_active_users(0, paused=True)
         return True
 
     def resume(self) -> bool:
@@ -118,9 +117,8 @@ class LoadTestRunner:
             self._paused_started_monotonic = None
             self._pause_event.clear()
             resumed_users = max(self._started_virtual_users, 0)
-            expected_users = self._expected_users_locked()
         self._logger.warning("Load test resumed.")
-        self._metrics.record_active_users(resumed_users, paused=False, expected_users=expected_users)
+        self._metrics.record_active_users(resumed_users, paused=False)
         return True
 
     def update_duration_seconds(self, duration_seconds: int) -> int:
@@ -156,7 +154,7 @@ class LoadTestRunner:
             self._final_active_elapsed_seconds = None
             self._pause_event.clear()
         self._id_registry = DocumentIdRegistry()
-        self._metrics.record_active_users(0, paused=False, expected_users=0)
+        self._metrics.record_active_users(0, paused=False)
         self._logger.info(
             "Load test starting users=%d workers=%d duration=%ds ramp_up=%ds",
             self._config.load.virtual_users,
@@ -398,8 +396,7 @@ class LoadTestRunner:
             self._started_virtual_users = max(self._started_virtual_users + delta, 0)
             paused = self._pause_event.is_set()
             active_users = 0 if paused else self._started_virtual_users
-            expected_users = self._expected_users_locked()
-        self._metrics.record_active_users(active_users, paused=paused, expected_users=expected_users)
+        self._metrics.record_active_users(active_users, paused=paused)
 
     def _wait_if_paused(self) -> None:
         while self._pause_event.is_set() and not self._stop_event.is_set():
@@ -426,19 +423,4 @@ class LoadTestRunner:
         with self._state_lock:
             paused = self._pause_event.is_set()
             active_users = 0 if paused else self._started_virtual_users
-            expected_users = self._expected_users_locked()
-        self._metrics.record_active_users(active_users, paused=paused, expected_users=expected_users)
-
-    def _expected_users_locked(self) -> int:
-        target = max(self._config.load.virtual_users, 0)
-        if target == 0:
-            return 0
-        ramp_seconds = self._config.load.ramp_up_seconds
-        if ramp_seconds <= 0:
-            return target
-        elapsed = self._active_elapsed_seconds_locked()
-        if elapsed <= 0:
-            return 0
-        if elapsed >= ramp_seconds:
-            return target
-        return int(round(target * (elapsed / ramp_seconds)))
+        self._metrics.record_active_users(active_users, paused=paused)

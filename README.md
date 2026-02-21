@@ -162,7 +162,6 @@ If that command is not in your PATH, use the `python3 -m mongo_load_tester.cli .
 - Ops/sec card includes tooltip explaining active-runtime computation (pause time excluded)
 - Operation and latency timelines with unified hover tracking
 - Users ramp timeline (active virtual users over time)
-- User ramp delta (actual vs expected) and adherence metrics
 - Operation distribution chart and per-operation summary table
 - Smart insights panel highlighting health/trend signals
 - Live logs panel in UI (INFO/WARNING/ERROR filters and adjustable tail lines)
@@ -184,7 +183,6 @@ Key knobs:
 - `operation_mix`: traffic mix percentages
 - `namespace.databases` + `namespace.collections_per_database`: namespace spread
 - `schema.fields`: generated document fields
-- `slo.*`: thresholds for client-side SLO compliance status
 - `logging.*`: log level, file rotation, UI buffer, and progress log cadence
 - `retry.*`: max attempts + exponential backoff + jitter for transient Mongo errors
 
@@ -206,16 +204,6 @@ The runner uses a centralized retry controller for transient MongoDB failures:
   - connection ping
   - initial seeding batches
   - runtime read/insert/update/delete operations
-
-### Advanced benchmark metrics included
-
-- Tail latency depth: p90, p95, p99, p99.9, max, stddev, jitter
-- Per-operation latency percentiles (p95/p99 by operation type)
-- Retry quality: retry rate, retry success rate, timeout rate, attempt distribution
-- Error taxonomy counts (top failure categories)
-- Throughput stability: rolling ops/sec (10s/60s) and coefficient of variation
-- Ramp adherence: active vs expected virtual users and delta
-- SLO compliance: live pass/fail, window compliance %, violation time, failed checks
 
 ## Notes for Production-Scale Runs
 
