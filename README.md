@@ -8,6 +8,7 @@ A configurable Python load/stress testing tool for MongoDB clusters, designed fo
 - schema-driven payload generation
 - live dashboard with timelines and latency metrics
 - pause/resume controls and live duration updates from dashboard
+- live load shaping controls (target users, pacing, operation mix, retry, logging)
 - users ramp-up/ramp-down timeline
 - live log stream in dashboard (with level/tail filters)
 - fail-safe exception capture with graceful error reporting
@@ -156,14 +157,22 @@ If that command is not in your PATH, use the `python3 -m mongo_load_tester.cli .
 - Pause/resume/stop controls directly in UI
 - One-click restart from UI with existing settings (metrics reset for clean rerun)
 - Runtime duration can be updated while the test is running
+- Phase 1 live controls can be applied immediately without restart:
+  - target virtual users (up to provisioned max)
+  - think-time min/max and target ops/user/sec pacing
+  - read/insert/update/delete mix weights
+  - retry policy (attempts + backoff + jitter)
+  - runtime log level and worker progress-log cadence
 - Runtime progress bar with elapsed and remaining time
 - Adjustable timeline window (1m, 5m, 15m, 30m, 1h, 8h, 24h, all)
 - Smarter KPI cards for throughput, success/error, latency, retries, and active users
 - Ops/sec card includes tooltip explaining active-runtime computation (pause time excluded)
 - Operation and latency timelines with unified hover tracking
 - Users ramp timeline (active virtual users over time)
+- Users ramp timeline includes target-users trace
 - Operation distribution chart and per-operation summary table
 - Smart insights panel highlighting health/trend signals
+- Live control-state strip with recent runtime change history
 - Live logs panel in UI (INFO/WARNING/ERROR filters and adjustable tail lines)
 - One-click exports from browser:
   - timeline CSV (includes active users + retries)

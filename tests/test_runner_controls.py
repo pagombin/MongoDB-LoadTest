@@ -41,3 +41,44 @@ def test_runner_active_elapsed_freezes_after_finalization_marker() -> None:
     runner._final_active_elapsed_seconds = 12.5  # type: ignore[attr-defined]
 
     assert runner.active_elapsed_seconds() == 12.5
+
+
+def test_runner_live_update_methods_sanitize_and_apply() -> None:
+    config = AppConfig()
+    metrics = MetricsStore(history_window_seconds=config.dashboard.history_window_seconds)
+    runner = LoadTestRunner(config=config, metrics=metrics)
+
+    users, max_users = runner.update_target_virtual_users(config.load.virtual_users + 50)
+    assert users == config.load.virtual_users
+    assert max_users == config.load.virtual_users
+
+    mix = runner.update_operation_mix(read=8, insert=1, update=1, delete=0)
+    normalized = mix.normalized()
+    assert round(normalized["read"], 2) == 0.80
+    assert round(normalized["insert"], 2) == 0.10
+
+    min_ms, max_ms, target_rate = runner.update_pacing(
+        think_time_ms_min=3,
+        think_time_ms_max=25,
+        target_ops_per_user_per_sec=12.5,
+    )
+    assert min_ms == 3
+    assert max_ms == 25
+    assert target_rate == 12.5
+
+    policy = runner.update_retry_policy(
+        max_attempts=7,
+        initial_backoff_ms=25,
+        max_backoff_ms=400,
+        backoff_multiplier=1.5,
+        jitter_ratio=0.1,
+    )
+    assert policy.max_attempts == 7
+    assert policy.max_backoff_ms == 400
+
+    interval, failures = runner.update_logging_controls(progress_log_interval_seconds=2, log_operation_failures=False)
+    assert interval == 2
+    assert failures is False
+
+    events = runner.runtime_change_events(limit=5)
+    assert events

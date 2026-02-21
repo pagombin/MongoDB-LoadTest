@@ -14,7 +14,7 @@ from reportlab.pdfgen import canvas
 from mongo_load_tester.models import MetricsSnapshot
 
 
-def build_csv_bytes(rows: list[dict[str, str | int | float]]) -> bytes:
+def build_csv_bytes(rows: list[dict[str, str | int | float | bool]]) -> bytes:
     """Serialize timeline rows to CSV bytes."""
 
     output = io.StringIO()
@@ -34,6 +34,7 @@ def build_csv_bytes(rows: list[dict[str, str | int | float]]) -> bytes:
             "update_ops",
             "delete_ops",
             "active_virtual_users",
+            "target_virtual_users",
             "paused",
         ]
     writer = csv.DictWriter(output, fieldnames=fieldnames)

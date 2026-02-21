@@ -115,7 +115,7 @@ def build_latency_timeline(snapshot: MetricsSnapshot) -> go.Figure:
 def build_user_ramp_timeline(snapshot: MetricsSnapshot) -> go.Figure:
     x_values = [point.second for point in snapshot.timeline]
     users = [point.active_users for point in snapshot.timeline]
-    target = max(users) if users else 0
+    target_users = [point.target_users for point in snapshot.timeline]
     figure = go.Figure()
     figure.add_trace(
         go.Scatter(
@@ -128,11 +128,11 @@ def build_user_ramp_timeline(snapshot: MetricsSnapshot) -> go.Figure:
             fillcolor="rgba(139, 92, 246, 0.14)",
         )
     )
-    if target > 0:
+    if any(value > 0 for value in target_users):
         figure.add_trace(
             go.Scatter(
                 x=x_values,
-                y=[target for _ in x_values],
+                y=target_users,
                 mode="lines",
                 name="target_users",
                 line={"width": 1.8, "color": "#334155", "dash": "dash"},

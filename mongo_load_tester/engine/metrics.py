@@ -52,8 +52,10 @@ class MetricsStore:
         self._latency_samples: deque[float] = deque(maxlen=max_latency_samples)
         self._timeline: OrderedDict[int, _TimelineBucket] = OrderedDict()
         self._active_user_timeline: OrderedDict[int, int] = OrderedDict()
+        self._target_user_timeline: OrderedDict[int, int] = OrderedDict()
         self._paused_timeline: OrderedDict[int, bool] = OrderedDict()
         self._latest_active_users = 0
+        self._latest_target_users = 0
         self._latest_paused_state = False
 
     def reset(self) -> None:
@@ -72,8 +74,10 @@ class MetricsStore:
             self._latency_samples.clear()
             self._timeline.clear()
             self._active_user_timeline.clear()
+            self._target_user_timeline.clear()
             self._paused_timeline.clear()
             self._latest_active_users = 0
+            self._latest_target_users = 0
             self._latest_paused_state = False
 
     def record(self, result: OperationResult) -> None:
@@ -110,6 +114,7 @@ class MetricsStore:
     def record_active_users(
         self,
         active_users: int,
+        target_users: int | None = None,
         paused: bool = False,
         timestamp: datetime | None = None,
     ) -> None:
@@ -118,10 +123,13 @@ class MetricsStore:
         when = timestamp or datetime.now(UTC)
         second_epoch = int(when.timestamp())
         safe_value = max(active_users, 0)
+        safe_target = max(target_users if target_users is not None else safe_value, 0)
         with self._lock:
             self._latest_active_users = safe_value
+            self._latest_target_users = safe_target
             self._latest_paused_state = bool(paused)
             self._active_user_timeline[second_epoch] = safe_value
+            self._target_user_timeline[second_epoch] = safe_target
             self._paused_timeline[second_epoch] = bool(paused)
             self._trim_history(second_epoch)
 
@@ -140,13 +148,19 @@ class MetricsStore:
             }
             timeline = []
             all_seconds = sorted(
-                set(self._timeline.keys()) | set(self._active_user_timeline.keys()) | set(self._paused_timeline.keys())
+                set(self._timeline.keys())
+                | set(self._active_user_timeline.keys())
+                | set(self._target_user_timeline.keys())
+                | set(self._paused_timeline.keys())
             )
             active_users = 0
+            target_users = 0
             paused = False
             for second_epoch in all_seconds:
                 if second_epoch in self._active_user_timeline:
                     active_users = self._active_user_timeline[second_epoch]
+                if second_epoch in self._target_user_timeline:
+                    target_users = self._target_user_timeline[second_epoch]
                 if second_epoch in self._paused_timeline:
                     paused = self._paused_timeline[second_epoch]
                 bucket = self._timeline.get(second_epoch, _TimelineBucket())
@@ -160,6 +174,7 @@ class MetricsStore:
                         avg_latency_ms=timeline_avg,
                         p95_latency_ms=timeline_p95,
                         active_users=active_users,
+                        target_users=target_users,
                         paused=paused,
                         op_counts=dict(bucket.op_counts),
                     )
@@ -185,19 +200,25 @@ class MetricsStore:
                 timeline=timeline,
             )
 
-    def export_timeline_rows(self) -> list[dict[str, str | int | float]]:
+    def export_timeline_rows(self) -> list[dict[str, str | int | float | bool]]:
         """Return per-second rows for CSV export."""
 
         with self._lock:
-            rows: list[dict[str, str | int | float]] = []
+            rows: list[dict[str, str | int | float | bool]] = []
             all_seconds = sorted(
-                set(self._timeline.keys()) | set(self._active_user_timeline.keys()) | set(self._paused_timeline.keys())
+                set(self._timeline.keys())
+                | set(self._active_user_timeline.keys())
+                | set(self._target_user_timeline.keys())
+                | set(self._paused_timeline.keys())
             )
             active_users = 0
+            target_users = 0
             paused = False
             for second_epoch in all_seconds:
                 if second_epoch in self._active_user_timeline:
                     active_users = self._active_user_timeline[second_epoch]
+                if second_epoch in self._target_user_timeline:
+                    target_users = self._target_user_timeline[second_epoch]
                 if second_epoch in self._paused_timeline:
                     paused = self._paused_timeline[second_epoch]
                 bucket = self._timeline.get(second_epoch, _TimelineBucket())
@@ -215,6 +236,7 @@ class MetricsStore:
                         "update_ops": bucket.op_counts.get("update", 0),
                         "delete_ops": bucket.op_counts.get("delete", 0),
                         "active_virtual_users": active_users,
+                        "target_virtual_users": target_users,
                         "paused": paused,
                     }
                 )
@@ -232,6 +254,11 @@ class MetricsStore:
             if oldest_second >= cutoff:
                 break
             self._active_user_timeline.popitem(last=False)
+        while self._target_user_timeline:
+            oldest_second = next(iter(self._target_user_timeline))
+            if oldest_second >= cutoff:
+                break
+            self._target_user_timeline.popitem(last=False)
         while self._paused_timeline:
             oldest_second = next(iter(self._paused_timeline))
             if oldest_second >= cutoff:

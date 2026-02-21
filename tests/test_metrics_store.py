@@ -23,8 +23,8 @@ def test_metrics_snapshot_calculations() -> None:
                 attempts=3 if idx == 2 else 1,
             )
         )
-    store.record_active_users(25, paused=False, timestamp=now + timedelta(seconds=4))
-    store.record_active_users(0, paused=True, timestamp=now + timedelta(seconds=5))
+    store.record_active_users(25, target_users=40, paused=False, timestamp=now + timedelta(seconds=4))
+    store.record_active_users(0, target_users=40, paused=True, timestamp=now + timedelta(seconds=5))
 
     snapshot = store.snapshot()
     assert snapshot.total_ops == 4
@@ -39,8 +39,10 @@ def test_metrics_snapshot_calculations() -> None:
     assert snapshot.avg_attempts_per_op == 1.5
     assert snapshot.active_virtual_users_current == 0
     assert any(point.paused for point in snapshot.timeline)
+    assert snapshot.timeline[-1].target_users == 40
     rows = store.export_timeline_rows()
     assert any(bool(row["paused"]) for row in rows)
+    assert rows[-1]["target_virtual_users"] == 40
 
 
 def test_metrics_store_reset_clears_all_data() -> None:

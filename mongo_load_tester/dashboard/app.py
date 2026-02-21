@@ -98,7 +98,12 @@ def create_dashboard(
 ) -> Dash:
     app = Dash(__name__, title="MongoDB Load Tester")
     logger = logging.getLogger("mongo_load_tester.dashboard")
-    operation_mix = config.operation_mix.normalized()
+    try:
+        live_settings = controller.live_settings_snapshot()
+        operation_mix = live_settings["operation_mix"]
+    except Exception:  # pragma: no cover - startup safety
+        logger.exception("Failed to load initial live settings. Falling back to static config values.")
+        operation_mix = config.operation_mix.normalized()
     namespace_total = config.namespace.databases * config.namespace.collections_per_database
     read_ratio = operation_mix["read"] * 100
     write_ratio = 100 - read_ratio
@@ -206,19 +211,240 @@ def create_dashboard(
             ),
             html.Div(
                 [
-                    _profile_chip("Virtual users", f"{config.load.virtual_users:,}"),
+                    html.Div(
+                        [
+                            html.Div("Live load shaping (applies immediately)", style={"fontSize": "12px", "color": "#6b7280"}),
+                            html.Div(
+                                [
+                                    html.Div(
+                                        [
+                                            html.Div("Target users", style={"fontSize": "12px", "color": "#4b5563"}),
+                                            dcc.Input(
+                                                id="target-users-input",
+                                                type="number",
+                                                min=1,
+                                                max=config.load.virtual_users,
+                                                step=1,
+                                                value=config.load.virtual_users,
+                                                style={
+                                                    "width": "110px",
+                                                    "padding": "8px",
+                                                    "borderRadius": "8px",
+                                                    "border": "1px solid #d1d5db",
+                                                    "marginTop": "6px",
+                                                },
+                                            ),
+                                        ]
+                                    ),
+                                    html.Div(
+                                        [
+                                            html.Div("Think time (ms)", style={"fontSize": "12px", "color": "#4b5563"}),
+                                            html.Div(
+                                                [
+                                                    dcc.Input(
+                                                        id="think-time-min-input",
+                                                        type="number",
+                                                        min=0,
+                                                        step=1,
+                                                        value=config.load.think_time_ms_min,
+                                                        style={
+                                                            "width": "90px",
+                                                            "padding": "8px",
+                                                            "borderRadius": "8px",
+                                                            "border": "1px solid #d1d5db",
+                                                            "marginTop": "6px",
+                                                        },
+                                                    ),
+                                                    dcc.Input(
+                                                        id="think-time-max-input",
+                                                        type="number",
+                                                        min=0,
+                                                        step=1,
+                                                        value=config.load.think_time_ms_max,
+                                                        style={
+                                                            "width": "90px",
+                                                            "padding": "8px",
+                                                            "borderRadius": "8px",
+                                                            "border": "1px solid #d1d5db",
+                                                            "marginTop": "6px",
+                                                        },
+                                                    ),
+                                                ],
+                                                style={"display": "flex", "gap": "6px"},
+                                            ),
+                                        ]
+                                    ),
+                                    html.Div(
+                                        [
+                                            html.Div("Target ops/user/sec", style={"fontSize": "12px", "color": "#4b5563"}),
+                                            dcc.Input(
+                                                id="target-ops-per-user-input",
+                                                type="number",
+                                                min=0.01,
+                                                step=0.1,
+                                                value=config.load.target_ops_per_user_per_sec,
+                                                placeholder="empty = unbounded",
+                                                style={
+                                                    "width": "150px",
+                                                    "padding": "8px",
+                                                    "borderRadius": "8px",
+                                                    "border": "1px solid #d1d5db",
+                                                    "marginTop": "6px",
+                                                },
+                                            ),
+                                        ]
+                                    ),
+                                ],
+                                style={"display": "flex", "gap": "12px", "flexWrap": "wrap", "marginTop": "8px"},
+                            ),
+                            html.Button(
+                                "Apply load controls",
+                                id="apply-load-controls-btn",
+                                n_clicks=0,
+                                style={**ACTION_BUTTON_STYLE, "marginTop": "10px"},
+                            ),
+                            html.Div(
+                                "Target users are applied instantly up to the provisioned maximum.",
+                                style={"marginTop": "6px", "fontSize": "12px", "color": "#6b7280"},
+                            ),
+                        ],
+                        style={**CARD_STYLE},
+                    ),
+                    html.Div(
+                        [
+                            html.Div("Live operation mix (weights)", style={"fontSize": "12px", "color": "#6b7280"}),
+                            html.Div(
+                                [
+                                    _weighted_input("Read", "mix-read-input", config.operation_mix.read),
+                                    _weighted_input("Insert", "mix-insert-input", config.operation_mix.insert),
+                                    _weighted_input("Update", "mix-update-input", config.operation_mix.update),
+                                    _weighted_input("Delete", "mix-delete-input", config.operation_mix.delete),
+                                ],
+                                style={"display": "grid", "gridTemplateColumns": "repeat(2, 1fr)", "gap": "8px", "marginTop": "8px"},
+                            ),
+                            html.Button(
+                                "Apply operation mix",
+                                id="apply-operation-mix-btn",
+                                n_clicks=0,
+                                style={**ACTION_BUTTON_STYLE, "marginTop": "10px"},
+                            ),
+                            html.Div(
+                                "Values are normalized automatically; at least one weight must be > 0.",
+                                style={"marginTop": "6px", "fontSize": "12px", "color": "#6b7280"},
+                            ),
+                        ],
+                        style={**CARD_STYLE},
+                    ),
+                    html.Div(
+                        [
+                            html.Div("Live resilience & logging", style={"fontSize": "12px", "color": "#6b7280"}),
+                            html.Div(
+                                [
+                                    _compact_number_input("Retry attempts", "retry-max-attempts-input", config.retry.max_attempts, min_value=1),
+                                    _compact_number_input(
+                                        "Retry backoff (ms)",
+                                        "retry-initial-backoff-input",
+                                        config.retry.initial_backoff_ms,
+                                        min_value=1,
+                                    ),
+                                    _compact_number_input(
+                                        "Max backoff (ms)",
+                                        "retry-max-backoff-input",
+                                        config.retry.max_backoff_ms,
+                                        min_value=1,
+                                    ),
+                                    _compact_number_input(
+                                        "Backoff multiplier",
+                                        "retry-multiplier-input",
+                                        config.retry.backoff_multiplier,
+                                        step=0.1,
+                                        min_value=1,
+                                    ),
+                                    _compact_number_input(
+                                        "Jitter ratio",
+                                        "retry-jitter-input",
+                                        config.retry.jitter_ratio,
+                                        step=0.05,
+                                        min_value=0,
+                                        max_value=1,
+                                    ),
+                                    html.Div(
+                                        [
+                                            html.Div("Runtime log level", style={"fontSize": "12px", "color": "#4b5563"}),
+                                            dcc.Dropdown(
+                                                id="runtime-log-level-input",
+                                                options=[
+                                                    {"label": "DEBUG", "value": "DEBUG"},
+                                                    {"label": "INFO", "value": "INFO"},
+                                                    {"label": "WARNING", "value": "WARNING"},
+                                                    {"label": "ERROR", "value": "ERROR"},
+                                                ],
+                                                value=config.logging.level,
+                                                clearable=False,
+                                                style={"marginTop": "6px"},
+                                            ),
+                                        ]
+                                    ),
+                                    _compact_number_input(
+                                        "Progress log interval (s)",
+                                        "progress-log-interval-input",
+                                        config.logging.progress_log_interval_seconds,
+                                        min_value=1,
+                                    ),
+                                ],
+                                style={"display": "grid", "gridTemplateColumns": "repeat(2, 1fr)", "gap": "8px", "marginTop": "8px"},
+                            ),
+                            dcc.Checklist(
+                                id="log-operation-failures-toggle",
+                                options=[{"label": "Log failed operations", "value": "enabled"}],
+                                value=["enabled"] if config.logging.log_operation_failures else [],
+                                style={"marginTop": "8px"},
+                            ),
+                            html.Button(
+                                "Apply resilience settings",
+                                id="apply-resilience-controls-btn",
+                                n_clicks=0,
+                                style={**ACTION_BUTTON_STYLE, "marginTop": "8px"},
+                            ),
+                        ],
+                        style={**CARD_STYLE},
+                    ),
+                ],
+                style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "repeat(3, 1fr)", "gap": "12px"},
+            ),
+            html.Div(
+                [
+                    html.Div(id="live-controls-meta", style={"fontSize": "12px", "color": "#4c1d95"}),
+                    html.Ul(
+                        id="runtime-change-events",
+                        style={"marginTop": "6px", "marginBottom": "0", "paddingLeft": "18px", "fontSize": "12px", "color": "#6b7280"},
+                    ),
+                ],
+                style={**CARD_STYLE, "marginTop": "12px", "background": "#f8fafc", "border": "1px solid #c7d2fe"},
+            ),
+            html.Div(
+                [
+                    _profile_chip("Max virtual users", f"{config.load.virtual_users:,}"),
+                    _profile_chip(
+                        "Target users (live)",
+                        f"{config.load.virtual_users:,}",
+                        value_id="target-users-chip",
+                    ),
                     _profile_chip("Worker threads", f"{config.load.worker_threads:,}"),
                     _profile_chip(
                         "Configured duration",
                         _format_duration(config.load.duration_seconds),
                         value_id="configured-duration-value",
                     ),
-                    _profile_chip("Ramp-up", _format_duration(config.load.ramp_up_seconds)),
                     _profile_chip(
                         "Namespaces",
                         f"{config.namespace.databases} db x {config.namespace.collections_per_database} coll = {namespace_total}",
                     ),
-                    _profile_chip("Read/Write mix", f"{read_ratio:.1f}% / {write_ratio:.1f}%"),
+                    _profile_chip(
+                        "Read/Write mix (live)",
+                        f"{read_ratio:.1f}% / {write_ratio:.1f}%",
+                        value_id="read-write-mix-chip",
+                    ),
                 ],
                 style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "repeat(6, 1fr)", "gap": "10px"},
             ),
@@ -498,10 +724,54 @@ def create_dashboard(
 
     @callback(
         Output("configured-duration-value", "children"),
+        Output("target-users-chip", "children"),
+        Output("read-write-mix-chip", "children"),
+        Output("live-controls-meta", "children"),
+        Output("runtime-change-events", "children"),
         Input("refresh", "n_intervals"),
     )
-    def refresh_configured_duration(_: int):
-        return _format_duration(runner.target_duration_seconds)
+    def refresh_live_control_state(_: int):
+        try:
+            settings = controller.live_settings_snapshot()
+            duration_seconds = int(settings["target_duration_seconds"])
+            target_users = int(settings["target_virtual_users"])
+            max_users = int(settings["max_virtual_users"])
+            operation_mix = settings["operation_mix"]
+            retry_policy = settings["retry_policy"]
+            read_pct = operation_mix["read"] * 100
+            write_pct = (operation_mix["insert"] + operation_mix["update"] + operation_mix["delete"]) * 100
+            target_rate = settings["target_ops_per_user_per_sec"]
+            target_rate_text = "unbounded" if target_rate is None else f"{float(target_rate):.2f}/sec"
+            live_meta = (
+                f"Live state: users {target_users}/{max_users} | think {settings['think_time_ms_min']}-"
+                f"{settings['think_time_ms_max']} ms | target ops/user {target_rate_text} | "
+                f"retry attempts {retry_policy['max_attempts']} | "
+                f"log level {settings['log_level']} | progress logs every {settings['progress_log_interval_seconds']}s"
+            )
+            events = controller.runtime_change_events(limit=8)
+            if events:
+                event_items = [
+                    html.Li(f"{event.timestamp.strftime('%H:%M:%S UTC')} - {event.message}")
+                    for event in reversed(events)
+                ]
+            else:
+                event_items = [html.Li("No live runtime changes have been applied yet.")]
+            return (
+                _format_duration(duration_seconds),
+                _fmt(target_users),
+                f"{read_pct:.1f}% / {write_pct:.1f}%",
+                live_meta,
+                event_items,
+            )
+        except Exception as exc:  # pragma: no cover - UI safety
+            logger.exception("Live control state refresh failed.")
+            return (
+                _format_duration(runner.target_duration_seconds),
+                _fmt(runner.target_virtual_users),
+                "N/A",
+                f"Live settings unavailable: {exc}",
+                [html.Li("Unable to load runtime change history.")],
+            )
 
     @callback(
         Output("control-feedback", "children"),
@@ -510,7 +780,26 @@ def create_dashboard(
         Input("resume-test-btn", "n_clicks"),
         Input("restart-test-btn", "n_clicks"),
         Input("apply-duration-btn", "n_clicks"),
+        Input("apply-load-controls-btn", "n_clicks"),
+        Input("apply-operation-mix-btn", "n_clicks"),
+        Input("apply-resilience-controls-btn", "n_clicks"),
         State("duration-seconds-input", "value"),
+        State("target-users-input", "value"),
+        State("think-time-min-input", "value"),
+        State("think-time-max-input", "value"),
+        State("target-ops-per-user-input", "value"),
+        State("mix-read-input", "value"),
+        State("mix-insert-input", "value"),
+        State("mix-update-input", "value"),
+        State("mix-delete-input", "value"),
+        State("retry-max-attempts-input", "value"),
+        State("retry-initial-backoff-input", "value"),
+        State("retry-max-backoff-input", "value"),
+        State("retry-multiplier-input", "value"),
+        State("retry-jitter-input", "value"),
+        State("runtime-log-level-input", "value"),
+        State("progress-log-interval-input", "value"),
+        State("log-operation-failures-toggle", "value"),
         prevent_initial_call=True,
     )
     def control_runner(
@@ -519,7 +808,26 @@ def create_dashboard(
         resume_clicks: int,
         restart_clicks: int,
         apply_clicks: int,
+        apply_load_clicks: int,
+        apply_mix_clicks: int,
+        apply_resilience_clicks: int,
         duration_value: int,
+        target_users_value: int,
+        think_min_value: int,
+        think_max_value: int,
+        target_ops_per_user_value: float | None,
+        mix_read_value: float,
+        mix_insert_value: float,
+        mix_update_value: float,
+        mix_delete_value: float,
+        retry_max_attempts_value: int,
+        retry_initial_backoff_value: int,
+        retry_max_backoff_value: int,
+        retry_multiplier_value: float,
+        retry_jitter_value: float,
+        runtime_log_level_value: str,
+        progress_log_interval_value: int,
+        log_operation_failures_value: list[str] | None,
     ):
         triggered = ctx.triggered_id
         if triggered is None:
@@ -552,6 +860,81 @@ def create_dashboard(
                     return "Duration value is required."
                 updated = controller.update_duration_seconds(int(duration_value))
                 return f"Run duration updated to {updated} seconds."
+            if triggered == "apply-load-controls-btn":
+                if not apply_load_clicks:
+                    raise PreventUpdate
+                if target_users_value is None:
+                    return "Target users value is required."
+                if think_min_value is None or think_max_value is None:
+                    return "Think time minimum and maximum values are required."
+                target_users, max_users = controller.update_target_virtual_users(int(target_users_value))
+                target_rate: float | None = None
+                if target_ops_per_user_value not in (None, ""):
+                    target_rate = float(target_ops_per_user_value)
+                min_ms, max_ms, applied_rate = controller.update_pacing(
+                    think_time_ms_min=int(think_min_value),
+                    think_time_ms_max=int(think_max_value),
+                    target_ops_per_user_per_sec=target_rate,
+                )
+                capped = int(target_users_value) > max_users
+                cap_note = f" (capped at provisioned max {max_users})" if capped else ""
+                rate_text = "unbounded" if applied_rate is None else f"{applied_rate:.2f} ops/user/sec"
+                return (
+                    f"Live load controls applied: users {target_users}/{max_users}{cap_note}, "
+                    f"think time {min_ms}-{max_ms} ms, target ops/user {rate_text}."
+                )
+            if triggered == "apply-operation-mix-btn":
+                if not apply_mix_clicks:
+                    raise PreventUpdate
+                if None in (mix_read_value, mix_insert_value, mix_update_value, mix_delete_value):
+                    return "All operation mix values are required."
+                normalized = controller.update_operation_mix(
+                    read=float(mix_read_value),
+                    insert=float(mix_insert_value),
+                    update=float(mix_update_value),
+                    delete=float(mix_delete_value),
+                )
+                return (
+                    "Operation mix updated to "
+                    f"read {normalized['read'] * 100:.1f}%, "
+                    f"insert {normalized['insert'] * 100:.1f}%, "
+                    f"update {normalized['update'] * 100:.1f}%, "
+                    f"delete {normalized['delete'] * 100:.1f}%."
+                )
+            if triggered == "apply-resilience-controls-btn":
+                if not apply_resilience_clicks:
+                    raise PreventUpdate
+                required_retry_values = (
+                    retry_max_attempts_value,
+                    retry_initial_backoff_value,
+                    retry_max_backoff_value,
+                    retry_multiplier_value,
+                    retry_jitter_value,
+                    progress_log_interval_value,
+                )
+                if any(value is None for value in required_retry_values):
+                    return "Retry and runtime logging values are required."
+                retry_values = controller.update_retry_policy(
+                    max_attempts=int(retry_max_attempts_value),
+                    initial_backoff_ms=int(retry_initial_backoff_value),
+                    max_backoff_ms=int(retry_max_backoff_value),
+                    backoff_multiplier=float(retry_multiplier_value),
+                    jitter_ratio=float(retry_jitter_value),
+                )
+                log_operation_failures = bool(log_operation_failures_value and "enabled" in log_operation_failures_value)
+                level, interval, failures = controller.update_runtime_logging(
+                    level_name=runtime_log_level_value or "INFO",
+                    progress_log_interval_seconds=int(progress_log_interval_value),
+                    log_operation_failures=log_operation_failures,
+                )
+                return (
+                    "Resilience settings updated: "
+                    f"retry attempts={retry_values[0]}, "
+                    f"backoff={retry_values[1]}-{retry_values[2]} ms, "
+                    f"multiplier={retry_values[3]:.2f}, jitter={retry_values[4]:.2f}; "
+                    f"log level={level}, progress logs every {interval}s, "
+                    f"operation failure logging={'on' if failures else 'off'}."
+                )
             raise PreventUpdate
         except Exception as exc:  # pragma: no cover - UI safety
             logger.exception("Runner control callback failed.")
@@ -671,6 +1054,61 @@ def _profile_chip(label: str, value: str, value_id: str | None = None) -> html.D
             ),
         ],
         style={**CARD_STYLE, "background": "#faf5ff", "border": "1px solid #d8b4fe"},
+    )
+
+
+def _weighted_input(label: str, input_id: str, value: float) -> html.Div:
+    return html.Div(
+        [
+            html.Div(label, style={"fontSize": "12px", "color": "#4b5563"}),
+            dcc.Input(
+                id=input_id,
+                type="number",
+                min=0,
+                step=0.01,
+                value=value,
+                style={
+                    "width": "100%",
+                    "padding": "8px",
+                    "borderRadius": "8px",
+                    "border": "1px solid #d1d5db",
+                    "marginTop": "6px",
+                },
+            ),
+        ]
+    )
+
+
+def _compact_number_input(
+    label: str,
+    input_id: str,
+    value: int | float,
+    step: int | float = 1,
+    min_value: int | float | None = None,
+    max_value: int | float | None = None,
+) -> html.Div:
+    kwargs: dict[str, int | float] = {"step": step}
+    if min_value is not None:
+        kwargs["min"] = min_value
+    if max_value is not None:
+        kwargs["max"] = max_value
+    return html.Div(
+        [
+            html.Div(label, style={"fontSize": "12px", "color": "#4b5563"}),
+            dcc.Input(
+                id=input_id,
+                type="number",
+                value=value,
+                style={
+                    "width": "100%",
+                    "padding": "8px",
+                    "borderRadius": "8px",
+                    "border": "1px solid #d1d5db",
+                    "marginTop": "6px",
+                },
+                **kwargs,
+            ),
+        ]
     )
 
 

@@ -6,7 +6,7 @@ import logging
 import random
 import time
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Callable
 
 from bson import ObjectId
 from pymongo import MongoClient
@@ -28,9 +28,10 @@ class MongoOperationExecutor:
         operation_selector: OperationSelector,
         document_generator: DocumentGenerator,
         id_registry: DocumentIdRegistry,
-        retry_policy: RetryPolicy,
+        retry_policy: RetryPolicy | None,
         logger: logging.Logger,
         rng: random.Random,
+        retry_policy_provider: Callable[[], RetryPolicy] | None = None,
     ):
         self._client = client
         self._namespace_selector = namespace_selector
@@ -39,11 +40,12 @@ class MongoOperationExecutor:
         self._id_registry = id_registry
         self._logger = logger
         self._rng = rng
-        self._retry_controller = RetryController(
-            policy=retry_policy,
-            rng=rng,
-            log_warning=self._logger.warning,
-        )
+        if retry_policy_provider is not None:
+            self._retry_policy_provider = retry_policy_provider
+        elif retry_policy is not None:
+            self._retry_policy_provider = lambda: retry_policy
+        else:
+            raise ValueError("Either retry_policy or retry_policy_provider must be provided.")
 
     def execute_once(self) -> OperationResult:
         target = self._namespace_selector.choose()
@@ -54,9 +56,14 @@ class MongoOperationExecutor:
         error: str | None = None
         attempts = 1
         operation_name = f"{operation.value} {target.database}.{target.collection}"
+        retry_controller = RetryController(
+            policy=self._retry_policy_provider(),
+            rng=self._rng,
+            log_warning=self._logger.warning,
+        )
 
         try:
-            _, attempts = self._retry_controller.run(
+            _, attempts = retry_controller.run(
                 operation_name=operation_name,
                 func=lambda: self._dispatch_operation(operation, collection, target.database, target.collection),
             )
