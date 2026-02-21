@@ -57,13 +57,13 @@ def build_operations_timeline(snapshot: MetricsSnapshot) -> go.Figure:
         )
     )
     figure.update_layout(
-        title="Operations Timeline (per second)",
+        title=None,
         xaxis={"title": "", "title_standoff": 0},
         yaxis_title="Operations / sec",
         template="plotly_white",
-        legend=dict(orientation="h", yanchor="bottom", y=1.12, xanchor="left", x=0),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
         hovermode="x unified",
-        margin={"l": 42, "r": 20, "t": 80, "b": 50},
+        margin={"l": 42, "r": 20, "t": 44, "b": 50},
         plot_bgcolor="#f8fafc",
         paper_bgcolor="white",
     )
@@ -139,13 +139,13 @@ def build_user_ramp_timeline(snapshot: MetricsSnapshot) -> go.Figure:
             )
         )
     figure.update_layout(
-        title="Virtual Users Ramp-Up / Ramp-Down",
+        title=None,
         xaxis={"title": "Time (UTC)", "title_standoff": 16},
         yaxis_title="Active virtual users",
         template="plotly_white",
-        legend=dict(orientation="h", yanchor="bottom", y=1.12, xanchor="left", x=0),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
         hovermode="x unified",
-        margin={"l": 42, "r": 20, "t": 80, "b": 70},
+        margin={"l": 42, "r": 20, "t": 44, "b": 70},
         plot_bgcolor="#f8fafc",
         paper_bgcolor="white",
     )
