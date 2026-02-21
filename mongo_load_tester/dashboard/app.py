@@ -419,7 +419,6 @@ def create_dashboard(
         Output("stop-test-btn", "disabled"),
         Output("pause-test-btn", "disabled"),
         Output("resume-test-btn", "disabled"),
-        Output("restart-test-btn", "disabled"),
         Output("log-view", "children"),
         Output("log-meta", "children"),
         Input("refresh", "n_intervals"),
@@ -452,7 +451,6 @@ def create_dashboard(
             stop_disabled = not runner.is_running
             pause_disabled = (not runner.is_running) or runner.is_paused
             resume_disabled = (not runner.is_running) or (not runner.is_paused)
-            restart_disabled = False
 
             return (
                 status_text,
@@ -487,7 +485,6 @@ def create_dashboard(
                 stop_disabled,
                 pause_disabled,
                 resume_disabled,
-                restart_disabled,
                 log_text,
                 log_meta,
             )
@@ -897,7 +894,6 @@ def _refresh_error_payload(error_message: str) -> tuple:
         empty_figure,
         html.Div("No operation data available due to dashboard refresh error."),
         html.Div("No insights available due to dashboard refresh error."),
-        True,
         True,
         True,
         True,
