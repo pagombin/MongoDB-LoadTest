@@ -53,6 +53,7 @@ class LoadTestRunner:
         self._started_virtual_users = 0
         self._max_virtual_users = max(config.load.virtual_users, 1)
         self._target_virtual_users = min(config.load.virtual_users, self._max_virtual_users)
+        self._target_worker_threads = max(config.load.worker_threads, 1)
         self._target_duration_seconds = config.load.duration_seconds
         self._operation_mix = config.operation_mix.model_copy(deep=True)
         self._think_time_ms_min = config.load.think_time_ms_min
@@ -68,6 +69,8 @@ class LoadTestRunner:
         self._logger = logger or logging.getLogger("mongo_load_tester.runner")
         self._retry_policy = RetryPolicy.from_config(config.retry)
         self._runtime_change_events: deque[RuntimeChangeEvent] = deque(maxlen=120)
+        self._worker_assignments: list[_WorkerAssignment] = []
+        self._running_worker_ids: set[int] = set()
 
     @property
     def is_running(self) -> bool:
@@ -112,6 +115,16 @@ class LoadTestRunner:
     def target_virtual_users(self) -> int:
         with self._state_lock:
             return self._target_virtual_users
+
+    @property
+    def target_worker_threads(self) -> int:
+        with self._state_lock:
+            return self._target_worker_threads
+
+    @property
+    def worker_thread_pool_size(self) -> int:
+        with self._state_lock:
+            return len(self._worker_assignments)
 
     @property
     def active_virtual_users(self) -> int:
@@ -189,18 +202,41 @@ class LoadTestRunner:
     def update_target_virtual_users(self, virtual_users: int) -> tuple[int, int]:
         requested_users = max(int(virtual_users), 1)
         with self._state_lock:
+            self._max_virtual_users = requested_users
+            self._target_virtual_users = requested_users
+            self._config.load.virtual_users = requested_users
+            self._rebalance_assignments_locked()
             max_users = self._max_virtual_users
-            applied_users = min(requested_users, max_users)
-            self._target_virtual_users = applied_users
+            applied_users = self._target_virtual_users
         self._logger.info(
-            "Live target users updated to %d/%d (requested=%d).",
+            "Live target users updated to %d/%d.",
             applied_users,
             max_users,
-            requested_users,
         )
         self._record_runtime_change(f"target_users={applied_users}/{max_users}")
         self._sample_active_users()
         return applied_users, max_users
+
+    def update_worker_threads(self, worker_threads: int) -> tuple[int, int]:
+        requested_threads = max(int(worker_threads), 1)
+        with self._state_lock:
+            pool_size = len(self._worker_assignments)
+            if self._running and pool_size > 0:
+                applied_threads = min(requested_threads, pool_size)
+            else:
+                applied_threads = requested_threads
+            self._target_worker_threads = applied_threads
+            self._config.load.worker_threads = applied_threads
+            self._rebalance_assignments_locked()
+        self._logger.info(
+            "Live worker thread target updated to %d (requested=%d, pool=%d).",
+            applied_threads,
+            requested_threads,
+            pool_size,
+        )
+        self._record_runtime_change(f"worker_threads={applied_threads}")
+        self._sample_active_users()
+        return applied_threads, max(pool_size, applied_threads)
 
     def update_operation_mix(
         self,
@@ -339,18 +375,21 @@ class LoadTestRunner:
             self._started_virtual_users = 0
             self._target_duration_seconds = max(int(self._target_duration_seconds), 1)
             self._target_virtual_users = max(min(self._target_virtual_users, self._max_virtual_users), 1)
+            self._target_worker_threads = max(self._target_worker_threads, 1)
             self._run_started_monotonic = time.monotonic()
             self._paused_started_monotonic = None
             self._paused_accumulated_seconds = 0.0
             self._final_active_elapsed_seconds = None
             self._pause_event.clear()
+            self._running_worker_ids.clear()
+            self._worker_assignments = []
         self._id_registry = DocumentIdRegistry()
         self._metrics.record_active_users(0, target_users=0, paused=False)
         self._logger.info(
             "Load test starting max_users=%d target_users=%d workers=%d duration=%ds ramp_up=%ds",
             self._max_virtual_users,
             self._target_virtual_users,
-            self._config.load.worker_threads,
+            self._target_worker_threads,
             self._target_duration_seconds,
             self._config.load.ramp_up_seconds,
         )
@@ -361,6 +400,9 @@ class LoadTestRunner:
             self._seed_initial_documents(self._client)
 
             assignments = self._build_assignments()
+            with self._state_lock:
+                self._worker_assignments = assignments
+                self._rebalance_assignments_locked()
             next_progress_log = time.monotonic() + self.progress_log_interval_seconds
             for assignment in assignments:
                 thread = threading.Thread(
@@ -411,6 +453,8 @@ class LoadTestRunner:
                 self._finished_at = datetime.now(UTC)
                 self._started_virtual_users = 0
                 self._pause_event.clear()
+                self._running_worker_ids.clear()
+                self._worker_assignments = []
             snapshot = self._metrics.snapshot()
             self._logger.info(
                 "Load test finished total_ops=%d success=%d errors=%d avg_latency_ms=%.2f p95_ms=%.2f active_elapsed=%.2fs",
@@ -426,7 +470,7 @@ class LoadTestRunner:
 
     def _build_assignments(self) -> list[_WorkerAssignment]:
         users = self._max_virtual_users
-        worker_count = min(self._config.load.worker_threads, users)
+        worker_count = min(max(self._target_worker_threads, 1), users)
         base = users // worker_count
         remainder = users % worker_count
         assignments: list[_WorkerAssignment] = []
@@ -467,7 +511,7 @@ class LoadTestRunner:
                 assignment.simulated_users,
                 assignment.startup_delay_seconds,
             )
-            self._adjust_started_users(assignment.simulated_users)
+            self._register_running_worker(assignment.worker_id)
             worker_users_registered = True
             namespace_selector = NamespaceSelector(self._config.namespace, rng)
             operation_selector = OperationSelector(
@@ -528,7 +572,7 @@ class LoadTestRunner:
             self._stop_event.set()
         finally:
             if worker_users_registered:
-                self._adjust_started_users(-assignment.simulated_users)
+                self._unregister_running_worker(assignment.worker_id)
             worker_logger.info("Worker exiting.")
 
     def _seed_initial_documents(self, client: MongoClient) -> None:
@@ -591,9 +635,15 @@ class LoadTestRunner:
                 inserted_for_target,
             )
 
-    def _adjust_started_users(self, delta: int) -> None:
+    def _register_running_worker(self, worker_id: int) -> None:
         with self._state_lock:
-            self._started_virtual_users = max(self._started_virtual_users + delta, 0)
+            self._running_worker_ids.add(worker_id)
+            active_users, target_users, paused = self._current_user_levels_locked()
+        self._metrics.record_active_users(active_users, target_users=target_users, paused=paused)
+
+    def _unregister_running_worker(self, worker_id: int) -> None:
+        with self._state_lock:
+            self._running_worker_ids.discard(worker_id)
             active_users, target_users, paused = self._current_user_levels_locked()
         self._metrics.record_active_users(active_users, target_users=target_users, paused=paused)
 
@@ -627,7 +677,7 @@ class LoadTestRunner:
         with self._state_lock:
             if self._pause_event.is_set():
                 return 0
-            target_users = min(max(self._target_virtual_users, 0), max(self._started_virtual_users, 0))
+            target_users = min(max(self._target_virtual_users, 0), self._available_virtual_capacity_locked())
             if target_users <= assignment.user_offset:
                 return 0
             return min(assignment.simulated_users, target_users - assignment.user_offset)
@@ -651,9 +701,36 @@ class LoadTestRunner:
 
     def _current_user_levels_locked(self) -> tuple[int, int, bool]:
         paused = self._pause_event.is_set()
-        target_users = min(max(self._target_virtual_users, 0), max(self._started_virtual_users, 0))
+        target_users = min(max(self._target_virtual_users, 0), self._available_virtual_capacity_locked())
         active_users = 0 if paused else target_users
         return active_users, target_users, paused
+
+    def _available_virtual_capacity_locked(self) -> int:
+        if not self._worker_assignments or not self._running_worker_ids:
+            return 0
+        return sum(
+            assignment.simulated_users
+            for assignment in self._worker_assignments
+            if assignment.worker_id in self._running_worker_ids
+        )
+
+    def _rebalance_assignments_locked(self) -> None:
+        if not self._worker_assignments:
+            return
+        active_threads = min(max(self._target_worker_threads, 1), len(self._worker_assignments))
+        total_users = max(self._max_virtual_users, 1)
+        base = total_users // active_threads
+        remainder = total_users % active_threads
+        user_offset = 0
+        for index, assignment in enumerate(self._worker_assignments):
+            if index < active_threads:
+                assigned_users = base + (1 if index < remainder else 0)
+                assignment.simulated_users = assigned_users
+                assignment.user_offset = user_offset
+                user_offset += assigned_users
+            else:
+                assignment.simulated_users = 0
+                assignment.user_offset = user_offset
 
     def _record_runtime_change(self, message: str) -> None:
         with self._state_lock:

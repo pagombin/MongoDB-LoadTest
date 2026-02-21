@@ -43,6 +43,9 @@ class LoadTestController:
     def update_target_virtual_users(self, virtual_users: int) -> tuple[int, int]:
         return self._runner.update_target_virtual_users(virtual_users)
 
+    def update_worker_threads(self, worker_threads: int) -> tuple[int, int]:
+        return self._runner.update_worker_threads(worker_threads)
+
     def update_operation_mix(
         self,
         read: float,
@@ -117,6 +120,8 @@ class LoadTestController:
         return {
             "max_virtual_users": self._runner.max_virtual_users,
             "target_virtual_users": self._runner.target_virtual_users,
+            "target_worker_threads": self._runner.target_worker_threads,
+            "worker_thread_pool_size": self._runner.worker_thread_pool_size,
             "target_duration_seconds": self._runner.target_duration_seconds,
             "operation_mix": self._runner.operation_mix_normalized(),
             "think_time_ms_min": think_min,

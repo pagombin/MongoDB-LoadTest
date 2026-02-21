@@ -221,11 +221,25 @@ def create_dashboard(
                                             html.Div("Target users", style={"fontSize": "12px", "color": "#4b5563"}),
                                             dcc.Input(
                                                 id="target-users-input",
-                                                type="number",
-                                                min=1,
-                                                max=config.load.virtual_users,
-                                                step=1,
-                                                value=config.load.virtual_users,
+                                                type="text",
+                                                value=str(config.load.virtual_users),
+                                                style={
+                                                    "width": "110px",
+                                                    "padding": "8px",
+                                                    "borderRadius": "8px",
+                                                    "border": "1px solid #d1d5db",
+                                                    "marginTop": "6px",
+                                                },
+                                            ),
+                                        ]
+                                    ),
+                                    html.Div(
+                                        [
+                                            html.Div("Worker threads", style={"fontSize": "12px", "color": "#4b5563"}),
+                                            dcc.Input(
+                                                id="worker-threads-input",
+                                                type="text",
+                                                value=str(config.load.worker_threads),
                                                 style={
                                                     "width": "110px",
                                                     "padding": "8px",
@@ -279,10 +293,12 @@ def create_dashboard(
                                             html.Div("Target ops/user/sec", style={"fontSize": "12px", "color": "#4b5563"}),
                                             dcc.Input(
                                                 id="target-ops-per-user-input",
-                                                type="number",
-                                                min=0.01,
-                                                step=0.1,
-                                                value=config.load.target_ops_per_user_per_sec,
+                                                type="text",
+                                                value=(
+                                                    ""
+                                                    if config.load.target_ops_per_user_per_sec is None
+                                                    else f"{config.load.target_ops_per_user_per_sec}"
+                                                ),
                                                 placeholder="empty = unbounded",
                                                 style={
                                                     "width": "150px",
@@ -424,13 +440,13 @@ def create_dashboard(
             ),
             html.Div(
                 [
-                    _profile_chip("Max virtual users", f"{config.load.virtual_users:,}"),
+                    _profile_chip("Max virtual users", f"{config.load.virtual_users:,}", value_id="max-virtual-users-chip"),
                     _profile_chip(
                         "Target users (live)",
                         f"{config.load.virtual_users:,}",
                         value_id="target-users-chip",
                     ),
-                    _profile_chip("Worker threads", f"{config.load.worker_threads:,}"),
+                    _profile_chip("Worker threads", f"{config.load.worker_threads:,}", value_id="worker-threads-chip"),
                     _profile_chip(
                         "Configured duration",
                         _format_duration(config.load.duration_seconds),
@@ -724,7 +740,9 @@ def create_dashboard(
 
     @callback(
         Output("configured-duration-value", "children"),
+        Output("max-virtual-users-chip", "children"),
         Output("target-users-chip", "children"),
+        Output("worker-threads-chip", "children"),
         Output("read-write-mix-chip", "children"),
         Output("live-controls-meta", "children"),
         Output("runtime-change-events", "children"),
@@ -734,8 +752,10 @@ def create_dashboard(
         try:
             settings = controller.live_settings_snapshot()
             duration_seconds = int(settings["target_duration_seconds"])
-            target_users = int(settings["target_virtual_users"])
             max_users = int(settings["max_virtual_users"])
+            target_users = int(settings["target_virtual_users"])
+            worker_threads = int(settings["target_worker_threads"])
+            worker_pool = int(settings["worker_thread_pool_size"])
             operation_mix = settings["operation_mix"]
             retry_policy = settings["retry_policy"]
             read_pct = operation_mix["read"] * 100
@@ -745,6 +765,7 @@ def create_dashboard(
             live_meta = (
                 f"Live state: users {target_users}/{max_users} | think {settings['think_time_ms_min']}-"
                 f"{settings['think_time_ms_max']} ms | target ops/user {target_rate_text} | "
+                f"workers {worker_threads} (pool {worker_pool}) | "
                 f"retry attempts {retry_policy['max_attempts']} | "
                 f"log level {settings['log_level']} | progress logs every {settings['progress_log_interval_seconds']}s"
             )
@@ -758,7 +779,9 @@ def create_dashboard(
                 event_items = [html.Li("No live runtime changes have been applied yet.")]
             return (
                 _format_duration(duration_seconds),
+                _fmt(max_users),
                 _fmt(target_users),
+                _fmt(worker_threads),
                 f"{read_pct:.1f}% / {write_pct:.1f}%",
                 live_meta,
                 event_items,
@@ -767,7 +790,9 @@ def create_dashboard(
             logger.exception("Live control state refresh failed.")
             return (
                 _format_duration(runner.target_duration_seconds),
+                _fmt(runner.max_virtual_users),
                 _fmt(runner.target_virtual_users),
+                _fmt(runner.target_worker_threads),
                 "N/A",
                 f"Live settings unavailable: {exc}",
                 [html.Li("Unable to load runtime change history.")],
@@ -785,6 +810,7 @@ def create_dashboard(
         Input("apply-resilience-controls-btn", "n_clicks"),
         State("duration-seconds-input", "value"),
         State("target-users-input", "value"),
+        State("worker-threads-input", "value"),
         State("think-time-min-input", "value"),
         State("think-time-max-input", "value"),
         State("target-ops-per-user-input", "value"),
@@ -812,10 +838,11 @@ def create_dashboard(
         apply_mix_clicks: int,
         apply_resilience_clicks: int,
         duration_value: int,
-        target_users_value: int,
+        target_users_value: str,
+        worker_threads_value: str,
         think_min_value: int,
         think_max_value: int,
-        target_ops_per_user_value: float | None,
+        target_ops_per_user_value: str,
         mix_read_value: float,
         mix_insert_value: float,
         mix_update_value: float,
@@ -863,24 +890,27 @@ def create_dashboard(
             if triggered == "apply-load-controls-btn":
                 if not apply_load_clicks:
                     raise PreventUpdate
-                if target_users_value is None:
-                    return "Target users value is required."
                 if think_min_value is None or think_max_value is None:
                     return "Think time minimum and maximum values are required."
-                target_users, max_users = controller.update_target_virtual_users(int(target_users_value))
-                target_rate: float | None = None
-                if target_ops_per_user_value not in (None, ""):
-                    target_rate = float(target_ops_per_user_value)
+                target_users_requested = _parse_positive_int(target_users_value, "Target users")
+                worker_threads_requested = _parse_positive_int(worker_threads_value, "Worker threads")
+                target_rate = _parse_optional_positive_float(target_ops_per_user_value, "Target ops/user/sec")
+                target_users, max_users = controller.update_target_virtual_users(target_users_requested)
+                worker_threads, worker_pool = controller.update_worker_threads(worker_threads_requested)
                 min_ms, max_ms, applied_rate = controller.update_pacing(
                     think_time_ms_min=int(think_min_value),
                     think_time_ms_max=int(think_max_value),
                     target_ops_per_user_per_sec=target_rate,
                 )
-                capped = int(target_users_value) > max_users
-                cap_note = f" (capped at provisioned max {max_users})" if capped else ""
                 rate_text = "unbounded" if applied_rate is None else f"{applied_rate:.2f} ops/user/sec"
+                pool_note = ""
+                if worker_threads < worker_threads_requested:
+                    pool_note = (
+                        f" (running pool is {worker_pool}; restart to apply >{worker_pool} active threads)"
+                    )
                 return (
-                    f"Live load controls applied: users {target_users}/{max_users}{cap_note}, "
+                    f"Live load controls applied: users {target_users}/{max_users}, "
+                    f"worker threads {worker_threads}{pool_note}, "
                     f"think time {min_ms}-{max_ms} ms, target ops/user {rate_text}."
                 )
             if triggered == "apply-operation-mix-btn":
@@ -1266,6 +1296,32 @@ def _format_duration(seconds: int) -> str:
 
 def _fmt(value: int) -> str:
     return f"{value:,}"
+
+
+def _parse_positive_int(value: object, field_name: str) -> int:
+    raw = str(value or "").strip().replace(",", "")
+    if not raw:
+        raise ValueError(f"{field_name} value is required.")
+    try:
+        parsed = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be a whole number.") from exc
+    if parsed <= 0:
+        raise ValueError(f"{field_name} must be greater than 0.")
+    return parsed
+
+
+def _parse_optional_positive_float(value: object, field_name: str) -> float | None:
+    raw = str(value or "").strip().replace(",", "")
+    if not raw:
+        return None
+    try:
+        parsed = float(raw)
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be a valid number.") from exc
+    if parsed <= 0:
+        return None
+    return parsed
 
 
 def _parse_log_level(level_name: str | None) -> int:

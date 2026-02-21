@@ -158,7 +158,8 @@ If that command is not in your PATH, use the `python3 -m mongo_load_tester.cli .
 - One-click restart from UI with existing settings (metrics reset for clean rerun)
 - Runtime duration can be updated while the test is running
 - Phase 1 live controls can be applied immediately without restart:
-  - target virtual users (up to provisioned max)
+  - target virtual users (can scale up/down live)
+  - worker thread target (active threads may be capped by current running pool until restart)
   - think-time min/max and target ops/user/sec pacing
   - read/insert/update/delete mix weights
   - retry policy (attempts + backoff + jitter)

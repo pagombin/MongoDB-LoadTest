@@ -47,10 +47,16 @@ def test_runner_live_update_methods_sanitize_and_apply() -> None:
     config = AppConfig()
     metrics = MetricsStore(history_window_seconds=config.dashboard.history_window_seconds)
     runner = LoadTestRunner(config=config, metrics=metrics)
+    base_users = config.load.virtual_users
+    base_workers = config.load.worker_threads
 
-    users, max_users = runner.update_target_virtual_users(config.load.virtual_users + 50)
-    assert users == config.load.virtual_users
-    assert max_users == config.load.virtual_users
+    users, max_users = runner.update_target_virtual_users(base_users + 50)
+    assert users == base_users + 50
+    assert max_users == base_users + 50
+
+    workers, pool = runner.update_worker_threads(base_workers + 7)
+    assert workers == base_workers + 7
+    assert pool == base_workers + 7
 
     mix = runner.update_operation_mix(read=8, insert=1, update=1, delete=0)
     normalized = mix.normalized()
