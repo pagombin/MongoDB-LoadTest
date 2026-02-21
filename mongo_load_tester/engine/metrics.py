@@ -56,6 +56,26 @@ class MetricsStore:
         self._latest_active_users = 0
         self._latest_paused_state = False
 
+    def reset(self) -> None:
+        """Clear collected metrics so a new run starts fresh."""
+
+        with self._lock:
+            self._start_monotonic = time.monotonic()
+            self._total_ops = 0
+            self._success_ops = 0
+            self._error_ops = 0
+            self._total_attempts = 0
+            self._retried_ops = 0
+            self._latency_sum = 0.0
+            self._operation_counts.clear()
+            self._operation_latency_sum.clear()
+            self._latency_samples.clear()
+            self._timeline.clear()
+            self._active_user_timeline.clear()
+            self._paused_timeline.clear()
+            self._latest_active_users = 0
+            self._latest_paused_state = False
+
     def record(self, result: OperationResult) -> None:
         op_name = result.operation.value
         second_epoch = int(result.timestamp.timestamp())

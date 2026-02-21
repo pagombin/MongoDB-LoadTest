@@ -41,3 +41,29 @@ def test_metrics_snapshot_calculations() -> None:
     assert any(point.paused for point in snapshot.timeline)
     rows = store.export_timeline_rows()
     assert any(bool(row["paused"]) for row in rows)
+
+
+def test_metrics_store_reset_clears_all_data() -> None:
+    store = MetricsStore(history_window_seconds=120)
+    now = datetime.now(UTC)
+    store.record(
+        OperationResult(
+            timestamp=now,
+            operation=OperationType.READ,
+            database="db",
+            collection="c",
+            latency_ms=2.0,
+            success=True,
+        )
+    )
+    store.record_active_users(10, paused=False, timestamp=now)
+
+    store.reset()
+    snapshot = store.snapshot()
+
+    assert snapshot.total_ops == 0
+    assert snapshot.error_ops == 0
+    assert snapshot.retried_ops == 0
+    assert snapshot.active_virtual_users_current == 0
+    assert snapshot.timeline == []
+    assert store.export_timeline_rows() == []

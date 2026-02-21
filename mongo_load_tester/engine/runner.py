@@ -141,6 +141,7 @@ class LoadTestRunner:
             log_warning=self._logger.warning,
         )
         with self._state_lock:
+            self._stop_event.clear()
             self._running = True
             self._started_at = datetime.now(UTC)
             self._finished_at = None
@@ -152,6 +153,7 @@ class LoadTestRunner:
             self._paused_accumulated_seconds = 0.0
             self._final_active_elapsed_seconds = None
             self._pause_event.clear()
+        self._id_registry = DocumentIdRegistry()
         self._metrics.record_active_users(0, paused=False)
         self._logger.info(
             "Load test starting users=%d workers=%d duration=%ds ramp_up=%ds",

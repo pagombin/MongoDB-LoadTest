@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import threading
 from pathlib import Path
 
 import typer
@@ -11,6 +10,7 @@ import yaml
 
 from mongo_load_tester.config import default_config, load_config
 from mongo_load_tester.dashboard.app import create_dashboard
+from mongo_load_tester.engine.control import LoadTestController
 from mongo_load_tester.engine.metrics import MetricsStore
 from mongo_load_tester.engine.runner import LoadTestRunner
 from mongo_load_tester.observability import configure_logging
@@ -37,7 +37,7 @@ def run_load_test(
     logger.info("Loaded config file: %s", config)
     metrics = MetricsStore(history_window_seconds=app_config.dashboard.history_window_seconds)
     runner = LoadTestRunner(app_config, metrics, logger=logger)
-    worker_thread: threading.Thread | None = None
+    controller = LoadTestController(runner=runner, metrics_store=metrics, logger=logger)
 
     try:
         if no_dashboard or not app_config.dashboard.enabled:
@@ -59,9 +59,8 @@ def run_load_test(
             typer.echo(f"Completed. Total ops={snapshot.total_ops} p95={snapshot.p95_latency_ms:.2f}ms")
             return
 
-        worker_thread = threading.Thread(target=runner.run, daemon=True, name="runner-main")
-        worker_thread.start()
-        dashboard = create_dashboard(app_config, metrics, runner, log_buffer)
+        controller.start()
+        dashboard = create_dashboard(app_config, metrics, runner, log_buffer, controller)
         typer.echo(f"Dashboard available at http://{app_config.dashboard.host}:{app_config.dashboard.port}")
         logger.info(
             "Dashboard available at http://%s:%d",
@@ -84,9 +83,8 @@ def run_load_test(
         typer.echo(f"Run failed: {exc}")
         raise typer.Exit(code=1)
     finally:
-        runner.stop()
-        if worker_thread is not None:
-            worker_thread.join(timeout=5)
+        controller.stop()
+        controller.join(timeout=5)
         if runner.last_error:
             logger.error("Runner recorded error: %s", runner.last_error)
 

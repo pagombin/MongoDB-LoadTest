@@ -19,6 +19,7 @@ from mongo_load_tester.dashboard.figures import (
     build_operations_timeline,
     build_user_ramp_timeline,
 )
+from mongo_load_tester.engine.control import LoadTestController
 from mongo_load_tester.engine.metrics import MetricsStore
 from mongo_load_tester.engine.runner import LoadTestRunner
 from mongo_load_tester.models import MetricsSnapshot
@@ -60,6 +61,15 @@ STOP_BUTTON_STYLE = {
     "cursor": "pointer",
     "fontSize": "13px",
 }
+RESTART_BUTTON_STYLE = {
+    "padding": "10px 12px",
+    "borderRadius": "8px",
+    "border": "1px solid #2563eb",
+    "background": "#2563eb",
+    "color": "white",
+    "cursor": "pointer",
+    "fontSize": "13px",
+}
 STATUS_STYLE_MAP = {
     "running": {"background": "#dcfce7", "color": "#166534", "border": "1px solid #86efac"},
     "paused": {"background": "#fef3c7", "color": "#92400e", "border": "1px solid #fcd34d"},
@@ -84,6 +94,7 @@ def create_dashboard(
     metrics_store: MetricsStore,
     runner: LoadTestRunner,
     log_buffer: InMemoryLogBuffer,
+    controller: LoadTestController,
 ) -> Dash:
     app = Dash(__name__, title="MongoDB Load Tester")
     logger = logging.getLogger("mongo_load_tester.dashboard")
@@ -109,6 +120,7 @@ def create_dashboard(
                         [
                             html.Button("Pause", id="pause-test-btn", n_clicks=0, style=PAUSE_BUTTON_STYLE),
                             html.Button("Resume", id="resume-test-btn", n_clicks=0, style=RESUME_BUTTON_STYLE),
+                            html.Button("Restart", id="restart-test-btn", n_clicks=0, style=RESTART_BUTTON_STYLE),
                             html.Button("Stop", id="stop-test-btn", n_clicks=0, style=STOP_BUTTON_STYLE),
                             html.Button("Export CSV", id="download-csv-btn", n_clicks=0, style=ACTION_BUTTON_STYLE),
                             html.Button("Export PNG", id="download-png-btn", n_clicks=0, style=ACTION_BUTTON_STYLE),
@@ -407,6 +419,7 @@ def create_dashboard(
         Output("stop-test-btn", "disabled"),
         Output("pause-test-btn", "disabled"),
         Output("resume-test-btn", "disabled"),
+        Output("restart-test-btn", "disabled"),
         Output("log-view", "children"),
         Output("log-meta", "children"),
         Input("refresh", "n_intervals"),
@@ -439,6 +452,7 @@ def create_dashboard(
             stop_disabled = not runner.is_running
             pause_disabled = (not runner.is_running) or runner.is_paused
             resume_disabled = (not runner.is_running) or (not runner.is_paused)
+            restart_disabled = False
 
             return (
                 status_text,
@@ -473,6 +487,7 @@ def create_dashboard(
                 stop_disabled,
                 pause_disabled,
                 resume_disabled,
+                restart_disabled,
                 log_text,
                 log_meta,
             )
@@ -485,11 +500,19 @@ def create_dashboard(
         Input("stop-test-btn", "n_clicks"),
         Input("pause-test-btn", "n_clicks"),
         Input("resume-test-btn", "n_clicks"),
+        Input("restart-test-btn", "n_clicks"),
         Input("apply-duration-btn", "n_clicks"),
         State("duration-seconds-input", "value"),
         prevent_initial_call=True,
     )
-    def control_runner(stop_clicks: int, pause_clicks: int, resume_clicks: int, apply_clicks: int, duration_value: int):
+    def control_runner(
+        stop_clicks: int,
+        pause_clicks: int,
+        resume_clicks: int,
+        restart_clicks: int,
+        apply_clicks: int,
+        duration_value: int,
+    ):
         triggered = ctx.triggered_id
         if triggered is None:
             raise PreventUpdate
@@ -497,24 +520,29 @@ def create_dashboard(
             if triggered == "stop-test-btn":
                 if not stop_clicks:
                     raise PreventUpdate
-                runner.stop()
+                controller.stop()
                 return "Stop requested. Workers are finishing in-flight operations."
             if triggered == "pause-test-btn":
                 if not pause_clicks:
                     raise PreventUpdate
-                paused = runner.pause()
+                paused = controller.pause()
                 return "Load test paused." if paused else "Pause ignored (runner is not active)."
             if triggered == "resume-test-btn":
                 if not resume_clicks:
                     raise PreventUpdate
-                resumed = runner.resume()
+                resumed = controller.resume()
                 return "Load test resumed." if resumed else "Resume ignored (runner is not paused)."
+            if triggered == "restart-test-btn":
+                if not restart_clicks:
+                    raise PreventUpdate
+                _, message = controller.restart()
+                return message
             if triggered == "apply-duration-btn":
                 if not apply_clicks:
                     raise PreventUpdate
                 if duration_value is None:
                     return "Duration value is required."
-                updated = runner.update_duration_seconds(int(duration_value))
+                updated = controller.update_duration_seconds(int(duration_value))
                 return f"Run duration updated to {updated} seconds."
             raise PreventUpdate
         except Exception as exc:  # pragma: no cover - UI safety
@@ -869,6 +897,7 @@ def _refresh_error_payload(error_message: str) -> tuple:
         empty_figure,
         html.Div("No operation data available due to dashboard refresh error."),
         html.Div("No insights available due to dashboard refresh error."),
+        True,
         True,
         True,
         True,

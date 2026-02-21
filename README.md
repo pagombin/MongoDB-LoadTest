@@ -154,6 +154,7 @@ If that command is not in your PATH, use the `python3 -m mongo_load_tester.cli .
 
 - Live status badge (running/completed/failed/initializing)
 - Pause/resume/stop controls directly in UI
+- One-click restart from UI with existing settings (metrics reset for clean rerun)
 - Runtime duration can be updated while the test is running
 - Runtime progress bar with elapsed and remaining time
 - Adjustable timeline window (1m, 5m, 15m, 30m, 1h, 8h, 24h, all)
