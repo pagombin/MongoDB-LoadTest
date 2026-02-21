@@ -70,6 +70,13 @@ export:
   default_png_width: 1600
   default_png_height: 900
 
+slo:
+  enabled: true
+  p95_latency_ms_threshold: 80
+  error_rate_pct_threshold: 1.0
+  min_ops_per_sec_threshold: 100
+  evaluation_window_seconds: 300
+
 logging:
   level: "INFO"
   enable_file_output: true

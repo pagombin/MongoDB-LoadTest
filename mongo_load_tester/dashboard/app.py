@@ -472,10 +472,10 @@ def create_dashboard(
                 f"{stable_ops_per_sec:.2f}",
                 f"{error_rate:.2f}%",
                 f"{success_rate:.2f}%",
-                f"{snapshot.avg_latency_ms:.2f} ms",
-                f"{snapshot.p95_latency_ms:.2f} ms",
-                f"{retry_rate:.2f}%",
-                _fmt(snapshot.active_virtual_users_current),
+                f"{snapshot.avg_latency_ms:.2f} ms | jitter {snapshot.latency_jitter_ms:.2f}",
+                f"{snapshot.p95_latency_ms:.2f} | p99 {snapshot.p99_latency_ms:.2f} | p99.9 {snapshot.p999_latency_ms:.2f}",
+                f"{retry_rate:.2f}% | timeout {snapshot.timeout_rate_pct:.2f}%",
+                f"{_fmt(snapshot.active_virtual_users_current)} / exp {_fmt(snapshot.active_virtual_users_expected_current)}",
                 build_operations_timeline(filtered_snapshot),
                 build_latency_timeline(filtered_snapshot),
                 build_user_ramp_timeline(filtered_snapshot),
@@ -666,6 +666,7 @@ def _build_operation_table(snapshot: MetricsSnapshot) -> html.Table:
         count = snapshot.operation_counts.get(op_name, 0)
         share = (count / total_ops * 100.0) if total_ops else 0.0
         avg_latency = snapshot.operation_latency_avg_ms.get(op_name, 0.0)
+        percentiles = snapshot.operation_latency_percentiles_ms.get(op_name, {})
         rows.append(
             html.Tr(
                 [
@@ -673,6 +674,14 @@ def _build_operation_table(snapshot: MetricsSnapshot) -> html.Table:
                     html.Td(f"{count:,}", style={"padding": "8px", "borderBottom": "1px solid #ddd6fe"}),
                     html.Td(f"{share:.2f}%", style={"padding": "8px", "borderBottom": "1px solid #ddd6fe"}),
                     html.Td(f"{avg_latency:.2f} ms", style={"padding": "8px", "borderBottom": "1px solid #ddd6fe"}),
+                    html.Td(
+                        f"{percentiles.get('p95', 0.0):.2f} ms",
+                        style={"padding": "8px", "borderBottom": "1px solid #ddd6fe"},
+                    ),
+                    html.Td(
+                        f"{percentiles.get('p99', 0.0):.2f} ms",
+                        style={"padding": "8px", "borderBottom": "1px solid #ddd6fe"},
+                    ),
                 ]
             )
         )
@@ -685,6 +694,8 @@ def _build_operation_table(snapshot: MetricsSnapshot) -> html.Table:
                         html.Th("Count", style={"textAlign": "left", "padding": "8px"}),
                         html.Th("Share", style={"textAlign": "left", "padding": "8px"}),
                         html.Th("Avg latency", style={"textAlign": "left", "padding": "8px"}),
+                        html.Th("P95", style={"textAlign": "left", "padding": "8px"}),
+                        html.Th("P99", style={"textAlign": "left", "padding": "8px"}),
                     ]
                 )
             ),
@@ -694,17 +705,61 @@ def _build_operation_table(snapshot: MetricsSnapshot) -> html.Table:
     )
 
 
-def _build_smart_insights(snapshot: MetricsSnapshot) -> html.Ul:
+def _build_smart_insights(snapshot: MetricsSnapshot) -> html.Div:
     error_rate = (snapshot.error_ops / snapshot.total_ops * 100.0) if snapshot.total_ops else 0.0
     retry_rate = (snapshot.retried_ops / snapshot.total_ops * 100.0) if snapshot.total_ops else 0.0
     throughput_trend = _throughput_trend(snapshot)
+    tail_latency_lines = [
+        f"p90={snapshot.p90_latency_ms:.2f}ms",
+        f"p95={snapshot.p95_latency_ms:.2f}ms",
+        f"p99={snapshot.p99_latency_ms:.2f}ms",
+        f"p99.9={snapshot.p999_latency_ms:.2f}ms",
+        f"max={snapshot.max_latency_ms:.2f}ms",
+        f"stddev={snapshot.latency_stddev_ms:.2f}ms",
+        f"jitter={snapshot.latency_jitter_ms:.2f}ms",
+    ]
+    retry_quality_lines = [
+        f"retry_rate={retry_rate:.2f}%",
+        f"retry_success={snapshot.retry_success_rate_pct:.2f}%",
+        f"timeouts={snapshot.timeout_ops} ({snapshot.timeout_rate_pct:.2f}%)",
+        f"attempts={_format_attempt_distribution(snapshot.retry_attempt_distribution)}",
+    ]
+    stability_lines = [
+        f"rolling_ops_10s={snapshot.rolling_ops_per_sec_10s:.2f}",
+        f"rolling_ops_60s={snapshot.rolling_ops_per_sec_60s:.2f}",
+        f"throughput_cv_60s={snapshot.throughput_cv_60s_pct:.2f}%",
+        f"trend={throughput_trend:.2f}%",
+    ]
+    ramp_lines = [
+        f"active_users={snapshot.active_virtual_users_current}",
+        f"expected_users={snapshot.active_virtual_users_expected_current}",
+        f"delta={snapshot.user_ramp_delta_current}",
+        f"adherence={snapshot.user_ramp_adherence_pct:.2f}%",
+    ]
+    slo_lines = [
+        f"status={snapshot.slo_status}",
+        f"within_window={snapshot.slo_within_pct:.2f}%",
+        f"violation_seconds={snapshot.slo_violation_seconds}",
+        f"failed_checks={', '.join(snapshot.slo_failed_checks) if snapshot.slo_failed_checks else 'none'}",
+    ]
+    taxonomy_lines = _format_error_taxonomy(snapshot.error_category_counts)
     checks = [
         _insight_line("Error rate", error_rate, 1.0, lower_is_better=True, suffix="%"),
-        _insight_line("P95 latency", snapshot.p95_latency_ms, 50.0, lower_is_better=True, suffix=" ms"),
         _insight_line("Retry rate", retry_rate, 2.0, lower_is_better=True, suffix="%"),
-        _insight_line("Throughput trend", throughput_trend, 0.0, lower_is_better=False, suffix="%"),
+        _insight_line("P95 latency", snapshot.p95_latency_ms, 50.0, lower_is_better=True, suffix=" ms"),
     ]
-    return html.Ul(checks, style={"margin": "0", "paddingLeft": "20px", "lineHeight": "1.8"})
+
+    return html.Div(
+        [
+            html.Ul(checks, style={"margin": "0", "paddingLeft": "20px", "lineHeight": "1.7"}),
+            _insight_block("Tail latency depth", tail_latency_lines),
+            _insight_block("Retry quality", retry_quality_lines),
+            _insight_block("Throughput stability", stability_lines),
+            _insight_block("Ramp adherence", ramp_lines),
+            _insight_block("SLO compliance", slo_lines),
+            _insight_block("Error taxonomy", taxonomy_lines),
+        ]
+    )
 
 
 def _insight_line(label: str, value: float, threshold: float, lower_is_better: bool, suffix: str) -> html.Li:
@@ -721,6 +776,31 @@ def _insight_line(label: str, value: float, threshold: float, lower_is_better: b
             ),
         ]
     )
+
+
+def _insight_block(title: str, lines: list[str]) -> html.Div:
+    return html.Div(
+        [
+            html.Div(title, style={"fontSize": "12px", "fontWeight": "700", "color": "#3730a3", "marginTop": "8px"}),
+            html.Ul(
+                [html.Li(line) for line in lines],
+                style={"margin": "4px 0 0 0", "paddingLeft": "20px", "lineHeight": "1.6"},
+            ),
+        ]
+    )
+
+
+def _format_attempt_distribution(distribution: dict[str, int]) -> str:
+    order = ["1", "2", "3", "4+"]
+    pairs = [f"{key}:{distribution.get(key, 0)}" for key in order if key in distribution or distribution.get(key, 0) > 0]
+    return " | ".join(pairs) if pairs else "none"
+
+
+def _format_error_taxonomy(counts: dict[str, int]) -> list[str]:
+    if not counts:
+        return ["none"]
+    sorted_counts = sorted(counts.items(), key=lambda item: item[1], reverse=True)[:5]
+    return [f"{name}: {count}" for name, count in sorted_counts]
 
 
 def _throughput_trend(snapshot: MetricsSnapshot) -> float:

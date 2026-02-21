@@ -10,10 +10,15 @@ from typing import Callable, Generic, TypeVar
 from pymongo.errors import (
     AutoReconnect,
     ConnectionFailure,
+    DuplicateKeyError,
+    ExecutionTimeout,
     NetworkTimeout,
     NotPrimaryError,
+    OperationFailure,
     PyMongoError,
     ServerSelectionTimeoutError,
+    WTimeoutError,
+    WriteConcernError,
 )
 
 from mongo_load_tester.config import RetryConfig
@@ -95,6 +100,34 @@ def is_retryable_exception(exc: Exception) -> bool:
             except Exception:
                 continue
     return False
+
+
+def classify_exception(exc: Exception) -> tuple[str, bool]:
+    """Classify an exception into an error taxonomy + timeout flag."""
+
+    if isinstance(exc, (NetworkTimeout, ServerSelectionTimeoutError, ExecutionTimeout, WTimeoutError)):
+        return "timeout", True
+    if isinstance(exc, (AutoReconnect, ConnectionFailure)):
+        return "connection", False
+    if isinstance(exc, NotPrimaryError):
+        return "not_primary", False
+    if isinstance(exc, DuplicateKeyError):
+        return "duplicate_key", False
+    if isinstance(exc, WriteConcernError):
+        return "write_concern", False
+    if isinstance(exc, OperationFailure):
+        code = getattr(exc, "code", None)
+        if code in {13, 18}:
+            return "authentication", False
+        try:
+            if exc.has_error_label("RetryableWriteError") or exc.has_error_label("RetryableReadError"):
+                return "retryable_server", False
+        except Exception:
+            pass
+        return "operation_failure", False
+    if isinstance(exc, PyMongoError):
+        return "pymongo", False
+    return exc.__class__.__name__.lower(), False
 
 
 class RetryController(Generic[T]):

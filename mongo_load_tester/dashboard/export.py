@@ -14,7 +14,7 @@ from reportlab.pdfgen import canvas
 from mongo_load_tester.models import MetricsSnapshot
 
 
-def build_csv_bytes(rows: list[dict[str, str | int | float]]) -> bytes:
+def build_csv_bytes(rows: list[dict[str, str | int | float | bool]]) -> bytes:
     """Serialize timeline rows to CSV bytes."""
 
     output = io.StringIO()
@@ -25,6 +25,7 @@ def build_csv_bytes(rows: list[dict[str, str | int | float]]) -> bytes:
             "timestamp_utc",
             "total_ops",
             "error_ops",
+            "timeout_ops",
             "retried_ops",
             "avg_attempts_per_op",
             "avg_latency_ms",
@@ -34,7 +35,11 @@ def build_csv_bytes(rows: list[dict[str, str | int | float]]) -> bytes:
             "update_ops",
             "delete_ops",
             "active_virtual_users",
+            "expected_virtual_users",
+            "user_delta",
             "paused",
+            "ops_per_sec_rolling_10s",
+            "ops_per_sec_rolling_60s",
         ]
     writer = csv.DictWriter(output, fieldnames=fieldnames)
     writer.writeheader()
@@ -76,12 +81,28 @@ def build_pdf_report(
         f"Error ops: {snapshot.error_ops}",
         f"Ops/sec: {snapshot.ops_per_second:.2f}",
         f"Avg latency ms: {snapshot.avg_latency_ms:.2f}",
+        f"P90 latency ms: {snapshot.p90_latency_ms:.2f}",
         f"P50 latency ms: {snapshot.p50_latency_ms:.2f}",
         f"P95 latency ms: {snapshot.p95_latency_ms:.2f}",
         f"P99 latency ms: {snapshot.p99_latency_ms:.2f}",
+        f"P99.9 latency ms: {snapshot.p999_latency_ms:.2f}",
+        f"Max latency ms: {snapshot.max_latency_ms:.2f}",
+        f"Latency stddev ms: {snapshot.latency_stddev_ms:.2f}",
+        f"Latency jitter ms: {snapshot.latency_jitter_ms:.2f}",
         f"Active users (latest): {snapshot.active_virtual_users_current}",
+        f"Expected users (latest): {snapshot.active_virtual_users_expected_current}",
+        f"User ramp delta (latest): {snapshot.user_ramp_delta_current}",
+        f"User ramp adherence %: {snapshot.user_ramp_adherence_pct:.2f}",
         f"Retried operations: {snapshot.retried_ops}",
+        f"Retried success %: {snapshot.retry_success_rate_pct:.2f}",
+        f"Timeout ops: {snapshot.timeout_ops} ({snapshot.timeout_rate_pct:.2f}%)",
         f"Average attempts/op: {snapshot.avg_attempts_per_op:.3f}",
+        f"Rolling ops/sec (10s): {snapshot.rolling_ops_per_sec_10s:.2f}",
+        f"Rolling ops/sec (60s): {snapshot.rolling_ops_per_sec_60s:.2f}",
+        f"Throughput CV 60s %: {snapshot.throughput_cv_60s_pct:.2f}",
+        f"SLO status: {snapshot.slo_status}",
+        f"SLO within %: {snapshot.slo_within_pct:.2f}",
+        f"SLO violation seconds: {snapshot.slo_violation_seconds}",
     ]
     text_y = page_height - 66
     for line in summary_lines:

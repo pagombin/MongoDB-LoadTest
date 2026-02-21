@@ -11,7 +11,7 @@ from typing import Any
 from bson import ObjectId
 from pymongo import MongoClient
 
-from mongo_load_tester.engine.retry import RetryController, RetryFailure, RetryPolicy
+from mongo_load_tester.engine.retry import RetryController, RetryFailure, RetryPolicy, classify_exception
 from mongo_load_tester.engine.id_registry import DocumentIdRegistry
 from mongo_load_tester.models import OperationResult, OperationType
 from mongo_load_tester.workload.schema import DocumentGenerator
@@ -52,6 +52,8 @@ class MongoOperationExecutor:
         start = time.perf_counter()
         success = True
         error: str | None = None
+        error_category: str | None = None
+        timeout = False
         attempts = 1
         operation_name = f"{operation.value} {target.database}.{target.collection}"
 
@@ -64,10 +66,12 @@ class MongoOperationExecutor:
             success = False
             attempts = exc.attempts
             error = str(exc.last_exception)
+            error_category, timeout = classify_exception(exc.last_exception)
         except Exception as exc:  # pragma: no cover - runtime safety
             success = False
             attempts = 1
             error = str(exc)
+            error_category, timeout = classify_exception(exc)
             self._logger.exception(
                 "Unexpected executor failure op=%s db=%s coll=%s",
                 operation.value,
@@ -85,6 +89,8 @@ class MongoOperationExecutor:
             success=success,
             error=error,
             attempts=attempts,
+            error_category=error_category,
+            timeout=timeout,
         )
 
     def _dispatch_operation(self, operation: OperationType, collection: Any, database: str, coll: str) -> None:
