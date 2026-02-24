@@ -25,7 +25,7 @@ from mongo_load_tester.engine.metrics import MetricsStore
 from mongo_load_tester.engine.runner import LoadTestRunner
 from mongo_load_tester.metadata.store import MetadataStore
 from mongo_load_tester.metadata.sync import ConfigSyncService
-from mongo_load_tester.models import MetricsSnapshot
+from mongo_load_tester.models import MetricsSnapshot, TimelinePoint
 from mongo_load_tester.observability import InMemoryLogBuffer
 
 CARD_STYLE = {"background": "white", "border": "1px solid #d6d3f9", "borderRadius": "12px", "padding": "14px"}
@@ -162,6 +162,8 @@ def create_dashboard(
             return
         status = "failed" if runner.last_error else "completed"
         if metadata_store is not None:
+            # Flush final timeline points before marking the run complete.
+            metadata_store.upsert_metric_rows(str(run_id), metrics_store.export_timeline_rows())
             metadata_store.record_run_finished(run_id=str(run_id), status=status, snapshot=snapshot, error=runner.last_error)
         run_state["last_run_finished_at"] = finished_at
         run_state["active_run_id"] = None
@@ -893,6 +895,21 @@ def create_dashboard(
                                 style={"marginTop": "6px", "width": "260px"},
                             ),
                             html.Div(
+                                "Run history selector",
+                                style={"marginTop": "10px", "fontSize": "12px", "fontWeight": "600", "color": "#4c1d95"},
+                            ),
+                            dcc.Dropdown(
+                                id="run-selector",
+                                options=[{"label": "Live current run", "value": "__live__"}],
+                                value="__live__",
+                                clearable=False,
+                                style={"marginTop": "6px", "width": "420px"},
+                            ),
+                            html.Div(
+                                id="run-history-meta",
+                                style={"marginTop": "6px", "fontSize": "12px", "color": "#6b7280"},
+                            ),
+                            html.Div(
                                 id="window-description",
                                 style={"marginTop": "6px", "fontSize": "12px", "color": "#6b7280"},
                             ),
@@ -1036,6 +1053,65 @@ def create_dashboard(
     )
 
     @callback(
+        Output("run-selector", "options"),
+        Output("run-selector", "value"),
+        Output("run-history-meta", "children"),
+        Input("refresh", "n_intervals"),
+        State("run-selector", "value"),
+    )
+    def refresh_run_selector(_: int, selected_run: str | None):
+        try:
+            options: list[dict[str, str]] = [{"label": "Live current run", "value": "__live__"}]
+            runs = metadata_store.list_runs(limit=80) if metadata_store is not None else []
+            run_map: dict[str, dict[str, object]] = {}
+            for run in runs:
+                run_id = str(run.get("run_id") or "")
+                if not run_id:
+                    continue
+                status = str(run.get("status") or "unknown")
+                started_at = run.get("started_at")
+                started_text = _format_datetime_short(started_at)
+                options.append(
+                    {
+                        "label": f"{started_text} | {status.upper()} | {run_id[:8]}",
+                        "value": run_id,
+                    }
+                )
+                run_map[run_id] = run
+            available_values = {item["value"] for item in options}
+            if selected_run in available_values:
+                selected = selected_run
+            elif runner.is_running:
+                selected = "__live__"
+            elif runs:
+                selected = str(runs[0].get("run_id") or "__live__")
+            else:
+                selected = "__live__"
+
+            if selected == "__live__":
+                meta = "Viewing live metrics for the current in-memory run."
+            else:
+                run = run_map.get(selected)
+                if run is None:
+                    meta = "Viewing persisted metrics for selected run."
+                else:
+                    status = str(run.get("status") or "unknown").upper()
+                    started_text = _format_datetime_short(run.get("started_at"))
+                    finished_text = _format_datetime_short(run.get("finished_at"))
+                    meta = (
+                        f"Viewing persisted run {selected[:8]} | status={status} | "
+                        f"started={started_text} | finished={finished_text}"
+                    )
+            return options, selected, meta
+        except Exception as exc:  # pragma: no cover - UI safety
+            logger.exception("Run selector refresh failed.")
+            return (
+                [{"label": "Live current run", "value": "__live__"}],
+                "__live__",
+                f"Run history unavailable: {exc}",
+            )
+
+    @callback(
         Output("runner-status", "children"),
         Output("runner-status", "style"),
         Output("runtime-meta", "children"),
@@ -1065,19 +1141,28 @@ def create_dashboard(
         Output("log-meta", "children"),
         Input("refresh", "n_intervals"),
         Input("timeline-window", "value"),
+        Input("run-selector", "value"),
         Input("log-level-filter", "value"),
         Input("log-line-count", "value"),
     )
-    def refresh_dashboard(_: int, timeline_window: int, log_level: str, log_line_count: int):
+    def refresh_dashboard(_: int, timeline_window: int, selected_run: str | None, log_level: str, log_line_count: int):
         try:
-            snapshot = metrics_store.snapshot()
-            persist_run_completion_if_needed(snapshot)
-            snapshot = _filter_snapshot_to_run_start(snapshot, runner.started_at)
+            live_snapshot = metrics_store.snapshot()
+            persist_run_completion_if_needed(live_snapshot)
+            snapshot, run_started_at, viewing_live_run = _snapshot_for_selected_run(
+                selected_run=selected_run,
+                live_snapshot=live_snapshot,
+                runner=runner,
+                metadata_store=metadata_store,
+            )
+            if viewing_live_run:
+                snapshot = _filter_snapshot_to_run_start(snapshot, runner.started_at)
             window_seconds = int(timeline_window or 0)
             filtered_snapshot = _filter_snapshot_timeline(snapshot, window_seconds)
-            filtered_snapshot = _remove_incomplete_live_second(filtered_snapshot, runner.is_running)
-            x_range = _timeline_x_range(window_seconds, snapshot.generated_at, runner.started_at)
-            stable_ops_per_sec = _compute_stable_ops_per_sec(snapshot.total_ops, runner.active_elapsed_seconds())
+            filtered_snapshot = _remove_incomplete_live_second(filtered_snapshot, runner.is_running and viewing_live_run)
+            x_range = _timeline_x_range(window_seconds, snapshot.generated_at, run_started_at)
+            elapsed_for_rate = runner.active_elapsed_seconds() if viewing_live_run else float(snapshot.elapsed_seconds)
+            stable_ops_per_sec = _compute_stable_ops_per_sec(snapshot.total_ops, elapsed_for_rate)
             error_rate = (snapshot.error_ops / snapshot.total_ops * 100.0) if snapshot.total_ops else 0.0
             success_rate = (snapshot.success_ops / snapshot.total_ops * 100.0) if snapshot.total_ops else 0.0
             retry_rate = (snapshot.retried_ops / snapshot.total_ops * 100.0) if snapshot.total_ops else 0.0
@@ -1826,11 +1911,15 @@ def create_dashboard(
     @callback(
         Output("download-csv", "data"),
         Input("download-csv-btn", "n_clicks"),
+        State("run-selector", "value"),
         prevent_initial_call=True,
     )
-    def download_csv(_: int):
+    def download_csv(_: int, selected_run: str | None):
         try:
-            rows = metrics_store.export_timeline_rows()
+            if selected_run and selected_run != "__live__" and metadata_store is not None:
+                rows = metadata_store.fetch_metric_rows(selected_run)
+            else:
+                rows = metrics_store.export_timeline_rows()
             csv_bytes = build_csv_bytes(rows)
             timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
             return dcc.send_bytes(lambda out: out.write(csv_bytes), filename=f"mongodb_metrics_{timestamp}.csv")
@@ -1865,14 +1954,24 @@ def create_dashboard(
     @callback(
         Output("download-pdf", "data"),
         Input("download-pdf-btn", "n_clicks"),
+        State("run-selector", "value"),
         State("ops-graph", "figure"),
         State("latency-graph", "figure"),
         State("users-graph", "figure"),
         prevent_initial_call=True,
     )
-    def download_pdf(_: int, ops_figure_payload: dict, latency_figure_payload: dict, users_figure_payload: dict):
+    def download_pdf(
+        _: int,
+        selected_run: str | None,
+        ops_figure_payload: dict,
+        latency_figure_payload: dict,
+        users_figure_payload: dict,
+    ):
         try:
-            snapshot = metrics_store.snapshot()
+            if selected_run and selected_run != "__live__" and metadata_store is not None:
+                snapshot = _snapshot_from_persisted_rows(metadata_store.fetch_metric_rows(selected_run))
+            else:
+                snapshot = metrics_store.snapshot()
             pdf_bytes = build_pdf_report(
                 snapshot=snapshot,
                 ops_figure=go.Figure(ops_figure_payload),
@@ -2148,6 +2247,20 @@ def _build_runtime_ui(runner: LoadTestRunner) -> tuple[str, float, str]:
     return f"Elapsed: {active_elapsed:.1f}s | Remaining: {remaining:.1f}s", progress, f"{progress:.1f}% complete"
 
 
+def _snapshot_for_selected_run(
+    selected_run: str | None,
+    live_snapshot: MetricsSnapshot,
+    runner: LoadTestRunner,
+    metadata_store: MetadataStore | None,
+) -> tuple[MetricsSnapshot, datetime | None, bool]:
+    if selected_run and selected_run != "__live__" and metadata_store is not None:
+        rows = metadata_store.fetch_metric_rows(selected_run)
+        snapshot = _snapshot_from_persisted_rows(rows)
+        run_started_at = snapshot.timeline[0].second if snapshot.timeline else None
+        return snapshot, run_started_at, False
+    return live_snapshot, runner.started_at, True
+
+
 def _filter_snapshot_timeline(snapshot: MetricsSnapshot, window_seconds: int) -> MetricsSnapshot:
     if window_seconds <= 0:
         return snapshot
@@ -2196,6 +2309,131 @@ def _window_message(window_seconds: int, snapshot: MetricsSnapshot) -> str:
     if coverage_seconds > 0 and coverage_seconds < window_seconds:
         message += f" (currently {_format_duration(coverage_seconds)} available)"
     return message
+
+
+def _snapshot_from_persisted_rows(rows: list[dict[str, object]]) -> MetricsSnapshot:
+    timeline: list[TimelinePoint] = []
+    total_ops = 0
+    error_ops = 0
+    retried_ops = 0
+    total_attempts_weighted = 0.0
+    weighted_avg_latency_sum = 0.0
+    p95_latency_peak = 0.0
+    op_counts = {"read": 0, "insert": 0, "update": 0, "delete": 0}
+
+    for row in rows:
+        point = _timeline_point_from_persisted_row(row)
+        if point is None:
+            continue
+        timeline.append(point)
+        bucket_ops = max(point.total_ops, 0)
+        total_ops += bucket_ops
+        error_ops += max(point.error_ops, 0)
+        retried_ops += max(int(row.get("retried_ops", 0) or 0), 0)
+        avg_attempts = float(row.get("avg_attempts_per_op", 0.0) or 0.0)
+        total_attempts_weighted += avg_attempts * bucket_ops
+        weighted_avg_latency_sum += max(point.avg_latency_ms, 0.0) * bucket_ops
+        p95_latency_peak = max(p95_latency_peak, point.p95_latency_ms)
+        op_counts["read"] += max(point.op_counts.get("read", 0), 0)
+        op_counts["insert"] += max(point.op_counts.get("insert", 0), 0)
+        op_counts["update"] += max(point.op_counts.get("update", 0), 0)
+        op_counts["delete"] += max(point.op_counts.get("delete", 0), 0)
+
+    if not timeline:
+        now = datetime.now(UTC)
+        return MetricsSnapshot(
+            generated_at=now,
+            elapsed_seconds=0,
+            total_ops=0,
+            success_ops=0,
+            error_ops=0,
+            ops_per_second=0.0,
+            avg_latency_ms=0.0,
+            p50_latency_ms=0.0,
+            p95_latency_ms=0.0,
+            p99_latency_ms=0.0,
+            active_virtual_users_current=0,
+            retried_ops=0,
+            total_attempts=0,
+            avg_attempts_per_op=0.0,
+            operation_counts={"read": 0, "insert": 0, "update": 0, "delete": 0},
+            operation_latency_avg_ms={},
+            timeline=[],
+        )
+
+    first_second = timeline[0].second
+    last_second = timeline[-1].second
+    elapsed_seconds = max(int((last_second - first_second).total_seconds()) + 1, 1)
+    avg_latency = (weighted_avg_latency_sum / total_ops) if total_ops else 0.0
+    avg_attempts_per_op = (total_attempts_weighted / total_ops) if total_ops else 0.0
+    success_ops = max(total_ops - error_ops, 0)
+    operation_latency_avg_ms = {
+        op: avg_latency for op, count in op_counts.items() if count > 0
+    }
+
+    return MetricsSnapshot(
+        generated_at=last_second,
+        elapsed_seconds=elapsed_seconds,
+        total_ops=total_ops,
+        success_ops=success_ops,
+        error_ops=error_ops,
+        ops_per_second=(total_ops / elapsed_seconds) if elapsed_seconds > 0 else 0.0,
+        avg_latency_ms=avg_latency,
+        p50_latency_ms=avg_latency,
+        p95_latency_ms=p95_latency_peak,
+        p99_latency_ms=p95_latency_peak,
+        active_virtual_users_current=timeline[-1].active_users if timeline else 0,
+        retried_ops=retried_ops,
+        total_attempts=int(total_attempts_weighted),
+        avg_attempts_per_op=avg_attempts_per_op,
+        operation_counts=op_counts,
+        operation_latency_avg_ms=operation_latency_avg_ms,
+        timeline=timeline,
+    )
+
+
+def _timeline_point_from_persisted_row(row: dict[str, object]) -> TimelinePoint | None:
+    timestamp_raw = row.get("timestamp_utc")
+    if not timestamp_raw:
+        return None
+    try:
+        second = _parse_timestamp_utc(str(timestamp_raw))
+    except ValueError:
+        return None
+    read_ops = max(int(row.get("read_ops", 0) or 0), 0)
+    insert_ops = max(int(row.get("insert_ops", 0) or 0), 0)
+    update_ops = max(int(row.get("update_ops", 0) or 0), 0)
+    delete_ops = max(int(row.get("delete_ops", 0) or 0), 0)
+    return TimelinePoint(
+        second=second,
+        total_ops=max(int(row.get("total_ops", 0) or 0), 0),
+        error_ops=max(int(row.get("error_ops", 0) or 0), 0),
+        avg_latency_ms=max(float(row.get("avg_latency_ms", 0.0) or 0.0), 0.0),
+        p95_latency_ms=max(float(row.get("p95_latency_ms", 0.0) or 0.0), 0.0),
+        active_users=max(int(row.get("active_virtual_users", 0) or 0), 0),
+        target_users=max(int(row.get("target_virtual_users", 0) or 0), 0),
+        paused=bool(row.get("paused", False)),
+        op_counts={
+            "read": read_ops,
+            "insert": insert_ops,
+            "update": update_ops,
+            "delete": delete_ops,
+        },
+    )
+
+
+def _parse_timestamp_utc(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _format_datetime_short(value: object) -> str:
+    if not isinstance(value, datetime):
+        return "n/a"
+    normalized = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+    return normalized.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _format_duration(seconds: int) -> str:
