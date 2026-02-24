@@ -9,6 +9,7 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import plotly.graph_objects as go
+import dash
 from dash import Dash, Input, Output, State, callback, ctx, dcc, html, no_update
 from dash.exceptions import PreventUpdate
 from plotly.subplots import make_subplots
@@ -912,7 +913,7 @@ def create_dashboard(
                                 style={
                                     "marginTop": "8px",
                                     "width": "100%",
-                                    "height": "280px",
+                                    "height": "220px",
                                     "padding": "10px",
                                     "borderRadius": "8px",
                                     "border": "1px solid #d1d5db",
@@ -923,6 +924,12 @@ def create_dashboard(
                             ),
                             html.Div(
                                 [
+                                    html.Button(
+                                        "Schema Builder",
+                                        id="open-schema-builder-btn",
+                                        n_clicks=0,
+                                        style={**_BTN_BASE, "border": "none", "background": "#4f46e5", "color": "white"},
+                                    ),
                                     html.Button(
                                         "Validate JSON",
                                         id="validate-schema-btn",
@@ -1330,6 +1337,112 @@ def create_dashboard(
             dcc.Download(id="download-png"),
             dcc.Download(id="download-pdf"),
             dcc.Interval(id="refresh", interval=config.dashboard.refresh_interval_ms, n_intervals=0),
+            dcc.Store(id="schema-builder-fields", data=[]),
+            html.Div(
+                id="schema-builder-overlay",
+                children=[
+                    html.Div(
+                        [
+                            html.Div(
+                                [
+                                    html.Span("Schema Builder", style={"fontWeight": "800", "fontSize": "18px", "color": "#1e1b4b"}),
+                                    html.Button(
+                                        "X", id="close-schema-builder-btn", n_clicks=0,
+                                        style={"background": "none", "border": "none", "fontSize": "20px", "cursor": "pointer", "color": "#6b7280", "fontWeight": "700"},
+                                    ),
+                                ],
+                                style={"display": "flex", "justifyContent": "space-between", "alignItems": "center", "marginBottom": "12px"},
+                            ),
+                            html.Div(
+                                "Add fields to your document schema. Configure each field's name, type, and generation rules.",
+                                style={"fontSize": "12.5px", "color": "#6b7280", "marginBottom": "16px"},
+                            ),
+                            html.Div(
+                                [
+                                    html.Div([
+                                        html.Label("Field name", style={"fontSize": "11px", "fontWeight": "600", "color": "#374151"}),
+                                        dcc.Input(id="sb-field-name", type="text", placeholder="e.g. tenant_id, address.street",
+                                                  style={"width": "100%", "padding": "7px 10px", "borderRadius": "6px", "border": "1px solid #d1d5db", "fontSize": "13px", "marginTop": "3px"}),
+                                    ], style={"flex": "1"}),
+                                    html.Div([
+                                        html.Label("Type", style={"fontSize": "11px", "fontWeight": "600", "color": "#374151"}),
+                                        dcc.Dropdown(
+                                            id="sb-field-type",
+                                            options=[{"label": t, "value": t} for t in FIELD_TYPES],
+                                            value="string",
+                                            clearable=False,
+                                            style={"fontSize": "13px", "marginTop": "3px"},
+                                        ),
+                                    ], style={"flex": "0.7"}),
+                                ],
+                                style={"display": "flex", "gap": "10px"},
+                            ),
+                            html.Div(
+                                id="sb-rule-inputs",
+                                style={"marginTop": "10px"},
+                            ),
+                            html.Div(
+                                [
+                                    html.Button(
+                                        "Add field", id="sb-add-field-btn", n_clicks=0,
+                                        style={**_BTN_BASE, "border": "none", "background": "#059669", "color": "white"},
+                                    ),
+                                ],
+                                style={"marginTop": "10px"},
+                            ),
+                            html.Div(id="sb-add-feedback", style={"marginTop": "6px", "fontSize": "12px"}),
+                            html.Hr(style={"margin": "16px 0", "border": "none", "borderTop": "1px solid #e5e7eb"}),
+                            html.Div(
+                                [
+                                    html.Span("Fields", style={"fontWeight": "700", "fontSize": "14px", "color": "#1e1b4b"}),
+                                    html.Span(id="sb-field-count", style={"fontSize": "12px", "color": "#6b7280", "marginLeft": "8px"}),
+                                ],
+                                style={"display": "flex", "alignItems": "center", "marginBottom": "8px"},
+                            ),
+                            html.Div(
+                                id="sb-field-list",
+                                style={"maxHeight": "300px", "overflowY": "auto"},
+                            ),
+                            html.Hr(style={"margin": "16px 0", "border": "none", "borderTop": "1px solid #e5e7eb"}),
+                            html.Div(
+                                [
+                                    html.Button(
+                                        "Save & apply to schema", id="sb-save-btn", n_clicks=0,
+                                        style={**_BTN_BASE, "border": "none", "background": "#4f46e5", "color": "white"},
+                                    ),
+                                    html.Button(
+                                        "Cancel", id="sb-cancel-btn", n_clicks=0,
+                                        style={**_BTN_BASE, "border": "1px solid #d1d5db", "background": "#f9fafb", "color": "#6b7280"},
+                                    ),
+                                    html.Button(
+                                        "Load current schema", id="sb-load-current-btn", n_clicks=0,
+                                        style={**_BTN_BASE, "border": "1px solid #6366f1", "background": "#eef2ff", "color": "#4338ca"},
+                                    ),
+                                ],
+                                style={"display": "flex", "gap": "8px"},
+                            ),
+                        ],
+                        style={
+                            "background": "white",
+                            "borderRadius": "16px",
+                            "padding": "24px",
+                            "width": "680px",
+                            "maxHeight": "90vh",
+                            "overflowY": "auto",
+                            "boxShadow": "0 20px 60px rgba(0,0,0,0.3)",
+                        },
+                    ),
+                ],
+                style={
+                    "display": "none",
+                    "position": "fixed",
+                    "top": "0", "left": "0", "right": "0", "bottom": "0",
+                    "background": "rgba(0,0,0,0.5)",
+                    "zIndex": "9999",
+                    "justifyContent": "center",
+                    "alignItems": "center",
+                },
+            ),
         ],
         style={
             "padding": "20px 24px",
@@ -2158,6 +2271,226 @@ def create_dashboard(
             raise PreventUpdate
         default_schema = default_config().document_schema
         return _schema_config_to_json(default_schema), _feedback_info("Schema reset to defaults.")
+
+    @callback(
+        Output("schema-builder-overlay", "style"),
+        Output("schema-builder-fields", "data"),
+        Input("open-schema-builder-btn", "n_clicks"),
+        Input("close-schema-builder-btn", "n_clicks"),
+        Input("sb-cancel-btn", "n_clicks"),
+        State("schema-builder-fields", "data"),
+        prevent_initial_call=True,
+    )
+    def toggle_schema_builder(open_clicks, close_clicks, cancel_clicks, current_fields):
+        _overlay_visible = {
+            "display": "flex",
+            "position": "fixed",
+            "top": "0", "left": "0", "right": "0", "bottom": "0",
+            "background": "rgba(0,0,0,0.5)",
+            "zIndex": "9999",
+            "justifyContent": "center",
+            "alignItems": "center",
+        }
+        _overlay_hidden = {"display": "none"}
+        triggered = ctx.triggered_id
+        if triggered == "open-schema-builder-btn":
+            fields = current_fields if current_fields else []
+            return _overlay_visible, fields
+        return _overlay_hidden, current_fields or []
+
+    @callback(
+        Output("sb-rule-inputs", "children"),
+        Input("sb-field-type", "value"),
+    )
+    def update_rule_inputs(field_type):
+        _input_style = {"width": "100%", "padding": "6px 10px", "borderRadius": "6px", "border": "1px solid #d1d5db", "fontSize": "12px", "marginTop": "3px"}
+        _label_style = {"fontSize": "11px", "fontWeight": "600", "color": "#374151"}
+        if field_type in ("string",):
+            return html.Div([
+                html.Label("Length", style=_label_style),
+                dcc.Input(id="sb-rule-length", type="number", value=16, min=1, style=_input_style),
+            ])
+        if field_type in ("int", "float", "decimal"):
+            return html.Div([
+                html.Div([
+                    html.Div([html.Label("Min value", style=_label_style), dcc.Input(id="sb-rule-min", type="number", value=0, style=_input_style)], style={"flex": "1"}),
+                    html.Div([html.Label("Max value", style=_label_style), dcc.Input(id="sb-rule-max", type="number", value=10000, style=_input_style)], style={"flex": "1"}),
+                ], style={"display": "flex", "gap": "8px"}),
+            ])
+        if field_type == "choice":
+            return html.Div([
+                html.Label("Choices (comma-separated)", style=_label_style),
+                dcc.Input(id="sb-rule-choices", type="text", placeholder="new, paid, shipped, cancelled", style=_input_style),
+            ])
+        if field_type == "faker":
+            return html.Div([
+                html.Label("Faker provider", style=_label_style),
+                dcc.Dropdown(
+                    id="sb-rule-faker",
+                    options=[{"label": p, "value": p} for p in FAKER_PROVIDERS],
+                    value="name",
+                    clearable=False,
+                    style={"fontSize": "12px", "marginTop": "3px"},
+                ),
+            ])
+        if field_type in ("datetime", "date_range"):
+            return html.Div([
+                html.Div([
+                    html.Div([
+                        html.Label("Date mode", style=_label_style),
+                        dcc.Dropdown(
+                            id="sb-rule-date-mode",
+                            options=[{"label": m, "value": m} for m in ["now", "random_past", "random_future", "increment"]],
+                            value="now", clearable=False, style={"fontSize": "12px", "marginTop": "3px"},
+                        ),
+                    ], style={"flex": "1"}),
+                    html.Div([html.Label("Range (days)", style=_label_style), dcc.Input(id="sb-rule-date-days", type="number", value=365, min=1, style=_input_style)], style={"flex": "1"}),
+                ], style={"display": "flex", "gap": "8px"}),
+            ])
+        if field_type == "array":
+            return html.Div([
+                html.Div([
+                    html.Div([html.Label("Element type", style=_label_style),
+                        dcc.Dropdown(id="sb-rule-array-type", options=[{"label": t, "value": t} for t in FIELD_TYPES if t != "array"], value="string", clearable=False, style={"fontSize": "12px", "marginTop": "3px"})
+                    ], style={"flex": "1"}),
+                    html.Div([html.Label("Min items", style=_label_style), dcc.Input(id="sb-rule-min-items", type="number", value=1, min=0, style=_input_style)], style={"flex": "0.5"}),
+                    html.Div([html.Label("Max items", style=_label_style), dcc.Input(id="sb-rule-max-items", type="number", value=5, min=1, style=_input_style)], style={"flex": "0.5"}),
+                ], style={"display": "flex", "gap": "8px"}),
+            ])
+        if field_type == "object":
+            return html.Div(
+                "Embedded document: add the parent field, then add sub-fields with dot-notation names (e.g. 'address.street', 'address.city').",
+                style={"fontSize": "11px", "color": "#6b7280", "fontStyle": "italic", "padding": "6px 0"},
+            )
+        return html.Div()
+
+    @callback(
+        Output("schema-builder-fields", "data", allow_duplicate=True),
+        Output("sb-add-feedback", "children"),
+        Output("sb-field-name", "value"),
+        Input("sb-add-field-btn", "n_clicks"),
+        State("sb-field-name", "value"),
+        State("sb-field-type", "value"),
+        State("schema-builder-fields", "data"),
+        State("sb-rule-inputs", "children"),
+        prevent_initial_call=True,
+    )
+    def add_schema_field(n_clicks, field_name, field_type, current_fields, rule_children):
+        if not n_clicks:
+            raise PreventUpdate
+        name = (field_name or "").strip()
+        if not name:
+            return no_update, _feedback_warning("Field name is required."), no_update
+        fields = current_fields or []
+        top_level_names = {f["name"] for f in fields if "." not in f.get("name", "")}
+        if name in top_level_names:
+            return no_update, _feedback_warning(f"Field '{name}' already exists."), no_update
+        field: dict = {"name": name, "field_type": field_type}
+        _extract_rules_from_children(field, field_type, rule_children)
+        fields.append(field)
+        return fields, _feedback_info(f"Added '{name}' ({field_type})"), ""
+
+    @callback(
+        Output("sb-field-list", "children"),
+        Output("sb-field-count", "children"),
+        Input("schema-builder-fields", "data"),
+    )
+    def render_field_list(fields):
+        fields = fields or []
+        if not fields:
+            return html.Div("No fields added yet. Use the form above to add fields.", style={"fontSize": "12px", "color": "#9ca3af", "padding": "12px 0"}), "0 fields"
+        rows = []
+        for i, f in enumerate(fields):
+            ft = f.get("field_type", "string")
+            detail_parts = []
+            if ft == "string" and f.get("length"):
+                detail_parts.append(f"len={f['length']}")
+            elif ft in ("int", "float", "decimal"):
+                detail_parts.append(f"{f.get('min_value', 0)}..{f.get('max_value', 10000)}")
+            elif ft == "choice":
+                choices = f.get("choices", [])
+                detail_parts.append(f"[{', '.join(str(c) for c in choices[:3])}{'...' if len(choices)>3 else ''}]")
+            elif ft == "faker":
+                detail_parts.append(f.get("faker_provider", "name"))
+            elif ft in ("datetime", "date_range"):
+                detail_parts.append(f.get("date_mode", "now"))
+            elif ft == "array":
+                detail_parts.append(f"items={f.get('_array_item_type', 'string')}, {f.get('min_items', 1)}-{f.get('max_items', 5)}")
+            detail = " ".join(detail_parts) if detail_parts else ""
+            rows.append(html.Div(
+                [
+                    html.Div([
+                        html.Span(f["name"], style={"fontWeight": "600", "color": "#1e1b4b", "fontSize": "13px"}),
+                        html.Span(f" {ft}", style={"color": "#6366f1", "fontSize": "11px", "marginLeft": "6px"}),
+                        html.Span(f" {detail}", style={"color": "#9ca3af", "fontSize": "11px", "marginLeft": "4px"}) if detail else None,
+                    ], style={"display": "flex", "alignItems": "center", "flex": "1"}),
+                    html.Button(
+                        "Remove", id={"type": "sb-remove-field", "index": i}, n_clicks=0,
+                        style={"background": "none", "border": "1px solid #fca5a5", "color": "#dc2626", "borderRadius": "6px", "padding": "2px 10px", "fontSize": "11px", "cursor": "pointer", "fontWeight": "600"},
+                    ),
+                ],
+                style={"display": "flex", "justifyContent": "space-between", "alignItems": "center", "padding": "6px 10px", "borderRadius": "8px", "background": "#f9fafb" if i % 2 == 0 else "white", "marginBottom": "2px"},
+            ))
+        return rows, f"{len(fields)} field(s)"
+
+    @callback(
+        Output("schema-builder-fields", "data", allow_duplicate=True),
+        Input({"type": "sb-remove-field", "index": dash.ALL}, "n_clicks"),
+        State("schema-builder-fields", "data"),
+        prevent_initial_call=True,
+    )
+    def remove_schema_field(all_clicks, current_fields):
+        if not any(c and c > 0 for c in (all_clicks or [])):
+            raise PreventUpdate
+        triggered = ctx.triggered_id
+        if triggered is None or not isinstance(triggered, dict):
+            raise PreventUpdate
+        idx = triggered.get("index")
+        fields = list(current_fields or [])
+        if idx is not None and 0 <= idx < len(fields):
+            fields.pop(idx)
+        return fields
+
+    @callback(
+        Output("schema-fields-json-input", "value", allow_duplicate=True),
+        Output("schema-builder-overlay", "style", allow_duplicate=True),
+        Output("schema-validation-feedback", "children", allow_duplicate=True),
+        Input("sb-save-btn", "n_clicks"),
+        State("schema-builder-fields", "data"),
+        prevent_initial_call=True,
+    )
+    def save_schema_from_builder(n_clicks, fields):
+        if not n_clicks:
+            raise PreventUpdate
+        fields = fields or []
+        if not fields:
+            return no_update, no_update, _feedback_warning("No fields to save. Add at least one field.")
+        schema_fields = _builder_fields_to_schema(fields)
+        payload = {"fields": schema_fields}
+        json_str = json.dumps(payload, indent=2, sort_keys=False)
+        try:
+            _parse_schema_config(json_str)
+        except ValueError as exc:
+            return no_update, no_update, _feedback_error(f"Generated schema is invalid: {exc}")
+        hidden_style = {"display": "none"}
+        return json_str, hidden_style, _feedback_info(f"Schema builder applied {len(schema_fields)} field(s).")
+
+    @callback(
+        Output("schema-builder-fields", "data", allow_duplicate=True),
+        Output("sb-add-feedback", "children", allow_duplicate=True),
+        Input("sb-load-current-btn", "n_clicks"),
+        State("schema-fields-json-input", "value"),
+        prevent_initial_call=True,
+    )
+    def load_current_into_builder(n_clicks, current_json):
+        if not n_clicks:
+            raise PreventUpdate
+        try:
+            schema = _parse_schema_config(current_json)
+        except ValueError as exc:
+            return no_update, _feedback_error(f"Cannot load: {exc}")
+        fields = _schema_to_builder_fields(schema.fields)
+        return fields, _feedback_info(f"Loaded {len(fields)} field(s) from current schema.")
 
     @callback(
         Output("duration-seconds-input", "value"),
@@ -3060,6 +3393,100 @@ def _refresh_error_payload(error_message: str) -> tuple:
         f"Dashboard refresh failed: {error_message}. Check application logs.",
         no_update,                      # log-meta
     )
+
+
+def _extract_rules_from_children(field: dict, field_type: str, rule_children: object) -> None:
+    """Best-effort extraction of rule values from the rendered rule inputs."""
+    if rule_children is None:
+        return
+    props = _flatten_component_props(rule_children)
+    if field_type == "string":
+        field["length"] = int(props.get("sb-rule-length", 16) or 16)
+    elif field_type in ("int", "float", "decimal"):
+        field["min_value"] = float(props.get("sb-rule-min", 0) or 0)
+        field["max_value"] = float(props.get("sb-rule-max", 10000) or 10000)
+    elif field_type == "choice":
+        raw = str(props.get("sb-rule-choices", "") or "")
+        field["choices"] = [c.strip() for c in raw.split(",") if c.strip()]
+    elif field_type == "faker":
+        field["faker_provider"] = str(props.get("sb-rule-faker", "name") or "name")
+    elif field_type in ("datetime", "date_range"):
+        field["date_mode"] = str(props.get("sb-rule-date-mode", "now") or "now")
+        field["date_range_days"] = int(props.get("sb-rule-date-days", 365) or 365)
+    elif field_type == "array":
+        field["_array_item_type"] = str(props.get("sb-rule-array-type", "string") or "string")
+        field["min_items"] = int(props.get("sb-rule-min-items", 1) or 1)
+        field["max_items"] = int(props.get("sb-rule-max-items", 5) or 5)
+
+
+def _flatten_component_props(component: object, result: dict | None = None) -> dict:
+    """Walk a Dash component tree and collect id→value pairs."""
+    if result is None:
+        result = {}
+    if hasattr(component, "id") and hasattr(component, "value"):
+        result[component.id] = component.value
+    if hasattr(component, "children"):
+        children = component.children
+        if isinstance(children, list):
+            for child in children:
+                _flatten_component_props(child, result)
+        elif children is not None:
+            _flatten_component_props(children, result)
+    return result
+
+
+def _builder_fields_to_schema(fields: list[dict]) -> list[dict]:
+    """Convert builder field dicts to schema-compatible dicts, resolving dot-notation into nested objects."""
+    root_fields: list[dict] = []
+    object_children: dict[str, list[dict]] = {}
+    for f in fields:
+        name = f.get("name", "")
+        if "." in name:
+            parent, child_name = name.split(".", 1)
+            child = dict(f)
+            child["name"] = child_name
+            object_children.setdefault(parent, []).append(child)
+        else:
+            root_fields.append(dict(f))
+    for parent_name, children in object_children.items():
+        existing = next((f for f in root_fields if f["name"] == parent_name), None)
+        if existing is not None and existing.get("field_type") == "object":
+            existing.setdefault("fields", []).extend(_builder_fields_to_schema(children))
+        else:
+            root_fields.append({
+                "name": parent_name,
+                "field_type": "object",
+                "fields": _builder_fields_to_schema(children),
+            })
+    for f in root_fields:
+        if f.get("field_type") == "array":
+            item_type = f.pop("_array_item_type", "string")
+            f["items"] = {"field_type": item_type}
+        f.pop("_array_item_type", None)
+    return root_fields
+
+
+def _schema_to_builder_fields(fields: list, prefix: str = "") -> list[dict]:
+    """Flatten a nested SchemaConfig field list into builder-style flat dicts."""
+    result: list[dict] = []
+    for f in fields:
+        d = f.model_dump(mode="json", exclude_defaults=True) if hasattr(f, "model_dump") else dict(f)
+        name = d.get("name", "")
+        full_name = f"{prefix}{name}" if prefix else name
+        if d.get("field_type") == "object" and d.get("fields"):
+            sub_fields = d.pop("fields")
+            d["name"] = full_name
+            result.append(d)
+            result.extend(_schema_to_builder_fields(sub_fields, prefix=f"{full_name}."))
+        elif d.get("field_type") == "array" and d.get("items"):
+            items = d.pop("items")
+            d["_array_item_type"] = items.get("field_type", "string") if isinstance(items, dict) else "string"
+            d["name"] = full_name
+            result.append(d)
+        else:
+            d["name"] = full_name
+            result.append(d)
+    return result
 
 
 def _compute_stable_ops_per_sec(total_ops: int, active_elapsed_seconds: float) -> float:
