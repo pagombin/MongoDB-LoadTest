@@ -232,9 +232,17 @@ def load_config(config_path: str | Path) -> AppConfig:
     """Load and validate YAML config."""
 
     path = Path(config_path)
-    raw: dict[str, Any]
-    with path.open("r", encoding="utf-8") as file_obj:
-        parsed = yaml.safe_load(file_obj)
+    try:
+        with path.open("r", encoding="utf-8") as file_obj:
+            parsed = yaml.safe_load(file_obj)
+    except FileNotFoundError as exc:
+        raise ValueError(f"Configuration file not found: {path}") from exc
+    except PermissionError as exc:
+        raise ValueError(f"Permission denied reading configuration: {path}") from exc
+    except yaml.YAMLError as exc:
+        raise ValueError(f"Invalid YAML syntax in {path}: {exc}") from exc
+    except OSError as exc:
+        raise ValueError(f"Cannot read configuration file {path}: {exc}") from exc
     raw = parsed or {}
     try:
         return AppConfig.model_validate(raw)

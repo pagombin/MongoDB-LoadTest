@@ -53,7 +53,10 @@ def build_csv_bytes(rows: list[dict[str, str | int | float | bool]]) -> bytes:
 def build_png_bytes(figure: Figure, width: int, height: int) -> bytes:
     """Render a Plotly figure as PNG."""
 
-    return figure.to_image(format="png", width=width, height=height, scale=2)
+    try:
+        return figure.to_image(format="png", width=width, height=height, scale=2)
+    except Exception as exc:
+        raise RuntimeError(f"Failed to render chart as PNG ({width}x{height}): {exc}") from exc
 
 
 def build_pdf_report(

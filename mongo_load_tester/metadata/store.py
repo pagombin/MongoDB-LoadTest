@@ -194,8 +194,19 @@ class MetadataStore:
                         "total_ops": snapshot.total_ops,
                         "success_ops": snapshot.success_ops,
                         "error_ops": snapshot.error_ops,
-                        "p95_latency_ms": snapshot.p95_latency_ms,
+                        "retried_ops": snapshot.retried_ops,
+                        "ops_per_second": snapshot.ops_per_second,
                         "avg_latency_ms": snapshot.avg_latency_ms,
+                        "p50_latency_ms": snapshot.p50_latency_ms,
+                        "p95_latency_ms": snapshot.p95_latency_ms,
+                        "p99_latency_ms": snapshot.p99_latency_ms,
+                        "avg_attempts_per_op": snapshot.avg_attempts_per_op,
+                        "elapsed_seconds": snapshot.elapsed_seconds,
+                        "operation_counts": snapshot.operation_counts,
+                        "operation_latency_avg_ms": snapshot.operation_latency_avg_ms,
+                        "operation_latency_p95_ms": snapshot.operation_latency_p95_ms,
+                        "operation_latency_p99_ms": snapshot.operation_latency_p99_ms,
+                        "error_categories": snapshot.error_categories,
                     },
                     "error": error,
                 }
@@ -247,8 +258,10 @@ class MetadataStore:
             self._runs.create_index("run_id")
         except Exception:
             self._logger.warning(
-                "Failed to create metadata indexes (insufficient privileges?). "
-                "The application will continue but queries may be slower.",
+                "Failed to create metadata indexes for load_test_id=%s in database=%s "
+                "(insufficient privileges?). The application will continue but queries may be slower.",
+                self._load_test_id,
+                self._database.name,
                 exc_info=True,
             )
 
@@ -261,14 +274,23 @@ class MetadataStore:
                 self._load_test_id,
             )
             raw_config = {}
-        config = AppConfig.model_validate(raw_config)
+        try:
+            config = AppConfig.model_validate(raw_config)
+        except Exception as exc:
+            self._logger.error(
+                "Failed to parse stored config for load_test_id=%s; "
+                "falling back to defaults. Error: %s",
+                self._load_test_id,
+                exc,
+            )
+            config = AppConfig()
         updated_at_raw = document.get("updated_at")
         if isinstance(updated_at_raw, datetime):
             updated_at = updated_at_raw
         else:
             updated_at = datetime.now(UTC)
         return ConfigRecord(
-            load_test_id=str(document["load_test_id"]),
+            load_test_id=str(document.get("load_test_id", self._load_test_id)),
             version=int(document.get("version", 1)),
             updated_at=updated_at,
             config=config,
