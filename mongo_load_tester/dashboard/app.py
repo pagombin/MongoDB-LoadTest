@@ -8,11 +8,11 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import plotly.graph_objects as go
-from dash import Dash, Input, Output, State, callback, ctx, dcc, html
+from dash import Dash, Input, Output, State, callback, ctx, dcc, html, no_update
 from dash.exceptions import PreventUpdate
 from plotly.subplots import make_subplots
 
-from mongo_load_tester.config import AppConfig, SchemaConfig
+from mongo_load_tester.config import AppConfig, SchemaConfig, default_config
 from mongo_load_tester.dashboard.export import build_csv_bytes, build_pdf_report, build_png_bytes
 from mongo_load_tester.dashboard.figures import (
     build_latency_timeline,
@@ -232,6 +232,12 @@ def create_dashboard(
                         [
                             html.Div("Control window", style={"fontSize": "12px", "color": "#6b7280"}),
                             html.Div(id="last-updated", style={"fontWeight": "600", "marginTop": "8px"}),
+                            _label_with_help(
+                                "Configured duration (seconds)",
+                                "How long the active load test runs before auto-stop. Applies immediately.",
+                                color="#4b5563",
+                                margin_top="8px",
+                            ),
                             html.Div(
                                 [
                                     dcc.Input(
@@ -248,8 +254,14 @@ def create_dashboard(
                                         },
                                     ),
                                     html.Button("Apply duration", id="apply-duration-btn", n_clicks=0, style=ACTION_BUTTON_STYLE),
+                                    html.Button(
+                                        "Reset all settings to defaults",
+                                        id="reset-defaults-btn",
+                                        n_clicks=0,
+                                        style={**ACTION_BUTTON_STYLE, "border": "1px solid #f59e0b", "background": "#fffbeb"},
+                                    ),
                                 ],
-                                style={"display": "flex", "gap": "8px", "marginTop": "8px"},
+                                style={"display": "flex", "gap": "8px", "marginTop": "6px", "flexWrap": "wrap"},
                             ),
                             html.Div(id="duration-config-meta", style={"marginTop": "6px", "fontSize": "12px", "color": "#6b7280"}),
                         ],
@@ -262,12 +274,21 @@ def create_dashboard(
                 [
                     html.Div(
                         [
-                            html.Div("Live load shaping (applies immediately)", style={"fontSize": "12px", "color": "#6b7280"}),
+                            html.Div(
+                                [
+                                    html.Span("Live load shaping"),
+                                    _scope_badge("applies now"),
+                                ],
+                                style={"fontSize": "12px", "color": "#6b7280", "display": "flex", "gap": "8px", "alignItems": "center"},
+                            ),
                             html.Div(
                                 [
                                     html.Div(
                                         [
-                                            html.Div("Target users", style={"fontSize": "12px", "color": "#4b5563"}),
+                                            _label_with_help(
+                                                "Target users",
+                                                "Total simulated users to drive against the cluster. Applies immediately.",
+                                            ),
                                             dcc.Input(
                                                 id="target-users-input",
                                                 type="text",
@@ -284,7 +305,10 @@ def create_dashboard(
                                     ),
                                     html.Div(
                                         [
-                                            html.Div("Worker threads", style={"fontSize": "12px", "color": "#4b5563"}),
+                                            _label_with_help(
+                                                "Worker threads",
+                                                "Concurrent worker loops generating operations. Applies immediately.",
+                                            ),
                                             dcc.Input(
                                                 id="worker-threads-input",
                                                 type="text",
@@ -301,7 +325,10 @@ def create_dashboard(
                                     ),
                                     html.Div(
                                         [
-                                            html.Div("Think time (ms)", style={"fontSize": "12px", "color": "#4b5563"}),
+                                            _label_with_help(
+                                                "Think time (ms)",
+                                                "Delay range between user operations. Minimum must be <= maximum.",
+                                            ),
                                             html.Div(
                                                 [
                                                     dcc.Input(
@@ -339,7 +366,10 @@ def create_dashboard(
                                     ),
                                     html.Div(
                                         [
-                                            html.Div("Target ops/user/sec", style={"fontSize": "12px", "color": "#4b5563"}),
+                                            _label_with_help(
+                                                "Target ops/user/sec",
+                                                "Optional per-user rate cap. Leave empty for unbounded throughput.",
+                                            ),
                                             dcc.Input(
                                                 id="target-ops-per-user-input",
                                                 type="text",
@@ -381,13 +411,39 @@ def create_dashboard(
                     ),
                     html.Div(
                         [
-                            html.Div("Live operation mix (weights)", style={"fontSize": "12px", "color": "#6b7280"}),
                             html.Div(
                                 [
-                                    _weighted_input("Read", "mix-read-input", config.operation_mix.read),
-                                    _weighted_input("Insert", "mix-insert-input", config.operation_mix.insert),
-                                    _weighted_input("Update", "mix-update-input", config.operation_mix.update),
-                                    _weighted_input("Delete", "mix-delete-input", config.operation_mix.delete),
+                                    html.Span("Live operation mix (weights)"),
+                                    _scope_badge("applies now"),
+                                ],
+                                style={"fontSize": "12px", "color": "#6b7280", "display": "flex", "gap": "8px", "alignItems": "center"},
+                            ),
+                            html.Div(
+                                [
+                                    _weighted_input(
+                                        "Read",
+                                        "mix-read-input",
+                                        config.operation_mix.read,
+                                        tooltip="Relative read weight. Higher values increase read share.",
+                                    ),
+                                    _weighted_input(
+                                        "Insert",
+                                        "mix-insert-input",
+                                        config.operation_mix.insert,
+                                        tooltip="Relative insert weight for create-heavy traffic.",
+                                    ),
+                                    _weighted_input(
+                                        "Update",
+                                        "mix-update-input",
+                                        config.operation_mix.update,
+                                        tooltip="Relative update weight for mutable OLTP workloads.",
+                                    ),
+                                    _weighted_input(
+                                        "Delete",
+                                        "mix-delete-input",
+                                        config.operation_mix.delete,
+                                        tooltip="Relative delete weight for cleanup/delete scenarios.",
+                                    ),
                                 ],
                                 style={"display": "grid", "gridTemplateColumns": "repeat(2, 1fr)", "gap": "8px", "marginTop": "8px"},
                             ),
@@ -406,21 +462,35 @@ def create_dashboard(
                     ),
                     html.Div(
                         [
-                            html.Div("Live resilience & logging", style={"fontSize": "12px", "color": "#6b7280"}),
                             html.Div(
                                 [
-                                    _compact_number_input("Retry attempts", "retry-max-attempts-input", config.retry.max_attempts, min_value=1),
+                                    html.Span("Live resilience & logging"),
+                                    _scope_badge("applies now"),
+                                ],
+                                style={"fontSize": "12px", "color": "#6b7280", "display": "flex", "gap": "8px", "alignItems": "center"},
+                            ),
+                            html.Div(
+                                [
+                                    _compact_number_input(
+                                        "Retry attempts",
+                                        "retry-max-attempts-input",
+                                        config.retry.max_attempts,
+                                        min_value=1,
+                                        tooltip="Maximum attempts per operation including the first try.",
+                                    ),
                                     _compact_number_input(
                                         "Retry backoff (ms)",
                                         "retry-initial-backoff-input",
                                         config.retry.initial_backoff_ms,
                                         min_value=1,
+                                        tooltip="Initial delay before retrying transient failures.",
                                     ),
                                     _compact_number_input(
                                         "Max backoff (ms)",
                                         "retry-max-backoff-input",
                                         config.retry.max_backoff_ms,
                                         min_value=1,
+                                        tooltip="Upper bound for exponential retry delay.",
                                     ),
                                     _compact_number_input(
                                         "Backoff multiplier",
@@ -428,6 +498,7 @@ def create_dashboard(
                                         config.retry.backoff_multiplier,
                                         step=0.1,
                                         min_value=1,
+                                        tooltip="Exponential growth factor for retry backoff.",
                                     ),
                                     _compact_number_input(
                                         "Jitter ratio",
@@ -436,10 +507,14 @@ def create_dashboard(
                                         step=0.05,
                                         min_value=0,
                                         max_value=1,
+                                        tooltip="Randomizes backoff to avoid synchronized retry spikes.",
                                     ),
                                     html.Div(
                                         [
-                                            html.Div("Runtime log level", style={"fontSize": "12px", "color": "#4b5563"}),
+                                            _label_with_help(
+                                                "Runtime log level",
+                                                "Minimum log level emitted to console/file while running.",
+                                            ),
                                             dcc.Dropdown(
                                                 id="runtime-log-level-input",
                                                 options=[
@@ -459,13 +534,22 @@ def create_dashboard(
                                         "progress-log-interval-input",
                                         config.logging.progress_log_interval_seconds,
                                         min_value=1,
+                                        tooltip="How often runner progress summaries are logged.",
                                     ),
                                 ],
                                 style={"display": "grid", "gridTemplateColumns": "repeat(2, 1fr)", "gap": "8px", "marginTop": "8px"},
                             ),
                             dcc.Checklist(
                                 id="log-operation-failures-toggle",
-                                options=[{"label": "Log failed operations", "value": "enabled"}],
+                                options=[
+                                    {
+                                        "label": html.Span(
+                                            "Log failed operations",
+                                            title="When enabled, every failed operation is written to logs with details.",
+                                        ),
+                                        "value": "enabled",
+                                    }
+                                ],
                                 value=["enabled"] if config.logging.log_operation_failures else [],
                                 style={"marginTop": "8px"},
                             ),
@@ -488,19 +572,23 @@ def create_dashboard(
                             html.Div(
                                 [
                                     html.Span("Static config domains"),
-                                    _scope_badge("next run"),
+                                    _scope_badge("ready", value_id="static-domain-scope-badge"),
                                 ],
                                 style={"fontSize": "12px", "color": "#6b7280", "display": "flex", "gap": "8px", "alignItems": "center"},
                             ),
                             html.Div(
-                                "Namespace topology, seeding, ramp-up, and schema are staged for next start/restart.",
+                                "These settings define startup defaults used when a run begins.",
+                                id="static-domain-scope-note",
                                 style={"marginTop": "6px", "fontSize": "12px", "color": "#6b7280"},
                             ),
                             html.Div(
                                 [
                                     html.Div(
                                         [
-                                            html.Div("Database prefix", style={"fontSize": "12px", "color": "#4b5563"}),
+                                            _label_with_help(
+                                                "Database prefix",
+                                                "Prefix used to generate target database names, e.g. prefix_1.",
+                                            ),
                                             dcc.Input(
                                                 id="namespace-db-prefix-input",
                                                 type="text",
@@ -517,7 +605,10 @@ def create_dashboard(
                                     ),
                                     html.Div(
                                         [
-                                            html.Div("Collection prefix", style={"fontSize": "12px", "color": "#4b5563"}),
+                                            _label_with_help(
+                                                "Collection prefix",
+                                                "Prefix used to generate collection names per database.",
+                                            ),
                                             dcc.Input(
                                                 id="namespace-collection-prefix-input",
                                                 type="text",
@@ -537,24 +628,31 @@ def create_dashboard(
                                         "namespace-databases-input",
                                         config.namespace.databases,
                                         min_value=1,
+                                        tooltip="Number of logical databases targeted by the run.",
                                     ),
                                     _compact_number_input(
                                         "Collections / database",
                                         "namespace-collections-input",
                                         config.namespace.collections_per_database,
                                         min_value=1,
+                                        tooltip="Number of collections created/used inside each target database.",
                                     ),
                                     _compact_number_input(
                                         "Initial seed / collection",
                                         "initial-seed-input",
                                         config.load.initial_seed_per_collection,
                                         min_value=0,
+                                        tooltip=(
+                                            "Number of seed documents inserted into each collection before load starts. "
+                                            "Helps reads/updates/deletes behave realistically from second zero."
+                                        ),
                                     ),
                                     _compact_number_input(
                                         "Ramp-up seconds",
                                         "ramp-up-seconds-input",
                                         config.load.ramp_up_seconds,
                                         min_value=0,
+                                        tooltip="Time window to gradually bring workers online instead of all at once.",
                                     ),
                                 ],
                                 style={"display": "grid", "gridTemplateColumns": "repeat(3, 1fr)", "gap": "10px", "marginTop": "10px"},
@@ -565,6 +663,11 @@ def create_dashboard(
                                 n_clicks=0,
                                 style={**ACTION_BUTTON_STYLE, "marginTop": "10px"},
                             ),
+                            html.Div(
+                                id="static-config-feedback",
+                                children="No pending static changes.",
+                                style={"marginTop": "8px", "fontSize": "12px", "color": "#6b7280"},
+                            ),
                         ],
                         style={**CARD_STYLE},
                     ),
@@ -573,7 +676,7 @@ def create_dashboard(
                             html.Div(
                                 [
                                     html.Span("Schema fields JSON"),
-                                    _scope_badge("next run"),
+                                    _scope_badge("ready", value_id="schema-domain-scope-badge"),
                                 ],
                                 style={"fontSize": "12px", "color": "#4b5563", "display": "flex", "gap": "8px", "alignItems": "center"},
                             ),
@@ -592,7 +695,8 @@ def create_dashboard(
                                 },
                             ),
                             html.Div(
-                                "Use either a fields array or {\"fields\": [...]} payload. Saved changes apply on next run.",
+                                "Use either a fields array or {\"fields\": [...]} payload.",
+                                id="schema-domain-scope-note",
                                 style={"marginTop": "8px", "fontSize": "12px", "color": "#6b7280"},
                             ),
                         ],
@@ -984,6 +1088,38 @@ def create_dashboard(
             logger.exception("Capacity chip refresh failed.")
             return _fmt(runner.max_virtual_users), _fmt(runner.target_worker_threads)
 
+    @callback(
+        Output("static-domain-scope-badge", "children"),
+        Output("static-domain-scope-badge", "style"),
+        Output("schema-domain-scope-badge", "children"),
+        Output("schema-domain-scope-badge", "style"),
+        Output("static-domain-scope-note", "children"),
+        Output("schema-domain-scope-note", "children"),
+        Input("refresh", "n_intervals"),
+    )
+    def refresh_static_scope_state(_: int):
+        if runner.is_running:
+            label = "NEXT RUN"
+            style = _scope_badge_style("next_run")
+            return (
+                label,
+                style,
+                label,
+                style,
+                "Namespace topology, seeding, ramp-up, and schema updates are staged for the next run.",
+                "Use either a fields array or {\"fields\": [...]} payload. Saved schema changes apply next run.",
+            )
+        label = "ACTIVE DEFAULT"
+        style = _scope_badge_style("active_default")
+        return (
+            label,
+            style,
+            label,
+            style,
+            "These settings are the active defaults and will be used when you start the load test.",
+            "Use either a fields array or {\"fields\": [...]} payload. This schema is used when the run starts.",
+        )
+
     # Compatibility callback: supports older clients that still request a single
     # 7-output live-control update signature.
     @callback(
@@ -1234,6 +1370,7 @@ def create_dashboard(
 
     @callback(
         Output("control-feedback", "children", allow_duplicate=True),
+        Output("static-config-feedback", "children"),
         Input("apply-static-config-btn", "n_clicks"),
         State("namespace-db-prefix-input", "value"),
         State("namespace-collection-prefix-input", "value"),
@@ -1281,17 +1418,147 @@ def create_dashboard(
             controller.apply_config(staged_config, source="dashboard-static-config")
             persist_metadata_config("apply-static-config")
             if runner.is_running:
-                return _feedback_warning(
+                message = (
                     "Static config saved and staged for next run. Namespace/schema/seed/ramp-up changes "
                     "apply on next restart/start."
                 )
-            return "Static config saved. Changes are staged and will apply when you start or restart the load test."
+                return _feedback_warning(message), message
+            message = "Static config saved. Changes are staged and will apply when you start or restart the load test."
+            return message, message
         except ValueError as exc:
             logger.warning("Static config validation rejected input: %s", exc)
-            return _feedback_warning(str(exc))
+            message = str(exc)
+            return _feedback_warning(message), message
         except Exception as exc:  # pragma: no cover - UI safety
             logger.exception("Static config callback failed.")
-            return _feedback_error(f"Static config action failed: {exc}")
+            message = f"Static config action failed: {exc}"
+            return _feedback_error(message), message
+
+    @callback(
+        Output("duration-seconds-input", "value"),
+        Output("target-users-input", "value"),
+        Output("worker-threads-input", "value"),
+        Output("think-time-min-input", "value"),
+        Output("think-time-max-input", "value"),
+        Output("target-ops-per-user-input", "value"),
+        Output("mix-read-input", "value"),
+        Output("mix-insert-input", "value"),
+        Output("mix-update-input", "value"),
+        Output("mix-delete-input", "value"),
+        Output("retry-max-attempts-input", "value"),
+        Output("retry-initial-backoff-input", "value"),
+        Output("retry-max-backoff-input", "value"),
+        Output("retry-multiplier-input", "value"),
+        Output("retry-jitter-input", "value"),
+        Output("runtime-log-level-input", "value"),
+        Output("progress-log-interval-input", "value"),
+        Output("log-operation-failures-toggle", "value"),
+        Output("namespace-db-prefix-input", "value"),
+        Output("namespace-collection-prefix-input", "value"),
+        Output("namespace-databases-input", "value"),
+        Output("namespace-collections-input", "value"),
+        Output("initial-seed-input", "value"),
+        Output("ramp-up-seconds-input", "value"),
+        Output("schema-fields-json-input", "value"),
+        Output("control-feedback", "children", allow_duplicate=True),
+        Output("static-config-feedback", "children", allow_duplicate=True),
+        Input("reset-defaults-btn", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def reset_all_settings_to_defaults(reset_clicks: int):
+        if not reset_clicks:
+            raise PreventUpdate
+        try:
+            defaults = default_config()
+            config_for_reset = controller.current_config()
+            config_for_reset.load.duration_seconds = defaults.load.duration_seconds
+            config_for_reset.load.virtual_users = defaults.load.virtual_users
+            config_for_reset.load.worker_threads = defaults.load.worker_threads
+            config_for_reset.load.think_time_ms_min = defaults.load.think_time_ms_min
+            config_for_reset.load.think_time_ms_max = defaults.load.think_time_ms_max
+            config_for_reset.load.target_ops_per_user_per_sec = defaults.load.target_ops_per_user_per_sec
+            config_for_reset.load.initial_seed_per_collection = defaults.load.initial_seed_per_collection
+            config_for_reset.load.ramp_up_seconds = defaults.load.ramp_up_seconds
+            config_for_reset.operation_mix = defaults.operation_mix.model_copy(deep=True)
+            config_for_reset.retry = defaults.retry.model_copy(deep=True)
+            config_for_reset.logging.level = defaults.logging.level
+            config_for_reset.logging.progress_log_interval_seconds = defaults.logging.progress_log_interval_seconds
+            config_for_reset.logging.log_operation_failures = defaults.logging.log_operation_failures
+            config_for_reset.namespace = defaults.namespace.model_copy(deep=True)
+            config_for_reset.document_schema = defaults.document_schema.model_copy(deep=True)
+            controller.apply_config(config_for_reset, source="dashboard-reset-defaults")
+            persist_metadata_config("reset-all-defaults")
+            schema_json = _schema_config_to_json(defaults.document_schema)
+            message = "All configurable settings were reset to defaults and metadata has been updated."
+            static_message = (
+                "Defaults restored. Static namespace/schema/seed/ramp-up values are staged "
+                "according to current run state."
+            )
+            return (
+                defaults.load.duration_seconds,
+                str(defaults.load.virtual_users),
+                str(defaults.load.worker_threads),
+                defaults.load.think_time_ms_min,
+                defaults.load.think_time_ms_max,
+                (
+                    ""
+                    if defaults.load.target_ops_per_user_per_sec is None
+                    else f"{defaults.load.target_ops_per_user_per_sec}"
+                ),
+                defaults.operation_mix.read,
+                defaults.operation_mix.insert,
+                defaults.operation_mix.update,
+                defaults.operation_mix.delete,
+                defaults.retry.max_attempts,
+                defaults.retry.initial_backoff_ms,
+                defaults.retry.max_backoff_ms,
+                defaults.retry.backoff_multiplier,
+                defaults.retry.jitter_ratio,
+                defaults.logging.level,
+                defaults.logging.progress_log_interval_seconds,
+                ["enabled"] if defaults.logging.log_operation_failures else [],
+                defaults.namespace.database_prefix,
+                defaults.namespace.collection_prefix,
+                defaults.namespace.databases,
+                defaults.namespace.collections_per_database,
+                defaults.load.initial_seed_per_collection,
+                defaults.load.ramp_up_seconds,
+                schema_json,
+                message,
+                static_message,
+            )
+        except Exception as exc:  # pragma: no cover - UI safety
+            logger.exception("Reset defaults callback failed.")
+            message = f"Reset defaults failed: {exc}"
+            return (
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                _feedback_error(message),
+                message,
+            )
 
     @callback(
         Output("download-csv", "data"),
@@ -1395,19 +1662,48 @@ def _metric_card(label: str, value_id: str, theme: tuple[str, str], tooltip: str
     )
 
 
-def _scope_badge(scope: str) -> html.Span:
+def _label_with_help(label: str, tooltip: str, color: str = "#4b5563", margin_top: str = "0px") -> html.Div:
+    return html.Div(
+        [
+            html.Span(label),
+            html.Span(
+                "i",
+                title=tooltip,
+                style={
+                    "fontSize": "10px",
+                    "padding": "1px 5px",
+                    "borderRadius": "999px",
+                    "border": "1px solid #a5b4fc",
+                    "color": "#4338ca",
+                    "fontWeight": "700",
+                    "cursor": "help",
+                },
+            ),
+        ],
+        style={"fontSize": "12px", "color": color, "display": "flex", "gap": "6px", "alignItems": "center", "marginTop": margin_top},
+    )
+
+
+def _scope_badge(scope: str, value_id: str | None = None) -> html.Span:
+    style = _scope_badge_style("next_run" if scope.lower().startswith("next") else "active_default")
+    kwargs = {"id": value_id} if value_id else {}
     return html.Span(
         scope.upper(),
-        style={
-            "fontSize": "10px",
-            "padding": "2px 6px",
-            "borderRadius": "999px",
-            "fontWeight": "700",
-            "background": "#e0e7ff",
-            "color": "#3730a3",
-            "border": "1px solid #c7d2fe",
-        },
+        style=style,
+        **kwargs,
     )
+
+
+def _scope_badge_style(scope_type: str) -> dict[str, str]:
+    base = {
+        "fontSize": "10px",
+        "padding": "2px 6px",
+        "borderRadius": "999px",
+        "fontWeight": "700",
+    }
+    if scope_type == "next_run":
+        return {**base, "background": "#ede9fe", "color": "#5b21b6", "border": "1px solid #c4b5fd"}
+    return {**base, "background": "#dcfce7", "color": "#166534", "border": "1px solid #86efac"}
 
 
 def _profile_chip(label: str, value: str, value_id: str | None = None) -> html.Div:
@@ -1425,10 +1721,10 @@ def _profile_chip(label: str, value: str, value_id: str | None = None) -> html.D
     )
 
 
-def _weighted_input(label: str, input_id: str, value: float) -> html.Div:
+def _weighted_input(label: str, input_id: str, value: float, tooltip: str | None = None) -> html.Div:
     return html.Div(
         [
-            html.Div(label, style={"fontSize": "12px", "color": "#4b5563"}),
+            _label_with_help(label, tooltip or label),
             dcc.Input(
                 id=input_id,
                 type="number",
@@ -1454,6 +1750,7 @@ def _compact_number_input(
     step: int | float = 1,
     min_value: int | float | None = None,
     max_value: int | float | None = None,
+    tooltip: str | None = None,
 ) -> html.Div:
     kwargs: dict[str, int | float] = {"step": step}
     if min_value is not None:
@@ -1462,7 +1759,7 @@ def _compact_number_input(
         kwargs["max"] = max_value
     return html.Div(
         [
-            html.Div(label, style={"fontSize": "12px", "color": "#4b5563"}),
+            _label_with_help(label, tooltip or label),
             dcc.Input(
                 id=input_id,
                 type="number",

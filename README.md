@@ -184,6 +184,8 @@ If that command is not in your PATH, use the `python3 -m mongo_load_tester.cli .
 - Live control-state strip with recent runtime change history
 - Metadata sync notice in UI (external config changes can take up to 30s to apply)
 - Dedicated static-config panel with explicit "next run" scope (namespace/schema/seed/ramp-up)
+- Context tooltips on key control inputs (hover "i" for quick explanations)
+- Unified "Reset all settings to defaults" action (also persisted to metadata)
 - Live logs panel in UI (INFO/WARNING/ERROR filters and adjustable tail lines)
 - One-click exports from browser:
   - timeline CSV (includes active users + retries)
