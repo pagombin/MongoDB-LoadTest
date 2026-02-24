@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
@@ -113,7 +114,8 @@ def create_dashboard(
 ) -> Dash:
     app = Dash(__name__, title="MongoDB Load Tester")
     logger = logging.getLogger("mongo_load_tester.dashboard")
-    run_state: dict[str, object | None] = {
+    _run_state_lock = threading.Lock()
+    _run_state: dict[str, object | None] = {
         "active_run_id": None,
         "last_run_finished_at": None,
         "config_version": int(initial_config_version),
@@ -121,6 +123,24 @@ def create_dashboard(
         "startup_static_baseline": None,
         "staged_static_snapshot": None,
     }
+
+    class run_state:
+        """Thread-safe accessor for shared dashboard state."""
+
+        @staticmethod
+        def get(key: str, default: object = None) -> object | None:
+            with _run_state_lock:
+                return _run_state.get(key, default)
+
+        @staticmethod
+        def __getitem__(key: str) -> object | None:
+            with _run_state_lock:
+                return _run_state[key]
+
+        @staticmethod
+        def __setitem__(key: str, value: object) -> None:
+            with _run_state_lock:
+                _run_state[key] = value
 
     def persist_metadata_config(
         reason: str,
@@ -2382,7 +2402,9 @@ def _parse_optional_positive_float(value: object, field_name: str) -> float | No
         parsed = float(raw)
     except ValueError as exc:
         raise ValueError(f"{field_name} must be a valid number.") from exc
-    if parsed <= 0:
+    if parsed < 0:
+        raise ValueError(f"{field_name} must be a positive number.")
+    if parsed == 0:
         return None
     return parsed
 
@@ -2442,36 +2464,34 @@ def _refresh_error_payload(error_message: str) -> tuple:
         "fontWeight": "600",
         **STATUS_STYLE_MAP["failed"],
     }
-    empty_figure = go.Figure()
-    empty_figure.update_layout(template="plotly_white")
     return (
         f"FAILED: dashboard refresh error ({error_message})",
         style,
-        "Unavailable",
+        no_update,
         datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC"),
-        0.0,
-        "0.0% complete",
-        "Showing all captured points.",
-        "Duration data unavailable",
-        "0",
-        "0.00",
-        "0.00%",
-        "0.00%",
-        "0.00 ms",
-        "0.00 ms",
-        "0.00%",
-        "0",
-        empty_figure,
-        empty_figure,
-        empty_figure,
-        empty_figure,
-        html.Div("No operation data available due to dashboard refresh error."),
-        html.Div("No insights available due to dashboard refresh error."),
+        no_update,
+        no_update,
+        no_update,
+        no_update,
+        no_update,
+        no_update,
+        no_update,
+        no_update,
+        no_update,
+        no_update,
+        no_update,
+        no_update,
+        no_update,
+        no_update,
+        no_update,
+        no_update,
+        no_update,
+        no_update,
         True,
         True,
         True,
-        "Dashboard refresh failed. Check application logs for details.",
-        "Showing 0 line(s), level >= INFO.",
+        f"Dashboard refresh failed: {error_message}. Check application logs.",
+        no_update,
     )
 
 
