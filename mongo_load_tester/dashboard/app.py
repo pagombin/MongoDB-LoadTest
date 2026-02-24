@@ -1691,9 +1691,10 @@ def create_dashboard(
                 )
                 if was_capped:
                     msg += (
-                        f" Worker threads were capped from {worker_threads_requested} "
-                        f"to the recommended limit of {worker_threads}."
+                        f" Worker threads were capped from {worker_threads_requested} to {worker_threads}."
                     )
+                    if worker_threads_requested > max_users:
+                        msg += f" Increase target users (currently {max_users}) to allow more workers."
                     return _feedback_warning(msg)
                 return _feedback_info(msg)
             if triggered == "apply-operation-mix-btn":

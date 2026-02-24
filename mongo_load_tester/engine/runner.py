@@ -282,6 +282,10 @@ class LoadTestRunner:
         with self._state_lock:
             capped = min(requested_threads, self._max_worker_threads, self._max_virtual_users)
             was_capped = capped < requested_threads
+            capped_by_users = requested_threads > self._max_virtual_users
+            capped_by_limit = requested_threads > self._max_worker_threads
+            max_users = self._max_virtual_users
+            max_threads = self._max_worker_threads
             old_target = self._target_worker_threads
             self._target_worker_threads = capped
             self._config.load.worker_threads = capped
@@ -292,14 +296,25 @@ class LoadTestRunner:
             self._rebalance_assignments_locked()
             pool_size = len(self._worker_assignments)
         if was_capped:
+            reasons: list[str] = []
+            if capped_by_users:
+                reasons.append(f"virtual users is {max_users}")
+            if capped_by_limit:
+                reasons.append(f"max_worker_threads is {max_threads}")
+            reason_text = " and ".join(reasons)
             cap_msg = (
-                f"Worker thread request of {requested_threads} exceeds the recommended "
-                f"limit of {self._max_worker_threads}. Capped to {capped} workers. "
-                f"Adjust max_worker_threads in your config to raise this limit."
+                f"Worker threads capped from {requested_threads} to {capped} "
+                f"because {reason_text}. "
             )
+            if capped_by_users and not capped_by_limit:
+                cap_msg += "Increase target users first to allow more workers."
+            elif capped_by_limit and not capped_by_users:
+                cap_msg += "Adjust max_worker_threads in your config to raise the hard limit."
+            else:
+                cap_msg += "Increase target users and/or max_worker_threads to allow more workers."
             self._logger.warning(cap_msg)
             self._record_runtime_change(
-                f"worker_threads={capped} (capped from {requested_threads}, limit={self._max_worker_threads})"
+                f"worker_threads={capped} (capped from {requested_threads})"
             )
             self._push_scaling_alert(cap_msg)
         else:
