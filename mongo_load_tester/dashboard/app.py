@@ -1253,14 +1253,38 @@ def create_dashboard(
             logger.exception("Dashboard refresh callback failed.")
             return _refresh_error_payload(str(exc))
 
+    _SCALING_ALERT_DISPLAY_SECONDS = 8
+    _scaling_alert_state: dict[str, object] = {"messages": [], "show_until": 0.0}
+
+    _ALERT_VISIBLE_STYLE = {
+        "marginTop": "12px",
+        "padding": "14px 18px",
+        "background": "linear-gradient(90deg, #fef2f2, #fff1f2)",
+        "border": "2px solid #f87171",
+        "borderRadius": "12px",
+        "fontSize": "13px",
+        "color": "#991b1b",
+        "fontWeight": "500",
+        "boxShadow": "0 4px 12px rgba(239,68,68,0.15)",
+        "animation": "pulse 2s ease-in-out 3",
+    }
+
     @callback(
         Output("scaling-alert-banner", "children"),
         Output("scaling-alert-banner", "style"),
         Input("refresh", "n_intervals"),
     )
     def refresh_scaling_alerts(_: int):
-        alerts = runner.drain_scaling_alerts()
-        if not alerts:
+        import time as _time
+        now = _time.monotonic()
+        new_alerts = runner.drain_scaling_alerts()
+        if new_alerts:
+            _scaling_alert_state["messages"] = new_alerts
+            _scaling_alert_state["show_until"] = now + _SCALING_ALERT_DISPLAY_SECONDS
+        if now >= float(_scaling_alert_state["show_until"]):
+            return "", {"display": "none"}
+        messages = _scaling_alert_state["messages"]
+        if not messages:
             return "", {"display": "none"}
         alert_items = [
             html.Div(
@@ -1280,25 +1304,11 @@ def create_dashboard(
                     ),
                     html.Span(alert),
                 ],
-                style={"marginBottom": "4px" if i < len(alerts) - 1 else "0"},
+                style={"marginBottom": "4px" if i < len(messages) - 1 else "0"},
             )
-            for i, alert in enumerate(alerts)
+            for i, alert in enumerate(messages)
         ]
-        return (
-            alert_items,
-            {
-                "marginTop": "12px",
-                "padding": "14px 18px",
-                "background": "linear-gradient(90deg, #fef2f2, #fff1f2)",
-                "border": "2px solid #f87171",
-                "borderRadius": "12px",
-                "fontSize": "13px",
-                "color": "#991b1b",
-                "fontWeight": "500",
-                "boxShadow": "0 4px 12px rgba(239,68,68,0.15)",
-                "animation": "pulse 2s ease-in-out 3",
-            },
-        )
+        return alert_items, _ALERT_VISIBLE_STYLE
 
     @callback(
         Output("configured-duration-value", "children"),
