@@ -862,6 +862,32 @@ def create_dashboard(
             logger.exception("Capacity chip refresh failed.")
             return _fmt(runner.max_virtual_users), _fmt(runner.target_worker_threads)
 
+    # Compatibility callback: supports older clients that still request a single
+    # 7-output live-control update signature.
+    @callback(
+        Output("configured-duration-value", "children", allow_duplicate=True),
+        Output("max-virtual-users-chip", "children", allow_duplicate=True),
+        Output("target-users-chip", "children", allow_duplicate=True),
+        Output("worker-threads-chip", "children", allow_duplicate=True),
+        Output("read-write-mix-chip", "children", allow_duplicate=True),
+        Output("live-controls-meta", "children", allow_duplicate=True),
+        Output("runtime-change-events", "children", allow_duplicate=True),
+        Input("refresh", "n_intervals"),
+        prevent_initial_call=True,
+    )
+    def refresh_live_control_state_legacy(_: int):
+        duration, target_users, read_write_mix, live_meta, events = refresh_live_control_state(_)
+        max_users, worker_threads = refresh_capacity_chips(_)
+        return (
+            duration,
+            max_users,
+            target_users,
+            worker_threads,
+            read_write_mix,
+            live_meta,
+            events,
+        )
+
     @callback(
         Output("control-feedback", "children"),
         Input("start-test-btn", "n_clicks"),
