@@ -8,7 +8,6 @@ A configurable Python load/stress testing tool for MongoDB clusters, designed fo
 - schema-driven payload generation
 - live dashboard with timelines and latency metrics
 - metadata-backed configuration persistence in MongoDB (`loader_metadata`)
-- per-run timeline metrics persisted to metadata DB
 - pause/resume controls and live duration updates from dashboard
 - live load shaping controls (target users, pacing, operation mix, retry, logging)
 - users ramp-up/ramp-down timeline
@@ -38,10 +37,6 @@ mongo_load_tester/
     app.py                # Dash UI + callbacks
     figures.py            # Plot builders
     export.py             # CSV/PNG/PDF export helpers
-  metadata/
-    store.py              # Config/run/event/metric persistence
-    sync.py               # External config sync polling service
-    metrics_sync.py       # Per-second active-run timeline persistence
 ```
 
 ## Installation and Running the Script
@@ -179,7 +174,6 @@ If that command is not in your PATH, use the `python3 -m mongo_load_tester.cli .
   - runtime log level and worker progress-log cadence
 - Runtime progress bar with elapsed and remaining time
 - Adjustable timeline window (1m, 5m, 15m, 30m, 1h, 8h, 24h, all)
-- Run history selector (switch between live run and persisted prior runs)
 - Chart panels are full-width and vertically stacked for easier operations visibility
 - Smarter KPI cards for throughput, success/error, latency, retries, and active users
 - Ops/sec card includes tooltip explaining active-runtime computation (pause time excluded)
@@ -247,11 +241,8 @@ Configuration state is stored in the target cluster under the `loader_metadata` 
 - `load_test_configs`: single upserted config document per `load_test_id`
 - `load_test_runs`: run lifecycle/status records
 - `load_test_events`: configuration and control-plane audit events
-- `load_test_metrics`: per-run timeline points (isolated by `load_test_id` + `run_id`)
 
 The dashboard writes UI configuration changes back to metadata immediately. A background sync service also polls metadata every 30 seconds (configurable) and applies externally updated settings.
-
-A dedicated metrics sync service persists timeline points every second for the active run. The dashboard can then view either live in-memory telemetry or persisted history for a selected run, without cross-run metric bleed.
 
 At startup, stale metadata runs left in `running` state (e.g., crash/kill/interrupt) are reconciled to `interrupted` automatically.
 

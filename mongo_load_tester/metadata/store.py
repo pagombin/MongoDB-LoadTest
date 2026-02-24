@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from pymongo import ReturnDocument, UpdateOne
+from pymongo import ReturnDocument
 from pymongo.collection import Collection
 from pymongo.errors import DuplicateKeyError
 
@@ -50,7 +50,6 @@ class MetadataStore:
         self._configs: Collection = self._database["load_test_configs"]
         self._events: Collection = self._database["load_test_events"]
         self._runs: Collection = self._database["load_test_runs"]
-        self._metrics: Collection = self._database["load_test_metrics"]
         self._ensure_indexes()
 
     @property
@@ -170,94 +169,6 @@ class MetadataStore:
         )
         return run_id
 
-    def active_run_id(self) -> str | None:
-        document = self._runs.find_one(
-            {"load_test_id": self._load_test_id, "status": "running"},
-            sort=[("started_at", -1)],
-        )
-        if not document:
-            return None
-        return str(document["run_id"])
-
-    def list_runs(self, limit: int = 50) -> list[dict[str, Any]]:
-        safe_limit = max(int(limit), 1)
-        cursor = self._runs.find({"load_test_id": self._load_test_id}).sort("started_at", -1).limit(safe_limit)
-        rows: list[dict[str, Any]] = []
-        for document in cursor:
-            rows.append(
-                {
-                    "run_id": str(document.get("run_id", "")),
-                    "status": str(document.get("status", "unknown")),
-                    "config_version": int(document.get("config_version", 0)),
-                    "started_at": document.get("started_at"),
-                    "finished_at": document.get("finished_at"),
-                    "updated_at": document.get("updated_at"),
-                    "summary": document.get("summary") or {},
-                }
-            )
-        return rows
-
-    def upsert_metric_rows(self, run_id: str, rows: list[dict[str, Any]]) -> int:
-        if not rows:
-            return 0
-        updates: list[UpdateOne] = []
-        for row in rows:
-            timestamp_utc = str(row.get("timestamp_utc", "")).strip()
-            if not timestamp_utc:
-                continue
-            try:
-                timestamp_epoch = _epoch_from_timestamp_utc(timestamp_utc)
-            except ValueError:
-                continue
-            document = {
-                "load_test_id": self._load_test_id,
-                "run_id": run_id,
-                "timestamp_utc": timestamp_utc,
-                "timestamp_epoch": timestamp_epoch,
-                **row,
-            }
-            updates.append(
-                UpdateOne(
-                    {
-                        "load_test_id": self._load_test_id,
-                        "run_id": run_id,
-                        "timestamp_utc": timestamp_utc,
-                    },
-                    {"$set": document},
-                    upsert=True,
-                )
-            )
-        if not updates:
-            return 0
-        result = self._metrics.bulk_write(updates, ordered=False)
-        return int(result.upserted_count + result.modified_count)
-
-    def fetch_metric_rows(self, run_id: str) -> list[dict[str, Any]]:
-        cursor = self._metrics.find(
-            {"load_test_id": self._load_test_id, "run_id": run_id}
-        ).sort("timestamp_epoch", 1)
-        rows: list[dict[str, Any]] = []
-        for document in cursor:
-            rows.append(
-                {
-                    "timestamp_utc": document.get("timestamp_utc"),
-                    "total_ops": int(document.get("total_ops", 0)),
-                    "error_ops": int(document.get("error_ops", 0)),
-                    "retried_ops": int(document.get("retried_ops", 0)),
-                    "avg_attempts_per_op": float(document.get("avg_attempts_per_op", 0.0)),
-                    "avg_latency_ms": float(document.get("avg_latency_ms", 0.0)),
-                    "p95_latency_ms": float(document.get("p95_latency_ms", 0.0)),
-                    "read_ops": int(document.get("read_ops", 0)),
-                    "insert_ops": int(document.get("insert_ops", 0)),
-                    "update_ops": int(document.get("update_ops", 0)),
-                    "delete_ops": int(document.get("delete_ops", 0)),
-                    "active_virtual_users": int(document.get("active_virtual_users", 0)),
-                    "target_virtual_users": int(document.get("target_virtual_users", 0)),
-                    "paused": bool(document.get("paused", False)),
-                }
-            )
-        return rows
-
     def record_run_finished(
         self,
         run_id: str,
@@ -279,8 +190,6 @@ class MetadataStore:
                         "error_ops": snapshot.error_ops,
                         "p95_latency_ms": snapshot.p95_latency_ms,
                         "avg_latency_ms": snapshot.avg_latency_ms,
-                        "operation_counts": snapshot.operation_counts,
-                        "operation_latency_avg_ms": snapshot.operation_latency_avg_ms,
                     },
                     "error": error,
                 }
@@ -323,8 +232,6 @@ class MetadataStore:
         self._events.create_index([("load_test_id", 1), ("created_at", -1)])
         self._runs.create_index([("load_test_id", 1), ("started_at", -1)])
         self._runs.create_index("run_id")
-        self._metrics.create_index([("load_test_id", 1), ("run_id", 1), ("timestamp_utc", 1)], unique=True)
-        self._metrics.create_index([("load_test_id", 1), ("run_id", 1), ("timestamp_epoch", 1)])
 
     def _parse_config_document(self, document: dict[str, Any]) -> ConfigRecord:
         payload = document.get("config") or {}
@@ -340,10 +247,3 @@ class MetadataStore:
             updated_at=updated_at,
             config=config,
         )
-
-
-def _epoch_from_timestamp_utc(value: str) -> int:
-    dt = datetime.fromisoformat(value)
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=UTC)
-    return int(dt.timestamp())

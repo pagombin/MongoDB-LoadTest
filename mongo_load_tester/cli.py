@@ -13,7 +13,7 @@ from mongo_load_tester.dashboard.app import create_dashboard
 from mongo_load_tester.engine.control import LoadTestController
 from mongo_load_tester.engine.metrics import MetricsStore
 from mongo_load_tester.engine.runner import LoadTestRunner
-from mongo_load_tester.metadata import ConfigSyncService, MetadataStore, RunMetricsSyncService
+from mongo_load_tester.metadata import ConfigSyncService, MetadataStore
 from mongo_load_tester.observability import configure_logging
 
 app = typer.Typer(help="MongoDB load/stress test runner with live dashboard.")
@@ -34,7 +34,6 @@ def run_load_test(
     bootstrap_logger = logging.getLogger("mongo_load_tester.bootstrap")
     metadata_store: MetadataStore | None = None
     sync_service: ConfigSyncService | None = None
-    metrics_sync_service: RunMetricsSyncService | None = None
     logger = logging.getLogger("mongo_load_tester")
     log_buffer = None
     try:
@@ -81,13 +80,6 @@ def run_load_test(
     )
     sync_service.mark_applied_version(config_record.version)
     sync_service.start()
-    metrics_sync_service = RunMetricsSyncService(
-        metadata_store=metadata_store,
-        metrics_store=metrics,
-        interval_seconds=1,
-        logger=logger,
-    )
-    metrics_sync_service.start()
 
     try:
         if no_dashboard or not app_config.dashboard.enabled:
@@ -95,8 +87,6 @@ def run_load_test(
             typer.echo("Starting headless load test...")
             run_id = metadata_store.record_run_started(config_version=config_record.version)
             runner.run()
-            if metrics_sync_service is not None:
-                metrics_sync_service.flush_once()
             snapshot = metrics.snapshot()
             run_status = "failed" if runner.last_error else "completed"
             metadata_store.record_run_finished(run_id=run_id, status=run_status, snapshot=snapshot, error=runner.last_error)
@@ -148,8 +138,6 @@ def run_load_test(
         typer.echo(f"Run failed: {exc}")
         raise typer.Exit(code=1)
     finally:
-        if metrics_sync_service is not None:
-            metrics_sync_service.stop(timeout=5)
         if sync_service is not None:
             sync_service.stop(timeout=5)
         controller.stop()
