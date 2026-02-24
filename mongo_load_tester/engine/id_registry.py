@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import random
-from collections import defaultdict
 from threading import Lock
 from typing import Any
 
@@ -52,33 +51,54 @@ class _IndexedIdSet:
         self._ids.pop()
 
 
+class _LockedBucket:
+    """Per-namespace _IndexedIdSet with its own lock to reduce contention."""
+
+    __slots__ = ("lock", "id_set")
+
+    def __init__(self, max_size: int):
+        self.lock = Lock()
+        self.id_set = _IndexedIdSet(max_size)
+
+
 class DocumentIdRegistry:
     """Keeps a bounded rolling window of known _id values."""
 
     def __init__(self, max_ids_per_namespace: int = 20_000):
         self._max_ids_per_namespace = max_ids_per_namespace
-        self._ids: dict[tuple[str, str], _IndexedIdSet] = defaultdict(
-            lambda: _IndexedIdSet(self._max_ids_per_namespace)
-        )
-        self._lock = Lock()
+        self._buckets: dict[tuple[str, str], _LockedBucket] = {}
+        self._registry_lock = Lock()
+
+    def _get_bucket(self, key: tuple[str, str]) -> _LockedBucket:
+        bucket = self._buckets.get(key)
+        if bucket is not None:
+            return bucket
+        with self._registry_lock:
+            bucket = self._buckets.get(key)
+            if bucket is None:
+                bucket = _LockedBucket(self._max_ids_per_namespace)
+                self._buckets[key] = bucket
+            return bucket
 
     def add_id(self, database: str, collection: str, document_id: Any) -> None:
-        key = (database, collection)
-        with self._lock:
-            self._ids[key].add(document_id)
+        bucket = self._get_bucket((database, collection))
+        with bucket.lock:
+            bucket.id_set.add(document_id)
 
     def get_random_id(self, database: str, collection: str, rng: random.Random) -> Any | None:
         key = (database, collection)
-        with self._lock:
-            bucket = self._ids.get(key)
-            if not bucket:
+        bucket = self._buckets.get(key)
+        if bucket is None:
+            return None
+        with bucket.lock:
+            if not bucket.id_set:
                 return None
-            return bucket.random(rng)
+            return bucket.id_set.random(rng)
 
     def remove_id(self, database: str, collection: str, document_id: Any) -> None:
         key = (database, collection)
-        with self._lock:
-            bucket = self._ids.get(key)
-            if not bucket:
-                return
-            bucket.remove(document_id)
+        bucket = self._buckets.get(key)
+        if bucket is None:
+            return
+        with bucket.lock:
+            bucket.id_set.remove(document_id)
