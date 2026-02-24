@@ -16,9 +16,14 @@ from plotly.subplots import make_subplots
 from mongo_load_tester.config import AppConfig, SchemaConfig, default_config
 from mongo_load_tester.dashboard.export import build_csv_bytes, build_pdf_report, build_png_bytes
 from mongo_load_tester.dashboard.figures import (
+    build_error_breakdown,
+    build_error_retry_timeline,
+    build_latency_histogram,
     build_latency_timeline,
     build_operation_distribution,
     build_operations_timeline,
+    build_per_op_latency_timeline,
+    build_per_op_throughput_timeline,
     build_user_ramp_timeline,
 )
 from mongo_load_tester.engine.control import LoadTestController
@@ -881,12 +886,14 @@ def create_dashboard(
                     ),
                     _metric_card("Error rate", "error-rate", KPI_THEMES[2]),
                     _metric_card("Success rate", "success-rate", KPI_THEMES[3]),
-                    _metric_card("Average latency", "avg-latency", KPI_THEMES[4]),
-                    _metric_card("P95 latency", "p95-latency", KPI_THEMES[5]),
-                    _metric_card("Retry rate", "retry-rate", KPI_THEMES[6]),
-                    _metric_card("Active users", "active-users-live", KPI_THEMES[7]),
+                    _metric_card("P50 latency", "p50-latency", KPI_THEMES[4]),
+                    _metric_card("Average latency", "avg-latency", KPI_THEMES[5]),
+                    _metric_card("P95 latency", "p95-latency", KPI_THEMES[6]),
+                    _metric_card("P99 latency", "p99-latency", KPI_THEMES[7]),
+                    _metric_card("Retry rate", "retry-rate", KPI_THEMES[0]),
+                    _metric_card("Active users", "active-users-live", KPI_THEMES[1]),
                 ],
-                style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "repeat(4, 1fr)", "gap": "10px"},
+                style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "repeat(5, 1fr)", "gap": "10px"},
             ),
             html.Div(
                 [
@@ -962,8 +969,63 @@ def create_dashboard(
                 [
                     html.Div(
                         [
+                            html.Div("Errors & Retries", style={"fontWeight": "600", "marginBottom": "6px", "color": "#312e81"}),
+                            dcc.Graph(id="error-retry-graph", style={"height": "340px"}),
+                        ],
+                        style={**CARD_STYLE},
+                    ),
+                ],
+                style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "1fr", "gap": "12px"},
+            ),
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            html.Div("Throughput by Operation Type", style={"fontWeight": "600", "marginBottom": "6px", "color": "#312e81"}),
+                            dcc.Graph(id="per-op-throughput-graph", style={"height": "340px"}),
+                        ],
+                        style={**CARD_STYLE},
+                    ),
+                ],
+                style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "1fr", "gap": "12px"},
+            ),
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            html.Div("Latency by Operation Type", style={"fontWeight": "600", "marginBottom": "6px", "color": "#312e81"}),
+                            dcc.Graph(id="per-op-latency-graph", style={"height": "340px"}),
+                        ],
+                        style={**CARD_STYLE},
+                    ),
+                ],
+                style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "1fr", "gap": "12px"},
+            ),
+            html.Div(
+                [
+                    html.Div(
+                        [
                             html.Div("Operation Mix", style={"fontWeight": "600", "marginBottom": "6px", "color": "#312e81"}),
                             dcc.Graph(id="distribution-graph", style={"height": "330px"}),
+                        ],
+                        style={**CARD_STYLE},
+                    ),
+                    html.Div(
+                        [
+                            html.Div("Error Breakdown", style={"fontWeight": "600", "marginBottom": "6px", "color": "#312e81"}),
+                            dcc.Graph(id="error-breakdown-graph", style={"height": "330px"}),
+                        ],
+                        style={**CARD_STYLE},
+                    ),
+                ],
+                style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "1fr 1fr", "gap": "12px"},
+            ),
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            html.Div("Latency Distribution", style={"fontWeight": "600", "marginBottom": "6px", "color": "#312e81"}),
+                            dcc.Graph(id="latency-histogram-graph", style={"height": "340px"}),
                         ],
                         style={**CARD_STYLE},
                     ),
@@ -1068,14 +1130,21 @@ def create_dashboard(
         Output("ops-per-sec", "children"),
         Output("error-rate", "children"),
         Output("success-rate", "children"),
+        Output("p50-latency", "children"),
         Output("avg-latency", "children"),
         Output("p95-latency", "children"),
+        Output("p99-latency", "children"),
         Output("retry-rate", "children"),
         Output("active-users-live", "children"),
         Output("ops-graph", "figure"),
         Output("latency-graph", "figure"),
         Output("users-graph", "figure"),
+        Output("error-retry-graph", "figure"),
+        Output("per-op-throughput-graph", "figure"),
+        Output("per-op-latency-graph", "figure"),
         Output("distribution-graph", "figure"),
+        Output("error-breakdown-graph", "figure"),
+        Output("latency-histogram-graph", "figure"),
         Output("operation-table", "children"),
         Output("smart-insights", "children"),
         Output("stop-test-btn", "disabled"),
@@ -1137,14 +1206,21 @@ def create_dashboard(
                 f"{stable_ops_per_sec:.2f}",
                 f"{error_rate:.2f}%",
                 f"{success_rate:.2f}%",
+                f"{snapshot.p50_latency_ms:.2f} ms",
                 f"{snapshot.avg_latency_ms:.2f} ms",
                 f"{snapshot.p95_latency_ms:.2f} ms",
+                f"{snapshot.p99_latency_ms:.2f} ms",
                 f"{retry_rate:.2f}%",
                 _fmt(snapshot.active_virtual_users_current),
                 build_operations_timeline(filtered_snapshot, x_range=x_range),
                 build_latency_timeline(filtered_snapshot, x_range=x_range),
                 build_user_ramp_timeline(filtered_snapshot, x_range=x_range),
+                build_error_retry_timeline(filtered_snapshot, x_range=x_range),
+                build_per_op_throughput_timeline(filtered_snapshot, x_range=x_range),
+                build_per_op_latency_timeline(filtered_snapshot, x_range=x_range),
                 build_operation_distribution(snapshot),
+                build_error_breakdown(snapshot),
+                build_latency_histogram(snapshot),
                 _build_operation_table(snapshot),
                 _build_smart_insights(snapshot),
                 stop_disabled,
@@ -2065,30 +2141,38 @@ def _compact_number_input(
 def _build_operation_table(snapshot: MetricsSnapshot) -> html.Table:
     operations = ("read", "insert", "update", "delete")
     total_ops = snapshot.total_ops
+    cell_style = {"padding": "8px", "borderBottom": "1px solid #ddd6fe"}
     rows: list[html.Tr] = []
     for op_name in operations:
         count = snapshot.operation_counts.get(op_name, 0)
         share = (count / total_ops * 100.0) if total_ops else 0.0
         avg_latency = snapshot.operation_latency_avg_ms.get(op_name, 0.0)
+        p95 = snapshot.operation_latency_p95_ms.get(op_name, 0.0)
+        p99 = snapshot.operation_latency_p99_ms.get(op_name, 0.0)
         rows.append(
             html.Tr(
                 [
-                    html.Td(op_name, style={"padding": "8px", "borderBottom": "1px solid #ddd6fe"}),
-                    html.Td(f"{count:,}", style={"padding": "8px", "borderBottom": "1px solid #ddd6fe"}),
-                    html.Td(f"{share:.2f}%", style={"padding": "8px", "borderBottom": "1px solid #ddd6fe"}),
-                    html.Td(f"{avg_latency:.2f} ms", style={"padding": "8px", "borderBottom": "1px solid #ddd6fe"}),
+                    html.Td(op_name, style=cell_style),
+                    html.Td(f"{count:,}", style=cell_style),
+                    html.Td(f"{share:.2f}%", style=cell_style),
+                    html.Td(f"{avg_latency:.2f} ms", style=cell_style),
+                    html.Td(f"{p95:.2f} ms", style=cell_style),
+                    html.Td(f"{p99:.2f} ms", style=cell_style),
                 ]
             )
         )
+    header_style = {"textAlign": "left", "padding": "8px"}
     return html.Table(
         [
             html.Thead(
                 html.Tr(
                     [
-                        html.Th("Operation", style={"textAlign": "left", "padding": "8px"}),
-                        html.Th("Count", style={"textAlign": "left", "padding": "8px"}),
-                        html.Th("Share", style={"textAlign": "left", "padding": "8px"}),
-                        html.Th("Avg latency", style={"textAlign": "left", "padding": "8px"}),
+                        html.Th("Operation", style=header_style),
+                        html.Th("Count", style=header_style),
+                        html.Th("Share", style=header_style),
+                        html.Th("Avg latency", style=header_style),
+                        html.Th("P95 latency", style=header_style),
+                        html.Th("P99 latency", style=header_style),
                     ]
                 )
             ),
@@ -2467,31 +2551,38 @@ def _refresh_error_payload(error_message: str) -> tuple:
     return (
         f"FAILED: dashboard refresh error ({error_message})",
         style,
-        no_update,
+        no_update,                      # runtime-meta
         datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC"),
-        no_update,
-        no_update,
-        no_update,
-        no_update,
-        no_update,
-        no_update,
-        no_update,
-        no_update,
-        no_update,
-        no_update,
-        no_update,
-        no_update,
-        no_update,
-        no_update,
-        no_update,
-        no_update,
-        no_update,
-        no_update,
-        True,
-        True,
-        True,
+        no_update,                      # test-progress
+        no_update,                      # test-progress-label
+        no_update,                      # window-description
+        no_update,                      # duration-config-meta
+        no_update,                      # total-ops
+        no_update,                      # ops-per-sec
+        no_update,                      # error-rate
+        no_update,                      # success-rate
+        no_update,                      # p50-latency
+        no_update,                      # avg-latency
+        no_update,                      # p95-latency
+        no_update,                      # p99-latency
+        no_update,                      # retry-rate
+        no_update,                      # active-users-live
+        no_update,                      # ops-graph
+        no_update,                      # latency-graph
+        no_update,                      # users-graph
+        no_update,                      # error-retry-graph
+        no_update,                      # per-op-throughput-graph
+        no_update,                      # per-op-latency-graph
+        no_update,                      # distribution-graph
+        no_update,                      # error-breakdown-graph
+        no_update,                      # latency-histogram-graph
+        no_update,                      # operation-table
+        no_update,                      # smart-insights
+        True,                           # stop-test-btn disabled
+        True,                           # pause-test-btn disabled
+        True,                           # resume-test-btn disabled
         f"Dashboard refresh failed: {error_message}. Check application logs.",
-        no_update,
+        no_update,                      # log-meta
     )
 
 
