@@ -120,6 +120,7 @@ def create_dashboard(
         "run_static_baseline": None,
         "startup_static_baseline": None,
         "staged_static_snapshot": None,
+        "selected_run": "__live__",
     }
 
     def persist_metadata_config(
@@ -1102,6 +1103,7 @@ def create_dashboard(
                         f"Viewing persisted run {selected[:8]} | status={status} | "
                         f"started={started_text} | finished={finished_text}"
                     )
+            run_state["selected_run"] = selected
             return options, selected, meta
         except Exception as exc:  # pragma: no cover - UI safety
             logger.exception("Run selector refresh failed.")
@@ -1141,14 +1143,14 @@ def create_dashboard(
         Output("log-meta", "children"),
         Input("refresh", "n_intervals"),
         Input("timeline-window", "value"),
-        Input("run-selector", "value"),
         Input("log-level-filter", "value"),
         Input("log-line-count", "value"),
     )
-    def refresh_dashboard(_: int, timeline_window: int, selected_run: str | None, log_level: str, log_line_count: int):
+    def refresh_dashboard(_: int, timeline_window: int, log_level: str, log_line_count: int):
         try:
             live_snapshot = metrics_store.snapshot()
             persist_run_completion_if_needed(live_snapshot)
+            selected_run = str(run_state.get("selected_run") or "__live__")
             snapshot, run_started_at, viewing_live_run = _snapshot_for_selected_run(
                 selected_run=selected_run,
                 live_snapshot=live_snapshot,
@@ -1911,11 +1913,11 @@ def create_dashboard(
     @callback(
         Output("download-csv", "data"),
         Input("download-csv-btn", "n_clicks"),
-        State("run-selector", "value"),
         prevent_initial_call=True,
     )
-    def download_csv(_: int, selected_run: str | None):
+    def download_csv(_: int):
         try:
+            selected_run = str(run_state.get("selected_run") or "__live__")
             if selected_run and selected_run != "__live__" and metadata_store is not None:
                 rows = metadata_store.fetch_metric_rows(selected_run)
             else:
@@ -1954,7 +1956,6 @@ def create_dashboard(
     @callback(
         Output("download-pdf", "data"),
         Input("download-pdf-btn", "n_clicks"),
-        State("run-selector", "value"),
         State("ops-graph", "figure"),
         State("latency-graph", "figure"),
         State("users-graph", "figure"),
@@ -1962,12 +1963,12 @@ def create_dashboard(
     )
     def download_pdf(
         _: int,
-        selected_run: str | None,
         ops_figure_payload: dict,
         latency_figure_payload: dict,
         users_figure_payload: dict,
     ):
         try:
+            selected_run = str(run_state.get("selected_run") or "__live__")
             if selected_run and selected_run != "__live__" and metadata_store is not None:
                 snapshot = _snapshot_from_persisted_rows(metadata_store.fetch_metric_rows(selected_run))
             else:
