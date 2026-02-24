@@ -19,7 +19,7 @@ OP_COLORS = {
 }
 
 
-def build_operations_timeline(snapshot: MetricsSnapshot) -> go.Figure:
+def build_operations_timeline(snapshot: MetricsSnapshot, x_range: tuple[object, object] | None = None) -> go.Figure:
     x_values = [point.second for point in snapshot.timeline]
     read_counts = [point.op_counts.get("read", 0) for point in snapshot.timeline]
     insert_counts = [point.op_counts.get("insert", 0) for point in snapshot.timeline]
@@ -35,7 +35,8 @@ def build_operations_timeline(snapshot: MetricsSnapshot) -> go.Figure:
             y=total_counts,
             mode="lines",
             name="total_ops",
-            line={"width": 3, "color": OP_COLORS["total"]},
+            line={"width": 3.2, "color": OP_COLORS["total"], "shape": "spline", "smoothing": 0.55},
+            hovertemplate="Total ops: %{y}<extra></extra>",
         )
     )
     figure.add_trace(
@@ -44,7 +45,8 @@ def build_operations_timeline(snapshot: MetricsSnapshot) -> go.Figure:
             y=read_counts,
             mode="lines",
             name="read_ops",
-            line={"width": 2.5, "color": OP_COLORS["read"]},
+            line={"width": 2.4, "color": OP_COLORS["read"], "shape": "spline", "smoothing": 0.5},
+            hovertemplate="Read ops: %{y}<extra></extra>",
         )
     )
     figure.add_trace(
@@ -53,7 +55,10 @@ def build_operations_timeline(snapshot: MetricsSnapshot) -> go.Figure:
             y=write_counts,
             mode="lines",
             name="write_ops",
-            line={"width": 2.5, "color": OP_COLORS["insert"]},
+            line={"width": 2.4, "color": OP_COLORS["insert"], "shape": "spline", "smoothing": 0.5},
+            fill="tozeroy",
+            fillcolor="rgba(34, 197, 94, 0.08)",
+            hovertemplate="Write ops: %{y}<extra></extra>",
         )
     )
     figure.update_layout(
@@ -61,18 +66,30 @@ def build_operations_timeline(snapshot: MetricsSnapshot) -> go.Figure:
         xaxis={"title": "", "title_standoff": 0},
         yaxis_title="Operations / sec",
         template="plotly_white",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="left",
+            x=0,
+            bgcolor="rgba(255,255,255,0.72)",
+            bordercolor="#e5e7eb",
+            borderwidth=1,
+        ),
         hovermode="x unified",
         margin={"l": 42, "r": 20, "t": 44, "b": 50},
         plot_bgcolor="#f8fafc",
         paper_bgcolor="white",
     )
-    figure.update_yaxes(rangemode="tozero")
+    figure.update_xaxes(showgrid=True, gridcolor="#e2e8f0", zeroline=False, tickfont={"size": 11})
+    figure.update_yaxes(rangemode="tozero", showgrid=True, gridcolor="#e2e8f0")
+    if x_range is not None:
+        figure.update_xaxes(range=list(x_range))
     _add_pause_overlays(figure, snapshot)
     return figure
 
 
-def build_latency_timeline(snapshot: MetricsSnapshot) -> go.Figure:
+def build_latency_timeline(snapshot: MetricsSnapshot, x_range: tuple[object, object] | None = None) -> go.Figure:
     x_values = [point.second for point in snapshot.timeline]
     avg_values = [point.avg_latency_ms for point in snapshot.timeline]
     p95_values = [point.p95_latency_ms for point in snapshot.timeline]
@@ -84,7 +101,10 @@ def build_latency_timeline(snapshot: MetricsSnapshot) -> go.Figure:
             y=avg_values,
             mode="lines",
             name="avg_latency_ms",
-            line={"width": 2.5, "color": "#2563eb"},
+            line={"width": 2.6, "color": "#2563eb", "shape": "spline", "smoothing": 0.45},
+            fill="tozeroy",
+            fillcolor="rgba(37, 99, 235, 0.1)",
+            hovertemplate="Avg latency: %{y:.2f} ms<extra></extra>",
         )
     )
     figure.add_trace(
@@ -93,26 +113,39 @@ def build_latency_timeline(snapshot: MetricsSnapshot) -> go.Figure:
             y=p95_values,
             mode="lines",
             name="p95_latency_ms",
-            line={"width": 2.5, "color": "#ec4899"},
+            line={"width": 2.4, "color": "#ec4899", "shape": "spline", "smoothing": 0.45},
+            hovertemplate="P95 latency: %{y:.2f} ms<extra></extra>",
         )
     )
     figure.update_layout(
-        title="Latency Timeline",
+        title=None,
         xaxis={"title": "", "title_standoff": 0},
         yaxis_title="Latency (ms)",
         template="plotly_white",
-        legend=dict(orientation="h", yanchor="bottom", y=1.12, xanchor="left", x=0),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="left",
+            x=0,
+            bgcolor="rgba(255,255,255,0.72)",
+            bordercolor="#e5e7eb",
+            borderwidth=1,
+        ),
         hovermode="x unified",
-        margin={"l": 42, "r": 20, "t": 80, "b": 50},
+        margin={"l": 42, "r": 20, "t": 44, "b": 50},
         plot_bgcolor="#f8fafc",
         paper_bgcolor="white",
     )
-    figure.update_yaxes(rangemode="tozero")
+    figure.update_xaxes(showgrid=True, gridcolor="#e2e8f0", zeroline=False, tickfont={"size": 11})
+    figure.update_yaxes(rangemode="tozero", showgrid=True, gridcolor="#e2e8f0")
+    if x_range is not None:
+        figure.update_xaxes(range=list(x_range))
     _add_pause_overlays(figure, snapshot)
     return figure
 
 
-def build_user_ramp_timeline(snapshot: MetricsSnapshot) -> go.Figure:
+def build_user_ramp_timeline(snapshot: MetricsSnapshot, x_range: tuple[object, object] | None = None) -> go.Figure:
     x_values = [point.second for point in snapshot.timeline]
     users = [point.active_users for point in snapshot.timeline]
     target_users = [point.target_users for point in snapshot.timeline]
@@ -123,9 +156,10 @@ def build_user_ramp_timeline(snapshot: MetricsSnapshot) -> go.Figure:
             y=users,
             mode="lines",
             name="active_virtual_users",
-            line={"width": 2.5, "color": OP_COLORS["users"]},
+            line={"width": 2.6, "color": OP_COLORS["users"], "shape": "hv"},
             fill="tozeroy",
-            fillcolor="rgba(139, 92, 246, 0.14)",
+            fillcolor="rgba(139, 92, 246, 0.18)",
+            hovertemplate="Active users: %{y}<extra></extra>",
         )
     )
     if any(value > 0 for value in target_users):
@@ -136,6 +170,7 @@ def build_user_ramp_timeline(snapshot: MetricsSnapshot) -> go.Figure:
                 mode="lines",
                 name="target_users",
                 line={"width": 1.8, "color": "#334155", "dash": "dash"},
+                hovertemplate="Target users: %{y}<extra></extra>",
             )
         )
     figure.update_layout(
@@ -143,13 +178,25 @@ def build_user_ramp_timeline(snapshot: MetricsSnapshot) -> go.Figure:
         xaxis={"title": "Time (UTC)", "title_standoff": 16},
         yaxis_title="Active virtual users",
         template="plotly_white",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="left",
+            x=0,
+            bgcolor="rgba(255,255,255,0.72)",
+            bordercolor="#e5e7eb",
+            borderwidth=1,
+        ),
         hovermode="x unified",
         margin={"l": 42, "r": 20, "t": 44, "b": 70},
         plot_bgcolor="#f8fafc",
         paper_bgcolor="white",
     )
-    figure.update_yaxes(rangemode="tozero")
+    figure.update_xaxes(showgrid=True, gridcolor="#e2e8f0", zeroline=False, tickfont={"size": 11})
+    figure.update_yaxes(rangemode="tozero", showgrid=True, gridcolor="#e2e8f0")
+    if x_range is not None:
+        figure.update_xaxes(range=list(x_range))
     _add_pause_overlays(figure, snapshot)
     return figure
 
@@ -193,6 +240,7 @@ def build_operation_distribution(snapshot: MetricsSnapshot) -> go.Figure:
         title="Operation Distribution",
         template="plotly_white",
         margin={"l": 20, "r": 20, "t": 50, "b": 20},
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
         plot_bgcolor="#f8fafc",
         paper_bgcolor="white",
     )

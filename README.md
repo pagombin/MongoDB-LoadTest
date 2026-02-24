@@ -174,11 +174,13 @@ If that command is not in your PATH, use the `python3 -m mongo_load_tester.cli .
   - runtime log level and worker progress-log cadence
 - Runtime progress bar with elapsed and remaining time
 - Adjustable timeline window (1m, 5m, 15m, 30m, 1h, 8h, 24h, all)
+- Chart panels are full-width and vertically stacked for easier operations visibility
 - Smarter KPI cards for throughput, success/error, latency, retries, and active users
 - Ops/sec card includes tooltip explaining active-runtime computation (pause time excluded)
 - Operation and latency timelines with unified hover tracking
 - Users ramp timeline (active virtual users over time)
 - Users ramp timeline includes target-users trace
+- If selected timeline window exceeds available data, charts preserve full selected span and render available points for the current run
 - Operation distribution chart and per-operation summary table
 - Smart insights panel highlighting health/trend signals
 - Live control-state strip with recent runtime change history

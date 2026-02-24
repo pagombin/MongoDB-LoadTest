@@ -907,19 +907,24 @@ def create_dashboard(
                     html.Div(
                         [
                             html.Div("Operations Throughput", style={"fontWeight": "600", "marginBottom": "6px", "color": "#312e81"}),
-                            dcc.Graph(id="ops-graph", style={"height": "360px"}),
-                        ],
-                        style={**CARD_STYLE},
-                    ),
-                    html.Div(
-                        [
-                            html.Div("Users Ramp View", style={"fontWeight": "600", "marginBottom": "6px", "color": "#312e81"}),
-                            dcc.Graph(id="users-graph", style={"height": "360px"}),
+                            dcc.Graph(id="ops-graph", style={"height": "350px"}),
                         ],
                         style={**CARD_STYLE},
                     ),
                 ],
-                style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "1fr 1fr", "gap": "12px"},
+                style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "1fr", "gap": "12px"},
+            ),
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            html.Div("Users Ramp View", style={"fontWeight": "600", "marginBottom": "6px", "color": "#312e81"}),
+                            dcc.Graph(id="users-graph", style={"height": "350px"}),
+                        ],
+                        style={**CARD_STYLE},
+                    ),
+                ],
+                style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "1fr", "gap": "12px"},
             ),
             html.Div(
                 [
@@ -930,15 +935,20 @@ def create_dashboard(
                         ],
                         style={**CARD_STYLE},
                     ),
+                ],
+                style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "1fr", "gap": "12px"},
+            ),
+            html.Div(
+                [
                     html.Div(
                         [
                             html.Div("Operation Mix", style={"fontWeight": "600", "marginBottom": "6px", "color": "#312e81"}),
-                            dcc.Graph(id="distribution-graph", style={"height": "340px"}),
+                            dcc.Graph(id="distribution-graph", style={"height": "330px"}),
                         ],
                         style={**CARD_STYLE},
                     ),
                 ],
-                style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "1fr 1fr", "gap": "12px"},
+                style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "1fr", "gap": "12px"},
             ),
             html.Div(
                 [
@@ -1062,9 +1072,11 @@ def create_dashboard(
         try:
             snapshot = metrics_store.snapshot()
             persist_run_completion_if_needed(snapshot)
+            snapshot = _filter_snapshot_to_run_start(snapshot, runner.started_at)
             window_seconds = int(timeline_window or 0)
             filtered_snapshot = _filter_snapshot_timeline(snapshot, window_seconds)
             filtered_snapshot = _remove_incomplete_live_second(filtered_snapshot, runner.is_running)
+            x_range = _timeline_x_range(window_seconds, snapshot.generated_at, runner.started_at)
             stable_ops_per_sec = _compute_stable_ops_per_sec(snapshot.total_ops, runner.active_elapsed_seconds())
             error_rate = (snapshot.error_ops / snapshot.total_ops * 100.0) if snapshot.total_ops else 0.0
             success_rate = (snapshot.success_ops / snapshot.total_ops * 100.0) if snapshot.total_ops else 0.0
@@ -1109,9 +1121,9 @@ def create_dashboard(
                 f"{snapshot.p95_latency_ms:.2f} ms",
                 f"{retry_rate:.2f}%",
                 _fmt(snapshot.active_virtual_users_current),
-                build_operations_timeline(filtered_snapshot),
-                build_latency_timeline(filtered_snapshot),
-                build_user_ramp_timeline(filtered_snapshot),
+                build_operations_timeline(filtered_snapshot, x_range=x_range),
+                build_latency_timeline(filtered_snapshot, x_range=x_range),
+                build_user_ramp_timeline(filtered_snapshot, x_range=x_range),
                 build_operation_distribution(snapshot),
                 _build_operation_table(snapshot),
                 _build_smart_insights(snapshot),
@@ -2144,6 +2156,28 @@ def _filter_snapshot_timeline(snapshot: MetricsSnapshot, window_seconds: int) ->
     return replace(snapshot, timeline=filtered)
 
 
+def _filter_snapshot_to_run_start(snapshot: MetricsSnapshot, run_started_at: datetime | None) -> MetricsSnapshot:
+    if run_started_at is None:
+        return snapshot
+    run_start = run_started_at.replace(microsecond=0)
+    filtered = [point for point in snapshot.timeline if point.second >= run_start]
+    return replace(snapshot, timeline=filtered)
+
+
+def _timeline_x_range(
+    window_seconds: int,
+    generated_at: datetime,
+    run_started_at: datetime | None,
+) -> tuple[datetime, datetime] | None:
+    end = generated_at
+    if window_seconds > 0:
+        start = generated_at - timedelta(seconds=window_seconds)
+        return start, end
+    if run_started_at is not None:
+        return run_started_at.replace(microsecond=0), end
+    return None
+
+
 def _remove_incomplete_live_second(snapshot: MetricsSnapshot, is_running: bool) -> MetricsSnapshot:
     if not is_running or not snapshot.timeline:
         return snapshot
@@ -2158,7 +2192,7 @@ def _window_message(window_seconds: int, snapshot: MetricsSnapshot) -> str:
     if not snapshot.timeline:
         return f"Showing last {_format_duration(window_seconds)} (no data captured yet)."
     coverage_seconds = int((snapshot.timeline[-1].second - snapshot.timeline[0].second).total_seconds())
-    message = f"Showing last {_format_duration(window_seconds)} of timeline data."
+    message = f"Showing last {_format_duration(window_seconds)} window (charts keep full selected span)."
     if coverage_seconds > 0 and coverage_seconds < window_seconds:
         message += f" (currently {_format_duration(coverage_seconds)} available)"
     return message

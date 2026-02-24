@@ -24,6 +24,7 @@ class LoadTestController:
         with self._lock:
             if self._thread is not None and self._thread.is_alive():
                 return False
+            self._metrics_store.reset()
             thread = threading.Thread(target=self._runner.run, daemon=True, name="runner-main")
             self._thread = thread
             thread.start()
