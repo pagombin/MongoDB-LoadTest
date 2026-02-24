@@ -114,33 +114,33 @@ def create_dashboard(
 ) -> Dash:
     app = Dash(__name__, title="MongoDB Load Tester")
     logger = logging.getLogger("mongo_load_tester.dashboard")
-    _run_state_lock = threading.Lock()
-    _run_state: dict[str, object | None] = {
+    class _ThreadSafeDict:
+        """Thread-safe dict wrapper for shared dashboard state."""
+
+        def __init__(self, initial: dict[str, object | None]):
+            self._data = initial
+            self._lock = threading.Lock()
+
+        def get(self, key: str, default: object = None) -> object | None:
+            with self._lock:
+                return self._data.get(key, default)
+
+        def __getitem__(self, key: str) -> object | None:
+            with self._lock:
+                return self._data[key]
+
+        def __setitem__(self, key: str, value: object) -> None:
+            with self._lock:
+                self._data[key] = value
+
+    run_state = _ThreadSafeDict({
         "active_run_id": None,
         "last_run_finished_at": None,
         "config_version": int(initial_config_version),
         "run_static_baseline": None,
         "startup_static_baseline": None,
         "staged_static_snapshot": None,
-    }
-
-    class run_state:
-        """Thread-safe accessor for shared dashboard state."""
-
-        @staticmethod
-        def get(key: str, default: object = None) -> object | None:
-            with _run_state_lock:
-                return _run_state.get(key, default)
-
-        @staticmethod
-        def __getitem__(key: str) -> object | None:
-            with _run_state_lock:
-                return _run_state[key]
-
-        @staticmethod
-        def __setitem__(key: str, value: object) -> None:
-            with _run_state_lock:
-                _run_state[key] = value
+    })
 
     def persist_metadata_config(
         reason: str,
