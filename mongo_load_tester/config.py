@@ -48,6 +48,7 @@ class NamespaceConfig(BaseModel):
 FIELD_TYPES = (
     "string", "int", "float", "bool", "datetime",
     "objectid", "uuid", "faker", "choice", "date_range",
+    "object", "array", "decimal", "null",
 )
 FAKER_PROVIDERS = (
     "name", "first_name", "last_name", "email", "phone_number",
@@ -59,12 +60,13 @@ FAKER_PROVIDERS = (
 
 
 class SchemaFieldConfig(BaseModel):
-    """A generated document field definition."""
+    """A generated document field definition supporting nested MongoDB structures."""
 
-    name: str
+    name: str = Field(default="", description="Field name. Empty when used as array items template.")
     field_type: Literal[
         "string", "int", "float", "bool", "datetime",
         "objectid", "uuid", "faker", "choice", "date_range",
+        "object", "array", "decimal", "null",
     ] = "string"
     length: int = Field(default=16, ge=1)
     min_value: float = 0
@@ -76,35 +78,52 @@ class SchemaFieldConfig(BaseModel):
     )
     date_mode: Literal["now", "random_past", "random_future", "increment"] = Field(
         default="now",
-        description="How to generate datetime/date_range values. "
-        "'now' = current time, 'random_past' = random within date_range_days ago, "
-        "'random_future' = random within date_range_days ahead, "
-        "'increment' = start from now and add date_increment_seconds per document.",
+        description="How to generate datetime/date_range values.",
     )
-    date_range_days: int = Field(
-        default=365, ge=1,
-        description="Number of days for random_past/random_future date generation.",
+    date_range_days: int = Field(default=365, ge=1)
+    date_increment_seconds: int = Field(default=1, ge=1)
+    fields: list["SchemaFieldConfig"] | None = Field(
+        default=None,
+        description="Sub-fields for field_type='object' (embedded documents).",
     )
-    date_increment_seconds: int = Field(
-        default=1, ge=1,
-        description="Seconds to add per document when date_mode='increment'.",
+    items: "SchemaFieldConfig | None" = Field(
+        default=None,
+        description="Element template for field_type='array'. Defines what each array element looks like.",
     )
+    min_items: int = Field(default=1, ge=0, description="Minimum array length.")
+    max_items: int = Field(default=5, ge=1, description="Maximum array length.")
 
     model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="after")
-    def validate_bounds(self) -> "SchemaFieldConfig":
+    def validate_field(self) -> "SchemaFieldConfig":
         if self.min_value > self.max_value:
-            raise ValueError("min_value must be <= max_value")
+            raise ValueError(f"min_value must be <= max_value (field '{self.name}')")
+        if self.field_type == "faker" and not self.faker_provider:
+            raise ValueError(f"faker_provider is required when field_type='faker' (field '{self.name}')")
+        if self.field_type == "choice" and not self.choices:
+            raise ValueError(f"choices list is required when field_type='choice' (field '{self.name}')")
+        if self.field_type == "object":
+            if not self.fields:
+                raise ValueError(f"fields list is required when field_type='object' (field '{self.name}')")
+            self._validate_no_duplicate_names(self.fields, self.name)
+        if self.field_type == "array":
+            if self.items is None:
+                raise ValueError(f"items template is required when field_type='array' (field '{self.name}')")
+            if self.min_items > self.max_items:
+                raise ValueError(f"min_items must be <= max_items (field '{self.name}')")
         return self
 
-    @model_validator(mode="after")
-    def validate_faker(self) -> "SchemaFieldConfig":
-        if self.field_type == "faker" and not self.faker_provider:
-            raise ValueError("faker_provider is required when field_type='faker'")
-        if self.field_type == "choice" and not self.choices:
-            raise ValueError("choices list is required when field_type='choice'")
-        return self
+    @staticmethod
+    def _validate_no_duplicate_names(fields: list["SchemaFieldConfig"], parent: str) -> None:
+        seen: set[str] = set()
+        for f in fields:
+            if f.name in seen:
+                raise ValueError(
+                    f"Duplicate field name '{f.name}' in "
+                    f"{'root schema' if not parent else f'embedded document {parent!r}'}"
+                )
+            seen.add(f.name)
 
 
 class QueryTargetConfig(BaseModel):
@@ -152,6 +171,11 @@ class SchemaConfig(BaseModel):
     query_targets: QueryTargetConfig = Field(default_factory=QueryTargetConfig)
 
     model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="after")
+    def validate_no_duplicate_field_names(self) -> "SchemaConfig":
+        SchemaFieldConfig._validate_no_duplicate_names(self.fields, "")
+        return self
 
 
 class OperationMixConfig(BaseModel):

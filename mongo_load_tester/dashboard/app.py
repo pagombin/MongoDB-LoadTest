@@ -950,27 +950,51 @@ def create_dashboard(
                                     ),
                                     html.Div(
                                         [
-                                            html.Div("Field types", style={"fontWeight": "700", "marginTop": "6px", "color": "#1e1b4b", "fontSize": "12px"}),
-                                            html.Table(
-                                                [
-                                                    html.Thead(html.Tr([
-                                                        html.Th("Type", style={"textAlign": "left", "padding": "3px 8px", "fontSize": "11px"}),
-                                                        html.Th("Properties", style={"textAlign": "left", "padding": "3px 8px", "fontSize": "11px"}),
-                                                        html.Th("Example", style={"textAlign": "left", "padding": "3px 8px", "fontSize": "11px"}),
-                                                    ])),
-                                                    html.Tbody([
-                                                        html.Tr([html.Td("string", style={"padding": "2px 8px"}), html.Td("length", style={"padding": "2px 8px"}), html.Td('{"name":"id","field_type":"string","length":8}', style={"padding": "2px 8px", "fontFamily": "monospace", "fontSize": "10px"})]),
-                                                        html.Tr([html.Td("int", style={"padding": "2px 8px"}), html.Td("min_value, max_value", style={"padding": "2px 8px"}), html.Td('{"name":"qty","field_type":"int","min_value":1,"max_value":100}', style={"padding": "2px 8px", "fontFamily": "monospace", "fontSize": "10px"})]),
-                                                        html.Tr([html.Td("float", style={"padding": "2px 8px"}), html.Td("min_value, max_value", style={"padding": "2px 8px"}), html.Td('{"name":"price","field_type":"float","min_value":0.01,"max_value":999.99}', style={"padding": "2px 8px", "fontFamily": "monospace", "fontSize": "10px"})]),
-                                                        html.Tr([html.Td("bool", style={"padding": "2px 8px"}), html.Td("—", style={"padding": "2px 8px"}), html.Td('{"name":"active","field_type":"bool"}', style={"padding": "2px 8px", "fontFamily": "monospace", "fontSize": "10px"})]),
-                                                        html.Tr([html.Td("choice", style={"padding": "2px 8px"}), html.Td("choices[]", style={"padding": "2px 8px"}), html.Td('{"name":"status","field_type":"choice","choices":["a","b","c"]}', style={"padding": "2px 8px", "fontFamily": "monospace", "fontSize": "10px"})]),
-                                                        html.Tr([html.Td("datetime", style={"padding": "2px 8px"}), html.Td("date_mode, date_range_days", style={"padding": "2px 8px"}), html.Td('{"name":"ts","field_type":"datetime","date_mode":"random_past","date_range_days":90}', style={"padding": "2px 8px", "fontFamily": "monospace", "fontSize": "10px"})]),
-                                                        html.Tr([html.Td("objectid", style={"padding": "2px 8px"}), html.Td("—", style={"padding": "2px 8px"}), html.Td('{"name":"ref","field_type":"objectid"}', style={"padding": "2px 8px", "fontFamily": "monospace", "fontSize": "10px"})]),
-                                                        html.Tr([html.Td("uuid", style={"padding": "2px 8px"}), html.Td("—", style={"padding": "2px 8px"}), html.Td('{"name":"trace","field_type":"uuid"}', style={"padding": "2px 8px", "fontFamily": "monospace", "fontSize": "10px"})]),
-                                                        html.Tr([html.Td("faker", style={"padding": "2px 8px"}), html.Td("faker_provider", style={"padding": "2px 8px"}), html.Td('{"name":"email","field_type":"faker","faker_provider":"email"}', style={"padding": "2px 8px", "fontFamily": "monospace", "fontSize": "10px"})]),
-                                                    ]),
-                                                ],
-                                                style={"width": "100%", "borderCollapse": "collapse", "fontSize": "11px", "marginTop": "4px"},
+                                            html.Div("Primitive types", style={"fontWeight": "700", "marginTop": "6px", "color": "#1e1b4b", "fontSize": "12px"}),
+                                            _schema_ref_table([
+                                                ("string", "length", '{"name":"id","field_type":"string","length":8}'),
+                                                ("int", "min_value, max_value", '{"name":"qty","field_type":"int","min_value":1,"max_value":100}'),
+                                                ("float", "min_value, max_value", '{"name":"price","field_type":"float","min_value":0.01,"max_value":999}'),
+                                                ("decimal", "min_value, max_value", '{"name":"amount","field_type":"decimal","min_value":0,"max_value":9999}'),
+                                                ("bool", "—", '{"name":"active","field_type":"bool"}'),
+                                                ("choice", "choices[]", '{"name":"status","field_type":"choice","choices":["a","b"]}'),
+                                                ("datetime", "date_mode, date_range_days", '{"name":"ts","field_type":"datetime","date_mode":"random_past"}'),
+                                                ("objectid", "—", '{"name":"ref","field_type":"objectid"}'),
+                                                ("uuid", "—", '{"name":"trace","field_type":"uuid"}'),
+                                                ("faker", "faker_provider", '{"name":"email","field_type":"faker","faker_provider":"email"}'),
+                                                ("null", "—", '{"name":"deleted_at","field_type":"null"}'),
+                                            ]),
+                                            html.Div("Nested structures", style={"fontWeight": "700", "marginTop": "10px", "color": "#1e1b4b", "fontSize": "12px"}),
+                                            _schema_ref_table([
+                                                ("object", "fields[]", "Embedded document with sub-fields"),
+                                                ("array", "items, min_items, max_items", "Array of primitives or embedded documents"),
+                                            ]),
+                                            html.Div("Embedded document example:", style={"fontSize": "11px", "marginTop": "6px", "fontWeight": "600"}),
+                                            html.Pre(
+                                                '{"name": "address", "field_type": "object", "fields": [\n'
+                                                '  {"name": "street", "field_type": "faker", "faker_provider": "street_address"},\n'
+                                                '  {"name": "city", "field_type": "faker", "faker_provider": "city"},\n'
+                                                '  {"name": "zip", "field_type": "faker", "faker_provider": "zipcode"}\n'
+                                                ']}',
+                                                style=_PRE_STYLE,
+                                            ),
+                                            html.Div("Array of strings:", style={"fontSize": "11px", "marginTop": "6px", "fontWeight": "600"}),
+                                            html.Pre(
+                                                '{"name": "tags", "field_type": "array",\n'
+                                                ' "items": {"field_type": "string", "length": 10},\n'
+                                                ' "min_items": 1, "max_items": 5}',
+                                                style=_PRE_STYLE,
+                                            ),
+                                            html.Div("Array of embedded documents:", style={"fontSize": "11px", "marginTop": "6px", "fontWeight": "600"}),
+                                            html.Pre(
+                                                '{"name": "line_items", "field_type": "array",\n'
+                                                ' "items": {"field_type": "object", "fields": [\n'
+                                                '   {"name": "sku", "field_type": "string", "length": 12},\n'
+                                                '   {"name": "qty", "field_type": "int", "min_value": 1, "max_value": 10},\n'
+                                                '   {"name": "price", "field_type": "float", "min_value": 1, "max_value": 500}\n'
+                                                ' ]},\n'
+                                                ' "min_items": 1, "max_items": 8}',
+                                                style=_PRE_STYLE,
                                             ),
                                             html.Div("Date modes", style={"fontWeight": "700", "marginTop": "10px", "color": "#1e1b4b", "fontSize": "12px"}),
                                             html.Ul([
@@ -986,8 +1010,9 @@ def create_dashboard(
                                             ),
                                             html.Div("Query targeting", style={"fontWeight": "700", "marginTop": "10px", "color": "#1e1b4b", "fontSize": "12px"}),
                                             html.Div([
-                                                "Add a ", html.Code("query_targets"), " object to your schema JSON to control which fields are used for read/update/delete filters "
-                                                "instead of _id lookups. Indexes are created automatically on the specified fields during seeding.",
+                                                "Add a ", html.Code("query_targets"), " object to control which fields are used for read/update/delete filters "
+                                                "instead of _id lookups. Supports dot-notation for nested fields (e.g. ", html.Code('"address.city"'), "). "
+                                                "Indexes are created automatically during seeding.",
                                             ], style={"fontSize": "11px", "marginTop": "2px", "lineHeight": "1.5"}),
                                             html.Pre(
                                                 '{\n'
@@ -1000,12 +1025,13 @@ def create_dashboard(
                                                 '    "create_indexes": true\n'
                                                 '  }\n'
                                                 '}',
-                                                style={
-                                                    "fontSize": "10.5px", "background": "#f1f5f9", "padding": "8px",
-                                                    "borderRadius": "6px", "marginTop": "4px", "border": "1px solid #e2e8f0",
-                                                    "lineHeight": "1.5",
-                                                },
+                                                style=_PRE_STYLE,
                                             ),
+                                            html.Div([
+                                                html.Span("Validation: ", style={"fontWeight": "700"}),
+                                                "Duplicate field names at the same level are rejected. "
+                                                "Use the Validate JSON button to check before saving.",
+                                            ], style={"fontSize": "11px", "marginTop": "8px", "color": "#6b7280", "lineHeight": "1.5"}),
                                         ],
                                         style={"marginTop": "4px"},
                                     ),
@@ -2406,6 +2432,32 @@ def _metric_card(label: str, value_id: str, theme: tuple[str, str], tooltip: str
             "boxShadow": "0 1px 2px rgba(0,0,0,0.04)",
             "minHeight": "78px",
         },
+    )
+
+
+_PRE_STYLE = {
+    "fontSize": "10.5px", "background": "#f1f5f9", "padding": "8px",
+    "borderRadius": "6px", "marginTop": "4px", "border": "1px solid #e2e8f0",
+    "lineHeight": "1.5", "whiteSpace": "pre-wrap",
+}
+
+
+def _schema_ref_table(rows: list[tuple[str, str, str]]) -> html.Table:
+    _td = {"padding": "2px 8px"}
+    _mono = {"padding": "2px 8px", "fontFamily": "monospace", "fontSize": "10px"}
+    return html.Table(
+        [
+            html.Thead(html.Tr([
+                html.Th("Type", style={"textAlign": "left", "padding": "3px 8px", "fontSize": "11px"}),
+                html.Th("Properties", style={"textAlign": "left", "padding": "3px 8px", "fontSize": "11px"}),
+                html.Th("Example", style={"textAlign": "left", "padding": "3px 8px", "fontSize": "11px"}),
+            ])),
+            html.Tbody([
+                html.Tr([html.Td(t, style=_td), html.Td(p, style=_td), html.Td(e, style=_mono)])
+                for t, p, e in rows
+            ]),
+        ],
+        style={"width": "100%", "borderCollapse": "collapse", "fontSize": "11px", "marginTop": "4px"},
     )
 
 

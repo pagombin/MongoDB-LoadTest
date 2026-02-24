@@ -7,9 +7,10 @@ import random
 import string
 import uuid
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 
-from bson import ObjectId
+from bson import Decimal128, ObjectId
 from faker import Faker
 
 from mongo_load_tester.config import SchemaConfig, SchemaFieldConfig
@@ -27,20 +28,24 @@ class DocumentGenerator:
 
     def generate_document(self) -> dict[str, Any]:
         self._increment_counter += 1
-        return {field.name: self._generate_value(field) for field in self._schema.fields}
+        return self._generate_object(self._schema.fields)
 
     def generate_update_fields(self) -> dict[str, Any]:
         if not self._schema.fields:
             return {}
-        field = self._rng.choice(self._schema.fields)
+        flat_fields = [f for f in self._schema.fields if f.field_type not in ("object", "array")]
+        if not flat_fields:
+            flat_fields = self._schema.fields
+        field = self._rng.choice(flat_fields)
         return {field.name: self._generate_value(field)}
+
+    def _generate_object(self, fields: list[SchemaFieldConfig]) -> dict[str, Any]:
+        return {field.name: self._generate_value(field) for field in fields}
 
     def _generate_value(self, field: SchemaFieldConfig) -> Any:
         ft = field.field_type
         if ft == "choice":
-            if not field.choices:
-                return None
-            return self._rng.choice(field.choices)
+            return self._rng.choice(field.choices) if field.choices else None
         if ft == "string":
             if field.choices:
                 return self._rng.choice(field.choices)
@@ -54,11 +59,12 @@ class DocumentGenerator:
             return self._rng.randint(low, high)
         if ft == "float":
             return round(self._rng.uniform(field.min_value, field.max_value), 4)
+        if ft == "decimal":
+            val = round(self._rng.uniform(field.min_value, field.max_value), 4)
+            return Decimal128(Decimal(str(val)))
         if ft == "bool":
             return self._rng.random() >= 0.5
-        if ft == "datetime":
-            return self._generate_datetime(field)
-        if ft == "date_range":
+        if ft in ("datetime", "date_range"):
             return self._generate_datetime(field)
         if ft == "objectid":
             return ObjectId()
@@ -66,7 +72,19 @@ class DocumentGenerator:
             return str(uuid.uuid4())
         if ft == "faker":
             return self._generate_faker_value(field)
+        if ft == "null":
+            return None
+        if ft == "object":
+            return self._generate_object(field.fields or [])
+        if ft == "array":
+            return self._generate_array(field)
         raise ValueError(f"Unsupported schema field type: {ft}")
+
+    def _generate_array(self, field: SchemaFieldConfig) -> list[Any]:
+        count = self._rng.randint(field.min_items, field.max_items)
+        if field.items is None:
+            return []
+        return [self._generate_value(field.items) for _ in range(count)]
 
     def _generate_datetime(self, field: SchemaFieldConfig) -> datetime:
         now = datetime.now(UTC)
