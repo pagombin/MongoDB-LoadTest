@@ -692,15 +692,21 @@ def create_dashboard(
                         [
                             html.Div(
                                 [
-                                    html.Span("Static config domains"),
+                                    html.Span(
+                                        "Run Configuration",
+                                        style={"fontWeight": "700", "fontSize": "15px", "color": "#1e1b4b"},
+                                    ),
                                     _scope_badge("ready", value_id="static-domain-scope-badge"),
                                 ],
-                                style={"fontSize": "12px", "color": "#6b7280", "display": "flex", "gap": "8px", "alignItems": "center"},
+                                style={"display": "flex", "gap": "10px", "alignItems": "center"},
                             ),
                             html.Div(
-                                "These settings define startup defaults used when a run begins.",
+                                id="static-config-context-banner",
+                                style={"marginTop": "8px"},
+                            ),
+                            html.Div(
                                 id="static-domain-scope-note",
-                                style={"marginTop": "6px", "fontSize": "12px", "color": "#6b7280"},
+                                style={"display": "none"},
                             ),
                             html.Div(
                                 [
@@ -778,28 +784,28 @@ def create_dashboard(
                                 ],
                                 style={"display": "grid", "gridTemplateColumns": "repeat(3, 1fr)", "gap": "10px", "marginTop": "10px"},
                             ),
-                            html.Button(
-                                "Save static config (next run)",
-                                id="apply-static-config-btn",
-                                n_clicks=0,
-                                style={**ACTION_BUTTON_STYLE, "marginTop": "10px"},
+                            html.Div(
+                                [
+                                    html.Button(
+                                        "Apply configuration",
+                                        id="apply-static-config-btn",
+                                        n_clicks=0,
+                                        style={**_BTN_BASE, "border": "none", "background": "#059669", "color": "white", "marginRight": "8px"},
+                                    ),
+                                ],
+                                style={"marginTop": "12px", "display": "flex", "alignItems": "center", "gap": "8px"},
                             ),
                             html.Div(
                                 id="static-config-feedback",
-                                children="No pending static changes.",
                                 style={"marginTop": "8px", "fontSize": "12px", "color": "#6b7280"},
                             ),
                             html.Div(
                                 id="static-staged-indicator",
-                                children="No staged static changes pending next run.",
                                 style={
                                     "marginTop": "8px",
                                     "fontSize": "12px",
                                     "padding": "6px 8px",
                                     "borderRadius": "8px",
-                                    "background": "#ecfdf5",
-                                    "border": "1px solid #86efac",
-                                    "color": "#166534",
                                     "fontWeight": "600",
                                 },
                             ),
@@ -810,10 +816,13 @@ def create_dashboard(
                         [
                             html.Div(
                                 [
-                                    html.Span("Schema fields JSON"),
+                                    html.Span(
+                                        "Schema fields JSON",
+                                        style={"fontWeight": "700", "fontSize": "15px", "color": "#1e1b4b"},
+                                    ),
                                     _scope_badge("ready", value_id="schema-domain-scope-badge"),
                                 ],
-                                style={"fontSize": "12px", "color": "#4b5563", "display": "flex", "gap": "8px", "alignItems": "center"},
+                                style={"display": "flex", "gap": "10px", "alignItems": "center"},
                             ),
                             dcc.Textarea(
                                 id="schema-fields-json-input",
@@ -825,14 +834,30 @@ def create_dashboard(
                                     "padding": "10px",
                                     "borderRadius": "8px",
                                     "border": "1px solid #d1d5db",
-                                    "fontFamily": "Menlo, Consolas, monospace",
-                                    "fontSize": "12px",
+                                    "fontFamily": "'JetBrains Mono', Menlo, Consolas, monospace",
+                                    "fontSize": "11.5px",
+                                    "lineHeight": "1.5",
                                 },
                             ),
                             html.Div(
-                                "Use either a fields array or {\"fields\": [...]} payload.",
+                                [
+                                    html.Button(
+                                        "Validate JSON",
+                                        id="validate-schema-btn",
+                                        n_clicks=0,
+                                        style={**_BTN_BASE, "border": "1px solid #6366f1", "background": "#eef2ff", "color": "#4338ca"},
+                                    ),
+                                ],
+                                style={"marginTop": "8px"},
+                            ),
+                            html.Div(
+                                id="schema-validation-feedback",
+                                style={"marginTop": "6px", "fontSize": "12px"},
+                            ),
+                            html.Div(
                                 id="schema-domain-scope-note",
-                                style={"marginTop": "8px", "fontSize": "12px", "color": "#6b7280"},
+                                children="Use a fields array or {\"fields\": [...]} payload. Schema changes are included when you save the run configuration.",
+                                style={"marginTop": "8px", "fontSize": "11px", "color": "#9ca3af"},
                             ),
                         ],
                         style={**CARD_STYLE},
@@ -1394,45 +1419,94 @@ def create_dashboard(
         Output("static-domain-scope-badge", "style"),
         Output("schema-domain-scope-badge", "children"),
         Output("schema-domain-scope-badge", "style"),
+        Output("static-config-context-banner", "children"),
+        Output("static-config-context-banner", "style"),
+        Output("apply-static-config-btn", "children"),
+        Output("apply-static-config-btn", "style"),
         Output("static-domain-scope-note", "children"),
         Output("schema-domain-scope-note", "children"),
         Input("refresh", "n_intervals"),
     )
     def refresh_static_scope_state(_: int):
+        _banner_base = {
+            "padding": "10px 14px",
+            "borderRadius": "10px",
+            "fontSize": "12.5px",
+            "lineHeight": "1.5",
+        }
         if runner.is_running:
-            label = "NEXT RUN"
+            label = "STAGED"
             style = _scope_badge_style("next_run")
-            return (
-                label,
-                style,
-                label,
-                style,
-                "Namespace topology, seeding, ramp-up, and schema updates are staged for the next run.",
-                "Use either a fields array or {\"fields\": [...]} payload. Saved schema changes apply next run.",
-            )
+            banner = html.Div([
+                html.Span("Test in progress. ", style={"fontWeight": "700"}),
+                "Any changes saved here will be ",
+                html.Span("staged for the next run", style={"fontWeight": "700"}),
+                " and will not affect the currently running test. "
+                "They will take effect when you stop and restart, or start a new test.",
+            ])
+            banner_style = {**_banner_base, "background": "#fef3c7", "border": "1px solid #fbbf24", "color": "#78350f"}
+            btn_text = "Stage for next run"
+            btn_style = {**_BTN_BASE, "border": "none", "background": "#f59e0b", "color": "white", "marginRight": "8px"}
+            return label, style, label, style, banner, banner_style, btn_text, btn_style, "", ""
+
+        finished = runner.finished_at is not None
         startup_baseline = run_state.get("startup_static_baseline")
         current_snapshot = _static_config_snapshot(controller.current_config())
-        if isinstance(startup_baseline, dict) and current_snapshot != startup_baseline:
-            label = "USER CONFIG"
+        has_customizations = isinstance(startup_baseline, dict) and current_snapshot != startup_baseline
+
+        if finished:
+            if has_customizations:
+                label = "MODIFIED"
+                style = _scope_badge_style("user_config")
+                banner = html.Div([
+                    html.Span("Previous test completed. ", style={"fontWeight": "700"}),
+                    "You have modified settings from the defaults. "
+                    "These changes will be applied when you click ",
+                    html.Span("Start", style={"fontWeight": "700"}),
+                    " to begin a new test.",
+                ])
+            else:
+                label = "READY"
+                style = _scope_badge_style("active_default")
+                banner = html.Div([
+                    html.Span("Previous test completed. ", style={"fontWeight": "700"}),
+                    "Current settings reflect your configuration defaults. "
+                    "Modify them here before starting the next test, or click ",
+                    html.Span("Start", style={"fontWeight": "700"}),
+                    " to run with these values.",
+                ])
+            banner_style = {**_banner_base, "background": "#dbeafe", "border": "1px solid #93c5fd", "color": "#1e3a5f"}
+        elif has_customizations:
+            label = "MODIFIED"
             style = _scope_badge_style("user_config")
-            return (
-                label,
-                style,
-                label,
-                style,
-                "Custom startup configuration is selected and will be used when you click Start.",
-                "Custom schema defaults are selected and will be used when the run starts.",
-            )
-        label = "ACTIVE DEFAULT"
-        style = _scope_badge_style("active_default")
-        return (
-            label,
-            style,
-            label,
-            style,
-            "These settings are the active defaults and will be used when you start the load test.",
-            "Use either a fields array or {\"fields\": [...]} payload. This schema is used when the run starts.",
-        )
+            banner = html.Div([
+                html.Span("Settings modified. ", style={"fontWeight": "700"}),
+                "You have changed values from the configuration defaults. "
+                "Click ",
+                html.Span("Apply configuration", style={"fontWeight": "700"}),
+                " to save, then click ",
+                html.Span("Start", style={"fontWeight": "700"}),
+                " to begin the load test with these settings.",
+            ])
+            banner_style = {**_banner_base, "background": "#e0f2fe", "border": "1px solid #7dd3fc", "color": "#0c4a6e"}
+        else:
+            label = "DEFAULTS"
+            style = _scope_badge_style("active_default")
+            banner = html.Div([
+                html.Span("Default configuration loaded. ", style={"fontWeight": "700"}),
+                "These values come from your config file. "
+                "You can modify them here before starting your load test. "
+                "Click ",
+                html.Span("Apply configuration", style={"fontWeight": "700"}),
+                " to save changes, then click ",
+                html.Span("Start", style={"fontWeight": "700"}),
+                " when ready.",
+            ])
+            banner_style = {**_banner_base, "background": "#ecfdf5", "border": "1px solid #86efac", "color": "#14532d"}
+
+        btn_text = "Apply configuration"
+        btn_style = {**_BTN_BASE, "border": "none", "background": "#059669", "color": "white", "marginRight": "8px"}
+        return label, style, label, style, banner, banner_style, btn_text, btn_style, "", ""
 
     @callback(
         Output("static-staged-indicator", "children"),
@@ -1831,6 +1905,62 @@ def create_dashboard(
             logger.exception("Static config callback failed.")
             message = f"Static config action failed: {exc}"
             return _feedback_error(message), message
+
+    @callback(
+        Output("schema-validation-feedback", "children"),
+        Input("validate-schema-btn", "n_clicks"),
+        State("schema-fields-json-input", "value"),
+        prevent_initial_call=True,
+    )
+    def validate_schema_json(n_clicks: int, schema_json_value: str):
+        if not n_clicks:
+            raise PreventUpdate
+        try:
+            parsed = _parse_schema_config(schema_json_value)
+            field_count = len(parsed.fields)
+            field_names = ", ".join(f.name for f in parsed.fields[:5])
+            if field_count > 5:
+                field_names += f" +{field_count - 5} more"
+            return html.Div(
+                [
+                    html.Span(
+                        "VALID",
+                        style={
+                            "fontWeight": "800", "fontSize": "11px", "letterSpacing": "0.05em",
+                            "marginRight": "8px", "background": "#059669", "color": "white",
+                            "padding": "2px 8px", "borderRadius": "4px",
+                        },
+                    ),
+                    html.Span(f"{field_count} field(s): {field_names}"),
+                ],
+                style={
+                    "padding": "8px 12px", "borderRadius": "8px",
+                    "background": "#ecfdf5", "border": "1px solid #86efac",
+                    "color": "#166534",
+                },
+            )
+        except Exception as exc:
+            error_msg = str(exc)
+            if len(error_msg) > 200:
+                error_msg = error_msg[:200] + "..."
+            return html.Div(
+                [
+                    html.Span(
+                        "INVALID",
+                        style={
+                            "fontWeight": "800", "fontSize": "11px", "letterSpacing": "0.05em",
+                            "marginRight": "8px", "background": "#dc2626", "color": "white",
+                            "padding": "2px 8px", "borderRadius": "4px",
+                        },
+                    ),
+                    html.Span(error_msg),
+                ],
+                style={
+                    "padding": "8px 12px", "borderRadius": "8px",
+                    "background": "#fef2f2", "border": "1px solid #fca5a5",
+                    "color": "#991b1b",
+                },
+            )
 
     @callback(
         Output("duration-seconds-input", "value"),
