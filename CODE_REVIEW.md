@@ -1,456 +1,410 @@
-# Code Review: Dashboard & Test Suite
+# Code Review: mongo_load_tester
 
-## 1. `mongo_load_tester/dashboard/app.py`
-
-### Bugs
-
-**B1. Mutable `run_state` dict shared across callbacks without thread safety (line 116-123)**
-
-`run_state` is a plain `dict` accessed and mutated by multiple Dash callbacks. Dash callbacks can fire concurrently (especially with `prevent_initial_call=True` and interval-driven updates). There is no lock or thread-safe container guarding reads and writes to `run_state`. A race between `refresh_dashboard` (reads `active_run_id`) and `control_runner` (writes `active_run_id`) could produce inconsistent state or lost updates.
-
-**Recommendation:** Wrap `run_state` in a `threading.Lock` or use a thread-safe container. Alternatively, use Dash's server-side `dcc.Store` for state that must survive concurrent callbacks.
+Reviewer: Cloud Agent  
+Date: 2026-02-24  
+Branch: `cursor/code-base-review-65c8`
 
 ---
 
-**B2. `_build_status_ui` checks `last_error` before `is_running` (line 2124-2133)**
+## 1. `mongo_load_tester/config.py`
 
-If a runner finishes successfully and then a subsequent run fails, `last_error` may be stale. The status will show "FAILED" even if the runner is not currently running and the error came from a previous run. The logic should check `is_running` and `finished_at` first, and only consult `last_error` in the context of the most recent run.
+### Bug: Missing cross-field validation between `min_pool_size` and `max_pool_size` (lines 17-18)
 
-**Recommendation:** Gate the error check on `runner.finished_at` and clear `last_error` when a new run starts.
+`MongoConnectionConfig` validates each pool size independently but never checks `min_pool_size <= max_pool_size`. PyMongo will raise at runtime with a confusing error if `min_pool_size > max_pool_size`.
 
----
+**Recommendation:** Add a model validator:
 
-**B3. `refresh_live_control_state_legacy` calls inner functions with `_` instead of the actual interval value (line 1334-1336)**
-
-The function receives `_: int` (the interval value) and then calls `refresh_live_control_state(_)` and `refresh_capacity_chips(_)`. While `_` is a valid variable, the inner functions also accept `_: int` and ignore it, so this works by accident. If the inner functions' signatures ever change to use the parameter, this will break silently.
-
-**Recommendation:** Pass `0` or an explicit sentinel instead of relying on name shadowing.
-
----
-
-**B4. `staged_config = controller.current_config()` mutates the live config object in-place (lines 1619-1626)**
-
-In `apply_static_config`, the code does `staged_config = controller.current_config()` and then directly mutates fields on it (e.g., `staged_config.namespace.database_prefix = ...`). If `current_config()` returns the actual live config object (not a deep copy), this mutation side-effects the running configuration immediately, bypassing the "staged for next run" semantics.
-
-**Recommendation:** Use `controller.current_config().model_copy(deep=True)` to ensure isolation.
-
----
-
-### Performance Issues
-
-**P1. Massive callback return tuple (lines 1038-1135)**
-
-The `refresh_dashboard` callback returns 27 output values on every refresh interval (default likely 1-2 seconds). This includes rebuilding 4 Plotly figures, an HTML table, and an insights panel every tick, even when no data has changed. For large timelines this is expensive.
-
-**Recommendation:** Implement change detection: cache the last snapshot hash and skip figure rebuilds if unchanged. Alternatively, split the monolithic callback into independent callbacks with different refresh intervals (charts could update less frequently than KPIs).
-
----
-
-**P2. `_throughput_trend` iterates the full timeline on every refresh (lines 2110-2121)**
-
-The throughput trend computes averages over the entire (potentially very large) timeline list on every dashboard refresh.
-
-**Recommendation:** Consider sampling or maintaining a rolling average instead of recomputing from scratch.
-
----
-
-**P3. Six separate interval-driven callbacks all fire on the same `refresh` interval (lines 1038, 1148, 1204, 1216, 1228, 1269)**
-
-All six callbacks trigger on `dcc.Interval("refresh")`. Some of them call `controller.live_settings_snapshot()` redundantly (e.g., `refresh_live_control_state` and `refresh_capacity_chips` both call it). This doubles the work.
-
-**Recommendation:** Consolidate callbacks that query the same data, or use `dcc.Store` as an intermediate to avoid redundant computation.
-
----
-
-### Security Concerns
-
-**S1. No CSRF protection or authentication on control callbacks (lines 1347-1578)**
-
-Start, stop, pause, resume, restart, and config mutation endpoints are all exposed via Dash callbacks with no authentication or CSRF tokens. Anyone with network access to the dashboard can control the load tester.
-
-**Recommendation:** Add authentication middleware (e.g., Flask-Login) or restrict access via network controls. At minimum, add a confirmation dialog for destructive actions.
-
----
-
-**S2. Schema JSON parsed from user input without size limits (line 2282-2301)**
-
-`_parse_schema_config` accepts arbitrary JSON from the textarea. A user could submit an extremely large JSON payload, causing memory pressure or CPU exhaustion during parsing.
-
-**Recommendation:** Add a size limit check before `json.loads()` (e.g., reject payloads > 64KB).
-
----
-
-**S3. `_parse_non_empty_text` allows injection of arbitrary strings into namespace prefixes (line 2262-2266)**
-
-Database and collection prefixes are accepted with only a whitespace check. MongoDB special characters (e.g., `$`, `.`, null bytes) in these values could cause unexpected behavior or errors.
-
-**Recommendation:** Validate that namespace prefixes conform to MongoDB naming rules (no `$`, `.`, null bytes, etc.).
-
----
-
-### UX Issues
-
-**U1. No confirmation dialog for destructive actions (lines 1432-1442, 1469-1483)**
-
-Stop and Restart buttons immediately execute without confirmation. A mis-click could terminate a long-running load test.
-
-**Recommendation:** Add a `dcc.ConfirmDialog` component for Stop and Restart actions.
-
----
-
-**U2. Error feedback from `_refresh_error_payload` replaces all KPI values with zeros (lines 2436-2475)**
-
-When the refresh callback fails, all metrics are replaced with "0" and empty figures, losing the user's last known good state. This is disorienting.
-
-**Recommendation:** Return `no_update` for most outputs and only update the status badge to show the error.
-
----
-
-**U3. `_parse_optional_positive_float` silently returns `None` for negative values (line 2385-2386)**
-
-If a user enters a negative target ops rate, it is silently treated as "unbounded" instead of showing a validation error.
-
-**Recommendation:** Raise `ValueError` for negative values so the user gets explicit feedback.
-
----
-
-### Code Quality
-
-**Q1. 2484-line god function via `create_dashboard` (lines 104-1890)**
-
-The entire dashboard is defined in a single function with nested callbacks, making it extremely difficult to test, navigate, or maintain. The function defines 8+ callbacks inline.
-
-**Recommendation:** Extract callbacks into separate functions or classes. Consider a callback registry pattern.
-
----
-
-**Q2. Style dictionaries are duplicated extensively (lines 31-100)**
-
-Seven button style dictionaries differ only in border/background color. This violates DRY.
-
-**Recommendation:** Create a `_button_style(border_color, bg_color, text_color="white")` factory function.
-
----
-
-**Q3. Unused import: `replace` from `dataclasses` at module level (line 7)**
-
-`replace` is used for `MetricsSnapshot` which is a `dataclass`, so it is used, but importing it alongside the Dash framework may confuse readers since `MetricsSnapshot` doesn't look like it's built here.
-
-*(This is actually fine on closer inspection; noting for awareness.)*
-
----
-
-**Q4. Magic numbers scattered throughout (e.g., lines 2086-2089)**
-
-Thresholds for insights (1.0% error, 50ms P95, 2.0% retry) are hardcoded. These should be configurable.
-
-**Recommendation:** Move insight thresholds to the config model.
-
----
-
----
-
-## 2. `mongo_load_tester/dashboard/figures.py`
-
-### Bugs
-
-**B1. `_pause_spans` uses `prev` variable but never reads it meaningfully (line 277)**
-
-The variable `prev` is assigned on every iteration but only used in the final `if` block (line 278). If the last point is paused, the span's end is computed as `prev.second + timedelta(seconds=1)`. However, since `prev` is the same as the last `point` in the loop, this is equivalent to `point.second + timedelta(seconds=1)`. The variable is confusing and could be replaced by the loop variable.
-
-**Recommendation:** Remove the `prev` variable and use `snapshot.timeline[-1]` directly after the loop.
-
----
-
-**B2. `build_operations_timeline` computes `write_counts` but does not include it as a meaningful label (line 28)**
-
-The trace is labeled `write_ops` (line 57), which groups insert+update+delete. But the individual insert/update/delete traces are not shown, only total and read. Users cannot see the breakdown of write types in this chart.
-
-**Recommendation:** Either add individual write-type traces (perhaps toggleable) or clearly document that this is a rolled-up write metric.
-
----
-
-### Performance Issues
-
-**P1. Four separate list comprehensions iterate `snapshot.timeline` redundantly (lines 23-29)**
-
-`build_operations_timeline` iterates the timeline 7 times (x_values, read_counts, insert_counts, update_counts, delete_counts, write_counts, total_counts). A single pass would be more efficient for large timelines.
-
-**Recommendation:** Use a single loop to build all arrays simultaneously:
 ```python
-x, read, insert, update, delete, total = [], [], [], [], [], []
-for p in snapshot.timeline:
-    x.append(p.second)
-    read.append(p.op_counts.get("read", 0))
-    # etc.
+@model_validator(mode="after")
+def validate_pool_sizes(self) -> "MongoConnectionConfig":
+    if self.min_pool_size > self.max_pool_size:
+        raise ValueError("min_pool_size must be <= max_pool_size")
+    return self
 ```
 
----
+### Validation gap: No namespace character validation (lines 34-35)
 
-**P2. Similar redundant iteration in `build_latency_timeline` and `build_user_ramp_timeline` (lines 93-95, 149-151)**
+`database_prefix` and `collection_prefix` accept any string, including characters that are invalid in MongoDB names (e.g., `$`, null bytes, `/`, `\`, `.` for database names, `$` for collection names). An invalid prefix will cause runtime errors deep in the MongoDB driver.
 
-Each function makes 2-3 passes over the timeline.
+**Recommendation:** Add a `field_validator` that rejects illegal characters:
 
-**Recommendation:** Same single-pass approach.
-
----
-
-### Code Quality
-
-**Q1. Massive layout duplication across figure builders (lines 64-85, 120-141, 176-197)**
-
-All three timeline builders set nearly identical `update_layout`, `update_xaxes`, and `update_yaxes` calls. Only `yaxis_title` and minor margin differences vary.
-
-**Recommendation:** Extract a `_apply_timeline_layout(figure, yaxis_title, bottom_margin=50)` helper.
-
----
-
-**Q2. Type annotation `tuple[object, object]` is too loose (lines 22, 92, 148, 265-266)**
-
-The `x_range` parameter and pause span types use `tuple[object, object]` when they should be `tuple[datetime, datetime]`. This eliminates useful type checking.
-
-**Recommendation:** Use `tuple[datetime, datetime]` or define a type alias.
-
----
-
-**Q3. The `_add_pause_overlays` function adds potentially many `vrect` annotations (lines 250-262)**
-
-For a long test with frequent pause/resume cycles, this could add hundreds of vertical rectangles to every figure, degrading rendering performance.
-
-**Recommendation:** Limit to the N most recent pause overlays, or only show overlays visible within the current x_range.
-
----
-
----
-
-## 3. `mongo_load_tester/dashboard/export.py`
-
-### Bugs
-
-**B1. `build_csv_bytes` uses the first row's keys as fieldnames, ignoring rows with extra keys (lines 21-22)**
-
-If timeline rows have inconsistent keys (e.g., a later row has a key not present in the first row), `DictWriter` will silently drop those fields. This can happen if the schema evolves during a run.
-
-**Recommendation:** Compute the union of all row keys:
 ```python
-fieldnames = list(dict.fromkeys(k for row in rows for k in row.keys()))
+@field_validator("database_prefix", "collection_prefix")
+@classmethod
+def validate_namespace_chars(cls, value: str) -> str:
+    forbidden = set('/\\. "$\x00')
+    if any(c in forbidden for c in value):
+        raise ValueError(f"Namespace contains forbidden characters: {forbidden}")
+    if not value.strip():
+        raise ValueError("Namespace prefix must be non-empty")
+    return value
 ```
 
+### Validation gap: `SchemaFieldConfig.choices` type safety (lines 50, 54-58)
+
+When `choices` is set on a non-string field (e.g., `field_type="int"` with `choices=["a", "b"]`), the generated document will contain a string value where an integer is expected. The `validate_bounds` validator only checks `min_value <= max_value` but doesn't verify that `choices` values are compatible with `field_type`.
+
+**Recommendation:** Add validation that `choices` is only used with `field_type="string"`, or validate that each choice can be coerced to the declared type.
+
+### Validation gap: `length` applies to all field types (line 47)
+
+The `length` field defaults to 16 and is validated `ge=1` for *every* field type, but it is only meaningful for `"string"`. A user setting `field_type="bool", length=100` gets no warning.
+
+**Recommendation:** Either make `length` optional (`None` by default) and only require it for string fields, or document that it is ignored for non-string types.
+
+### Code quality: MongoDB URI is not validated (line 15)
+
+The `uri` field accepts any string. A malformed URI like `"not-a-uri"` will only fail when PyMongo tries to connect, producing a confusing error far from the config parsing step.
+
+**Recommendation:** Add a basic format check (e.g., must start with `mongodb://` or `mongodb+srv://`).
+
+### Minor: `validate_non_empty` silently normalizes whitespace (lines 191-197)
+
+The validator strips whitespace and returns the stripped value. This means `"  my-db  "` silently becomes `"my-db"`. While defensible, it could mask user mistakes. Consider at least logging a warning if the value was modified.
+
 ---
 
-**B2. `build_pdf_report` can place charts with negative Y coordinates (lines 101-102)**
+## 2. `mongo_load_tester/models.py`
 
-`first_chart_y` and `second_chart_y` use `max(120, ...)` and `max(20, ...)` respectively, but if the summary text is very long (many summary lines), `text_y` could push `first_chart_y` down and `second_chart_y` could overlap with the bottom of the page or even go off-page. The chart positioning doesn't account for varying content height dynamically.
+### Bug: `MetricsSnapshot` claims thread-safety but is mutable (line 53)
 
-**Recommendation:** Implement proper page-break logic: if the charts don't fit on the first page after the summary, start them on a new page.
+The docstring says "Thread-safe immutable view" but the dataclass uses `slots=True` without `frozen=True`. All fields are freely mutable after construction, violating the stated invariant. If any consumer mutates a snapshot while another thread reads it, this is a data race.
 
----
+**Recommendation:** Add `frozen=True`:
 
-### Performance Issues
-
-**P1. `build_pdf_report` generates three PNG images in memory simultaneously (lines 94-96)**
-
-For high-resolution exports (scale=2), each image can be several megabytes. All three are kept in memory at once.
-
-**Recommendation:** Generate and consume each image one at a time, releasing the bytes after drawing:
 ```python
-ops_png = build_png_bytes(ops_figure, image_width, image_height)
-ops_img = ImageReader(io.BytesIO(ops_png))
-pdf_canvas.drawImage(ops_img, ...)
-del ops_png, ops_img  # Allow GC
+@dataclass(frozen=True, slots=True)
+class MetricsSnapshot:
 ```
 
----
+This requires changing `operation_counts`, `operation_latency_avg_ms`, and `timeline` to be built before construction rather than mutated after. If the `timeline` list must be mutable during construction, build it first and pass it to the frozen dataclass.
 
-### Security Concerns
+### Minor: `timeline` is a required field without a default (line 72)
 
-**S1. PDF generation uses `reportlab` with no input sanitization on summary text (lines 73-86)**
+Unlike `op_counts` in `TimelinePoint` (which has `default_factory=dict`), `timeline` has no default. Every caller must supply it. If this is intentional, it is fine, but it is inconsistent with the neighboring optional fields.
 
-The summary lines include `snapshot.avg_latency_ms`, `snapshot.p99_latency_ms`, etc., which are numeric and safe. However, if `runner.last_error` (or other string fields) were included in the future, they could contain malicious content. This is low-risk currently but worth noting.
+### Minor: No validation on numeric fields
 
----
-
-**S2. `build_png_bytes` calls `figure.to_image()` which invokes Kaleido/Orca subprocess (line 50)**
-
-If the figure object is constructed from user-controlled data (it comes from client-side figure payloads in `download_png`), a carefully crafted payload could cause excessive CPU/memory usage in the rendering subprocess.
-
-**Recommendation:** Add timeout and memory limits to the image generation, or validate figure complexity before rendering.
+`latency_ms` (line 32), `total_ops` (line 43), `avg_latency_ms` (line 44) etc. are not validated for non-negativity. A negative latency would indicate a bug upstream but would propagate silently through the system.
 
 ---
 
-### Code Quality
+## 3. `mongo_load_tester/cli.py`
 
-**Q1. `build_pdf_report` has no pagination logic (lines 53-113)**
+### Bug: `run_id` not recorded as finished on exception in headless mode (lines 88-96)
 
-The function assumes all content fits on exactly two pages. If the summary grows or chart dimensions change, the layout breaks without warning.
+If `runner.run()` on line 89 raises an unexpected exception, execution jumps to the outer `except Exception` on line 136. The run was already recorded as started on line 88 but `record_run_finished` is never called. The run remains in `"running"` status in MongoDB until the next startup reconciliation.
 
-**Recommendation:** Implement dynamic page-break logic based on remaining page height.
+**Recommendation:** Wrap the headless run in a try/finally:
 
----
+```python
+run_id = metadata_store.record_run_started(config_version=config_record.version)
+try:
+    runner.run()
+    snapshot = metrics.snapshot()
+    run_status = "failed" if runner.last_error else "completed"
+    metadata_store.record_run_finished(run_id=run_id, status=run_status, snapshot=snapshot, error=runner.last_error)
+except Exception as exc:
+    metadata_store.record_run_finished(run_id=run_id, status="failed", snapshot=metrics.snapshot(), error=str(exc))
+    raise
+```
 
-**Q2. Magic numbers for layout positions (lines 69, 71, 87, 92-93, 101-102)**
+### Bug: Dashboard mode never records run start/finish (lines 107-129)
 
-Values like `30`, `48`, `66`, `14` for spacing are hardcoded throughout. Any change requires updating multiple coordinated values.
+In dashboard mode, `record_run_started` and `record_run_finished` are never called from the CLI. If the dashboard itself doesn't call them, there is no run metadata for dashboard-driven runs. Verify that the dashboard UI handles this; otherwise this is a metadata gap.
 
-**Recommendation:** Define layout constants (e.g., `MARGIN_LEFT = 30`, `LINE_HEIGHT = 14`, `HEADER_Y_OFFSET = 30`).
+### Code quality: `assert` used for control flow in production (lines 62, 74)
 
----
+`assert log_buffer is not None` and `assert metadata_store is not None` will be silently stripped if Python runs with `-O` (optimized mode). These are guarding real runtime invariants that should use explicit checks.
 
----
+**Recommendation:** Replace with:
 
-## 4. Test Suite Assessment
+```python
+if log_buffer is None:
+    raise RuntimeError("log_buffer was not initialized during bootstrap")
+```
 
-### File: `tests/test_dashboard_helpers.py`
+### Code quality: CLI overrides bypass Pydantic validation (line 42)
 
-**Coverage Gaps:**
-- No tests for `_parse_positive_int`, `_parse_optional_positive_float`, `_parse_non_empty_text`, or `_parse_log_level` helpers.
-- No tests for `_filter_snapshot_to_run_start`, `_timeline_x_range`, `_build_combined_timeline_export_figure`, `_build_status_ui`, or `_build_runtime_ui`.
-- No tests for the main `create_dashboard` function or any of the Dash callbacks.
-- No tests for the export functions (`build_csv_bytes`, `build_png_bytes`, `build_pdf_report`).
-- No tests for figure builders (`build_operations_timeline`, etc.).
+`bootstrap_config.metadata.load_test_id = load_test_id` assigns directly to a Pydantic model field. Unless `validate_assignment=True` is set in the model config (it is not), the `validate_non_empty` field validator is bypassed. An empty string `""` passed via `--load-test-id ""` would be accepted.
 
-**Missing Edge Cases:**
-- `_format_duration` is not tested with 0 or negative values.
-- `_filter_snapshot_timeline` is not tested with an empty timeline.
-- `_remove_incomplete_live_second` is not tested when `is_running=False`.
-- `_compute_stable_ops_per_sec` only tests boundary cases; no large-value test.
-- `_validate_think_time_values` doesn't test negative values or `None` inputs.
-- `_schema_config_to_json` round-trip test doesn't verify field types are preserved.
+**Recommendation:** Either set `validate_assignment=True` on `MetadataConfig`, or validate the CLI input before assignment:
 
-**Test Isolation:**
-- `test_remove_incomplete_live_second_filters_latest_partial_point` (line 83) depends on `datetime.now(UTC)` with `microsecond=500_000`. If the test runs at exactly a second boundary, the microsecond replacement to 500_000 could produce flaky results. **Risk: intermittent false negative.**
+```python
+if load_test_id is not None:
+    cleaned = load_test_id.strip()
+    if not cleaned:
+        raise typer.BadParameter("--load-test-id must be non-empty")
+    bootstrap_config.metadata.load_test_id = cleaned
+```
 
-**False Positive Risk:**
-- `test_filter_snapshot_timeline_applies_window` (line 62) creates points 120s and 30s in the past, then filters with a 60s window. This relies on `datetime.now(UTC)` being stable between fixture creation and function execution. Under extreme system load, clock drift could cause the test to pass incorrectly or fail. **Risk: low but present.**
+### Minor: `KeyboardInterrupt` handling inconsistency (lines 130-133)
 
----
-
-### File: `tests/test_runner_safety.py`
-
-**Coverage:** Tests only one scenario (connection failure). Missing:
-- Tests for other types of top-level exceptions (e.g., `KeyboardInterrupt`, `SystemExit`).
-- No test for partial failure mid-run.
-- No test for concurrent `run()` calls.
-
-**Test Quality:** Good. The test clearly validates the error capture mechanism and state transitions.
+`KeyboardInterrupt` during dashboard mode raises `typer.Exit(code=130)` but does not call `record_run_finished`. If a run was started through the dashboard, its metadata is left in `"running"` state.
 
 ---
 
-### File: `tests/test_retry.py`
+## 4. `mongo_load_tester/observability.py`
 
-**Coverage:** Good coverage of the retry controller with three scenarios: transient success, non-retryable failure, and exhaustion.
+### Bug: Handler file descriptor leak on reconfiguration (line 67)
 
-**Missing Edge Cases:**
-- No test for jitter behavior (all tests set `jitter_ratio=0.0`).
-- No test for `max_backoff_ms` capping behavior (the test values are too small to trigger it).
-- No test for concurrent retry operations.
-- No test for the case where `max_attempts=1` (no retries at all).
+`logger.handlers.clear()` removes handlers without closing them. `configure_logging` is called twice in `cli.py` (lines 43 and 56) when the metadata config differs from the bootstrap config. The first call's `RotatingFileHandler` is dropped from the handler list but its file descriptor remains open.
 
-**Test Quality:** The use of `monkeypatch` on `time.sleep` is good for deterministic testing. The `lambda: (_ for _ in ()).throw(ValueError("bad input"))` pattern (line 53) is clever but obscure; a simple wrapper function would be more readable.
+**Recommendation:** Close handlers before clearing:
 
----
+```python
+for handler in logger.handlers[:]:
+    handler.close()
+    logger.removeHandler(handler)
+```
 
-### File: `tests/test_observability.py`
+### Bug: `asyncio` exception handler is never installed (lines 137-141)
 
-**Coverage:** Tests log level filtering and tail limits.
+`asyncio.get_running_loop()` raises `RuntimeError` when no event loop is running. Since `configure_logging` is called from synchronous CLI code, this will always fall into the `except RuntimeError: return` path. The asyncio handler is dead code.
 
-**Missing Edge Cases:**
-- No test for `ui_buffer_lines` limit enforcement (what happens when the buffer is full?).
-- No test for thread safety of the log buffer.
-- No test for empty buffer behavior.
-- No test for `min_level=logging.DEBUG` (the lowest level).
+**Recommendation:** Either remove the asyncio handler setup, or defer it to when an event loop is actually started (e.g., as a callback registered via `loop.call_soon` in the dashboard setup).
 
-**Test Isolation Concern:**
-- `configure_logging` modifies global logger state (adds handlers). If tests run in parallel, they could interfere with each other's log output. Each test creates a new logger+buffer, but the underlying logging configuration is global. **Risk: flaky tests in parallel execution.**
+### Security concern: Context dict logged directly (line 131)
 
----
+`logger.critical("%s | context=%s", message, context)` logs the full asyncio error context dict. Depending on the application, this could contain connection URIs, credentials, or other sensitive data that should not appear in log files.
 
-### File: `tests/test_selection.py`
+**Recommendation:** Sanitize or allowlist the keys logged from the context dict.
 
-**Coverage:** Good basic coverage of operation and namespace selectors.
+### Code quality: `issubclass` vs `is` for exception type check (line 119)
 
-**Missing Edge Cases:**
-- No test for equal weights across all operations.
-- No test for very large namespace configurations (e.g., 100 databases x 100 collections).
-- `test_operation_selector_uses_live_mix_provider` (line 37) tests the dynamic mix swap but doesn't test what happens if the provider raises an exception.
+`args.exc_type is KeyboardInterrupt` uses identity comparison. If a subclass of `KeyboardInterrupt` is raised (rare but possible), it would not be caught by this check. Line 109 correctly uses `issubclass()` for the same purpose.
 
----
+**Recommendation:** Use `issubclass(args.exc_type, KeyboardInterrupt)` for consistency.
 
-### File: `tests/test_runner_controls.py`
+### Minor: InMemoryLogHandler captures all DEBUG messages (line 94)
 
-**Coverage:** Good coverage of control methods and sanitization.
+`memory_handler.setLevel(logging.DEBUG)` captures every log record regardless of the configured level. If the user configures level `WARNING`, DEBUG and INFO messages still accumulate in the buffer, consuming memory unnecessarily. The buffer's `tail()` method filters by `min_level`, so they are not displayed, but they still occupy space.
 
-**Test Isolation Concern:**
-- `test_runner_active_elapsed_freezes_after_finalization_marker` (line 35) and `test_worker_thread_updates_expand_pool_when_running` (line 93) both directly set private attributes (`_run_started_monotonic`, `_final_active_elapsed_seconds`, `_running`, `_max_virtual_users`, etc.) via `# type: ignore`. This creates tight coupling to internal implementation details. If the runner's internals are refactored, these tests will break even if the public API remains stable.
-
-**Recommendation:** Add public test helpers or use the public API to put the runner in the desired state.
+**Recommendation:** Set the memory handler level to the configured level, or document this as intentional (allows the dashboard to show lower-severity messages on demand).
 
 ---
 
-### File: `tests/test_metrics_store.py`
+## 5. `mongo_load_tester/workload/schema.py`
 
-**Coverage:** Tests snapshot calculations and reset behavior.
+### Bug: `generate_update_fields` crashes on empty schema (line 24)
 
-**Missing Edge Cases:**
-- No test for concurrent `record()` calls (thread safety).
-- No test for `history_window_seconds` eviction behavior (recording points beyond the window).
-- No test for very large numbers of operations.
-- No test for edge case where all operations are errors.
-- `record_active_users` is called with `target_users` on line 26 but without it on line 61 — no test verifies the default behavior.
+If `self._schema.fields` is an empty list, `self._rng.choice([])` raises `IndexError`. While `SchemaConfig` has a non-empty default, a user can explicitly configure `fields: []` and Pydantic will accept it.
+
+**Recommendation:** Either validate `len(fields) >= 1` in `SchemaConfig`, or guard here:
+
+```python
+def generate_update_fields(self) -> dict[str, Any]:
+    if not self._schema.fields:
+        raise ValueError("Cannot generate update fields from an empty schema")
+    field = self._rng.choice(self._schema.fields)
+    return {field.name: self._generate_value(field)}
+```
+
+### Bug: `int()` truncation can invert min/max bounds (line 34)
+
+`self._rng.randint(int(field.min_value), int(field.max_value))` truncates floats toward zero. If `min_value=1.9` and `max_value=1.1`, both become `1` and the call succeeds but produces a degenerate range. Worse, if `min_value=0.9` and `max_value=0.1`, they become `int(0)` and `int(0)` respectively, which is subtly wrong. If `min_value=2.5` and `max_value=1.5`, they become `2` and `1`, and `randint(2, 1)` raises `ValueError`.
+
+**Recommendation:** Use `math.floor` / `math.ceil` explicitly, or validate at the config level that int fields have integer-valued bounds:
+
+```python
+if field.field_type == "int":
+    lo, hi = int(field.min_value), int(field.max_value)
+    if lo > hi:
+        raise ValueError(f"Integer field '{field.name}' has min_value > max_value after truncation")
+    return self._rng.randint(lo, hi)
+```
+
+### Code quality: `choices` ignores `field_type` (line 29)
+
+When `choices` is set, the method returns `self._rng.choice(field.choices)` regardless of `field_type`. If `field_type="int"` and `choices=["a","b"]`, the document gets a string where an integer is expected. MongoDB won't complain, but downstream query and aggregation logic may break.
+
+**Recommendation:** Either restrict `choices` to string fields at the config level, or coerce choice values to the declared type.
+
+### Performance: Character-by-character string generation (line 32)
+
+```python
+"".join(self._rng.choice(chars) for _ in range(field.length))
+```
+
+This generator expression calls `choice()` per character. For large `length` values in a hot loop this is slow.
+
+**Recommendation:** Use batch selection:
+
+```python
+return "".join(self._rng.choices(chars, k=field.length))
+```
+
+`random.choices` with `k` is significantly faster for large values.
 
 ---
 
-### File: `tests/test_config.py`
+## 6. `mongo_load_tester/workload/selection.py`
 
-**Coverage:** Minimal — tests normalization, invalid mix rejection, and metadata defaults.
+### Performance: Weights rebuilt on every `choose()` call (lines 33-35)
 
-**Missing Edge Cases:**
-- No test for YAML loading with missing fields (partial config).
-- No test for environment variable overrides.
-- No test for negative values in `LoadConfig`.
-- No test for `SchemaConfig` validation.
-- No test for `MongoConnectionConfig` URI validation or TLS option combinations.
+When `mix_provider` is set, `_build_weights(self._mix_provider().normalized())` is called on every single operation selection. In a high-throughput load test doing thousands of ops/sec, this is a hot path. `normalized()` computes a division for each of four values, and `_build_weights` allocates a new list each time.
 
----
+**Recommendation:** Cache the weights and only rebuild when the underlying mix changes. For example, store a version counter or compare against the previous mix values:
 
-### File: `tests/test_metadata_sync.py`
+```python
+def choose(self) -> OperationType:
+    if self._mix_provider is not None:
+        mix = self._mix_provider()
+        normalized = mix.normalized()
+        key = (normalized["read"], normalized["insert"], normalized["update"], normalized["delete"])
+        if key != self._cached_key:
+            self._weights = self._build_weights(normalized)
+            self._cached_key = key
+    return self._rng.choices(self._operations, weights=self._weights, k=1)[0]
+```
 
-**Coverage:** Good coverage of sync-once logic with version comparison and running-state deferral.
+### Minor: No guard against empty `_targets` (line 71)
 
-**Missing Edge Cases:**
-- No test for network failures during `fetch_config()`.
-- No test for concurrent sync operations.
-- No test for downgrade protection (version goes backward).
-
-**Test Quality:** The use of `_FakeStore` and `_FakeController` dataclasses is clean and well-structured.
-
----
-
-### File: `tests/test_client_build.py`
-
-**Coverage:** Tests TLS behavior when unset and explicitly set to False.
-
-**Missing Edge Cases:**
-- No test for `tls=True`.
-- No test for invalid URIs.
-- No test for connection options like `maxPoolSize`, `retryWrites`, etc.
-- No test for authentication parameters.
+`self._rng.choice(self._targets)` would raise `IndexError` if `_targets` is empty. Config validation (`ge=1` on `databases` and `collections_per_database`) prevents this in normal use, but a defensive check would make the failure mode clearer for callers who construct `NamespaceSelector` directly.
 
 ---
 
-## Summary of Critical Findings
+## 7. `mongo_load_tester/metadata/store.py`
 
-| Severity | File | Issue |
-|----------|------|-------|
-| **High** | `app.py:116` | Thread-unsafe `run_state` dict shared across concurrent callbacks |
-| **High** | `app.py:1619` | Possible mutation of live config object instead of a copy |
-| **High** | `app.py:1347` | No authentication on control endpoints |
-| **Medium** | `app.py:2385` | Silent swallowing of invalid input (negative ops rate) |
-| **Medium** | `app.py:2436` | Error handler erases all metric state from UI |
-| **Medium** | `export.py:21` | CSV fieldnames from first row only; inconsistent rows lose data |
-| **Medium** | `export.py:101` | PDF chart positioning can go off-page |
-| **Medium** | `figures.py:23-29` | 7x redundant iteration over timeline |
-| **Low** | `app.py:31-100` | Duplicated style dictionaries |
-| **Low** | `figures.py:265` | `tuple[object, object]` type too loose |
-| **Low** | Tests | No dashboard integration tests, no export tests, no figure builder tests |
-| **Low** | Tests | Several tests rely on `datetime.now()` making them timing-sensitive |
+### Bug: `record_run_finished` silently ignores missing runs (lines 180-197)
+
+`update_one` does not check `result.matched_count`. If the `run_id` doesn't exist (e.g., due to a typo, race condition, or database reset), the update silently does nothing and the event is still appended, creating orphaned events.
+
+**Recommendation:** Check the result:
+
+```python
+result = self._runs.update_one(...)
+if result.matched_count == 0:
+    self._logger.error("Attempted to finish unknown run_id=%s", run_id)
+    return
+```
+
+### Bug: Corrupted config silently replaced with defaults (lines 237-238)
+
+`_parse_config_document` falls back to `{}` if the `config` key is missing or falsy:
+
+```python
+payload = document.get("config") or {}
+config = AppConfig.model_validate(payload)
+```
+
+An empty dict produces a fully default `AppConfig`. If the stored config was corrupted or accidentally deleted, this silently replaces it with defaults rather than raising an error. The caller has no way to distinguish "config was intentionally set to defaults" from "config was lost."
+
+**Recommendation:** Raise an explicit error if the `config` key is missing:
+
+```python
+payload = document.get("config")
+if payload is None:
+    raise ValueError(f"Config document for load_test_id={document.get('load_test_id')} is missing 'config' field")
+config = AppConfig.model_validate(payload)
+```
+
+### Code quality: `assert` in production code (line 124)
+
+`assert updated is not None` guards against an impossible state (upsert + AFTER should always return a document), but `assert` is stripped by `-O`. Use an explicit check.
+
+### Code quality: `updated_at` fallback masks data issues (lines 239-243)
+
+If `updated_at` is not a `datetime` instance (e.g., stored as a string or epoch int), the code silently uses `datetime.now(UTC)`. This hides data integrity problems.
+
+**Recommendation:** Log a warning when the fallback is used:
+
+```python
+if isinstance(updated_at_raw, datetime):
+    updated_at = updated_at_raw
+else:
+    self._logger.warning("Config document has non-datetime updated_at=%r; using current time.", updated_at_raw)
+    updated_at = datetime.now(UTC)
+```
+
+### Security: No input sanitization on `source` and `reason` (lines 106, 127-129)
+
+`save_config` accepts arbitrary `source` and `reason` strings that are stored directly in MongoDB and appended to events. If these originate from user input (e.g., dashboard text fields), they could contain injection payloads for downstream consumers that render event logs as HTML.
+
+**Recommendation:** Sanitize or length-limit these fields.
+
+### Minor: `_ensure_indexes` in constructor can fail (line 53)
+
+If the MongoDB user lacks index creation privileges, the constructor throws. This prevents the entire application from starting even if the indexes already exist.
+
+**Recommendation:** Catch and log index creation failures, or use `try/except` with a warning.
+
+### Minor: `run_id` index is not unique (line 234)
+
+The `run_id` field uses `uuid4()` so collisions are astronomically unlikely, but the index is not declared as `unique=True`. For correctness, consider making it unique.
+
+---
+
+## 8. `mongo_load_tester/metadata/sync.py`
+
+### Bug: TOCTOU race in `sync_once` (lines 60-78)
+
+The method reads `_last_applied_version` under a lock (line 64-66), then releases the lock and does work (lines 67-78) including calling `mark_applied_version`. Between the version check and the `apply_config` call, another thread could also pass the version check and apply the same version twice.
+
+**Recommendation:** Hold the lock for the entire sync operation, or use an atomic compare-and-swap pattern:
+
+```python
+def sync_once(self) -> None:
+    record = self._metadata_store.fetch_config()
+    if record is None:
+        return
+    with self._lock:
+        if record.version <= self._last_applied_version:
+            return
+        if self._controller.is_running:
+            return
+        self._controller.apply_config(record.config, source="metadata-sync")
+        self._last_applied_version = max(self._last_applied_version, record.version)
+    # Event and log outside the lock to avoid holding it during I/O
+    self._metadata_store.append_event(...)
+    self._logger.info(...)
+```
+
+### Bug: TOCTOU race between `is_running` check and `apply_config` (lines 67-71)
+
+The controller's running state is checked on line 67, but by line 71 the controller could have started a run. `apply_config` would then modify configuration mid-run, which contradicts the comment on line 69 ("defer... so static configuration updates are staged for next run").
+
+**Recommendation:** The `apply_config` method on the controller should be made atomic with respect to run state, or `sync_once` should hold the lock as described above and the controller should expose an atomic `try_apply_config_if_idle` method.
+
+### Minor: `stop()` does not verify thread termination (lines 52-58)
+
+After `thread.join(timeout=timeout)`, the thread might still be alive if the timeout expired. The caller is not informed.
+
+**Recommendation:** Check and log:
+
+```python
+def stop(self, timeout: float = 5.0) -> None:
+    self._stop_event.set()
+    with self._lock:
+        thread = self._thread
+    if thread is not None:
+        thread.join(timeout=timeout)
+        if thread.is_alive():
+            self._logger.warning("Config sync thread did not stop within %.1fs timeout.", timeout)
+```
+
+### Minor: Redundant `max(int(...), 5)` (line 24)
+
+`interval_seconds` is already typed as `int` and validated at `ge=5` in `MetadataConfig`. The defensive floor is harmless but obscures the trust boundary.
+
+---
+
+## Summary of Highest-Priority Issues
+
+| # | File | Severity | Issue |
+|---|------|----------|-------|
+| 1 | `cli.py:88-96` | **High** | Run metadata left in "running" state on exception in headless mode |
+| 2 | `observability.py:67` | **High** | File handler leak on logging reconfiguration |
+| 3 | `store.py:180-197` | **High** | `record_run_finished` silently ignores non-existent runs |
+| 4 | `store.py:237-238` | **High** | Corrupted config silently replaced with defaults |
+| 5 | `sync.py:60-78` | **Medium** | TOCTOU race allows duplicate config application |
+| 6 | `config.py:17-18` | **Medium** | Missing min/max pool size cross-validation |
+| 7 | `schema.py:34` | **Medium** | `int()` truncation can invert min/max bounds |
+| 8 | `cli.py:42` | **Medium** | CLI override bypasses Pydantic validation |
+| 9 | `cli.py:62,74` | **Medium** | `assert` used for runtime invariants (stripped by `-O`) |
+| 10 | `models.py:53` | **Medium** | `MetricsSnapshot` is mutable despite "immutable" contract |
+| 11 | `schema.py:24` | **Medium** | `generate_update_fields` crashes on empty schema |
+| 12 | `observability.py:119` | **Low** | `is` vs `issubclass` for exception type check |
+| 13 | `selection.py:33-35` | **Low** | Weights rebuilt on every hot-path call |
+| 14 | `observability.py:137-141` | **Low** | Asyncio exception handler is dead code |
+| 15 | `store.py:53` | **Low** | Index creation failure blocks application startup |
