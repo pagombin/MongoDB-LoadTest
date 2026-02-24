@@ -185,6 +185,12 @@ def create_dashboard(
 
     app.layout = html.Div(
         [
+            html.Style("""
+                @keyframes pulse {
+                    0%, 100% { opacity: 1; transform: scale(1); }
+                    50% { opacity: 0.85; transform: scale(1.005); box-shadow: 0 6px 20px rgba(239,68,68,0.25); }
+                }
+            """),
             html.Div(
                 [
                     html.Div(
@@ -259,6 +265,10 @@ def create_dashboard(
                     "padding": "20px 24px",
                     "boxShadow": "0 4px 12px rgba(49,46,129,0.25)",
                 },
+            ),
+            html.Div(
+                id="scaling-alert-banner",
+                style={"display": "none"},
             ),
             html.Details(
                 [
@@ -1240,6 +1250,53 @@ def create_dashboard(
             return _refresh_error_payload(str(exc))
 
     @callback(
+        Output("scaling-alert-banner", "children"),
+        Output("scaling-alert-banner", "style"),
+        Input("refresh", "n_intervals"),
+    )
+    def refresh_scaling_alerts(_: int):
+        alerts = runner.drain_scaling_alerts()
+        if not alerts:
+            return "", {"display": "none"}
+        alert_items = [
+            html.Div(
+                [
+                    html.Span(
+                        "SCALING WARNING",
+                        style={
+                            "fontWeight": "800",
+                            "fontSize": "12px",
+                            "letterSpacing": "0.05em",
+                            "marginRight": "10px",
+                            "background": "#dc2626",
+                            "color": "white",
+                            "padding": "2px 8px",
+                            "borderRadius": "4px",
+                        },
+                    ),
+                    html.Span(alert),
+                ],
+                style={"marginBottom": "4px" if i < len(alerts) - 1 else "0"},
+            )
+            for i, alert in enumerate(alerts)
+        ]
+        return (
+            alert_items,
+            {
+                "marginTop": "12px",
+                "padding": "14px 18px",
+                "background": "linear-gradient(90deg, #fef2f2, #fff1f2)",
+                "border": "2px solid #f87171",
+                "borderRadius": "12px",
+                "fontSize": "13px",
+                "color": "#991b1b",
+                "fontWeight": "500",
+                "boxShadow": "0 4px 12px rgba(239,68,68,0.15)",
+                "animation": "pulse 2s ease-in-out 3",
+            },
+        )
+
+    @callback(
         Output("configured-duration-value", "children"),
         Output("target-users-chip", "children"),
         Output("read-write-mix-chip", "children"),
@@ -1612,11 +1669,19 @@ def create_dashboard(
                         f" (worker pool currently {worker_pool}; scaling in progress)"
                     )
                 persist_metadata_config("apply-load-controls")
-                return _feedback_info(
+                was_capped = worker_threads < worker_threads_requested
+                msg = (
                     f"Live load controls applied: users {target_users}/{max_users}, "
                     f"worker threads {worker_threads}{pool_note}, "
                     f"think time {min_ms}-{max_ms} ms, target ops/user {rate_text}."
                 )
+                if was_capped:
+                    msg += (
+                        f" Worker threads were capped from {worker_threads_requested} "
+                        f"to the recommended limit of {worker_threads}."
+                    )
+                    return _feedback_warning(msg)
+                return _feedback_info(msg)
             if triggered == "apply-operation-mix-btn":
                 if not apply_mix_clicks:
                     raise PreventUpdate

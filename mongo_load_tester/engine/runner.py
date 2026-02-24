@@ -74,6 +74,7 @@ class LoadTestRunner:
         self._logger = logger or logging.getLogger("mongo_load_tester.runner")
         self._retry_policy = RetryPolicy.from_config(config.retry)
         self._runtime_change_events: deque[RuntimeChangeEvent] = deque(maxlen=120)
+        self._scaling_alerts: deque[str] = deque(maxlen=20)
         self._worker_assignments: list[_WorkerAssignment] = []
         self._running_worker_ids: set[int] = set()
 
@@ -169,6 +170,13 @@ class LoadTestRunner:
             if safe_limit == 0:
                 return []
             return list(self._runtime_change_events)[-safe_limit:]
+
+    def drain_scaling_alerts(self) -> list[str]:
+        """Return and clear any pending scaling alert messages."""
+        with self._state_lock:
+            alerts = list(self._scaling_alerts)
+            self._scaling_alerts.clear()
+            return alerts
 
     def snapshot_config(self) -> AppConfig:
         with self._state_lock:
@@ -284,15 +292,16 @@ class LoadTestRunner:
             self._rebalance_assignments_locked()
             pool_size = len(self._worker_assignments)
         if was_capped:
-            self._logger.warning(
-                "Worker thread request %d was capped to %d (max_worker_threads=%d).",
-                requested_threads,
-                capped,
-                self._max_worker_threads,
+            cap_msg = (
+                f"Worker thread request of {requested_threads} exceeds the recommended "
+                f"limit of {self._max_worker_threads}. Capped to {capped} workers. "
+                f"Adjust max_worker_threads in your config to raise this limit."
             )
+            self._logger.warning(cap_msg)
             self._record_runtime_change(
                 f"worker_threads={capped} (capped from {requested_threads}, limit={self._max_worker_threads})"
             )
+            self._push_scaling_alert(cap_msg)
         else:
             self._logger.info(
                 "Live worker thread target updated to %d (requested=%d, pool=%d).",
@@ -867,6 +876,10 @@ class LoadTestRunner:
         if len(assignments_to_start) > 1:
             self._schedule_error_rate_check(pre_scale_error_ops, pre_scale_total_ops, len(assignments_to_start))
 
+    def _push_scaling_alert(self, message: str) -> None:
+        with self._state_lock:
+            self._scaling_alerts.append(message)
+
     def _schedule_error_rate_check(self, pre_error_ops: int, pre_total_ops: int, added_workers: int) -> None:
         """After a scale-up, check error rate a few seconds later and warn if it spiked."""
         def _check():
@@ -881,15 +894,14 @@ class LoadTestRunner:
             new_error_rate = new_errors / new_ops
             if new_error_rate >= _ERROR_RATE_WARNING_THRESHOLD:
                 pct = new_error_rate * 100
-                self._logger.warning(
-                    "Error rate spiked to %.1f%% after adding %d worker(s). "
-                    "Consider reducing worker count or checking MongoDB capacity.",
-                    pct,
-                    added_workers,
+                msg = (
+                    f"Error rate spiked to {pct:.1f}% after scaling to "
+                    f"{self._target_worker_threads} workers. Consider reducing "
+                    f"worker count or checking MongoDB cluster capacity."
                 )
-                self._record_runtime_change(
-                    f"WARNING: error rate {pct:.1f}% after scaling to {self._target_worker_threads} workers"
-                )
+                self._logger.warning(msg)
+                self._record_runtime_change(f"WARNING: error rate {pct:.1f}% after scaling workers")
+                self._push_scaling_alert(msg)
         threading.Thread(target=_check, daemon=True, name="error-rate-check").start()
 
     def _record_runtime_change(self, message: str) -> None:
