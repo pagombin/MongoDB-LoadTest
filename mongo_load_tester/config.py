@@ -84,8 +84,8 @@ class SchemaConfig(BaseModel):
 class OperationMixConfig(BaseModel):
     """Operation percentages for OLTP-like traffic."""
 
-    read: float = Field(default=0.7, ge=0)
-    insert: float = Field(default=0.2, ge=0)
+    read: float = Field(default=0.2, ge=0)
+    insert: float = Field(default=0.7, ge=0)
     update: float = Field(default=0.08, ge=0)
     delete: float = Field(default=0.02, ge=0)
 

@@ -43,8 +43,8 @@ schema:
       field_type: "datetime"
 
 operation_mix:
-  read: 0.75
-  insert: 0.15
+  read: 0.20
+  insert: 0.70
   update: 0.08
   delete: 0.02
 
