@@ -172,11 +172,41 @@ def create_dashboard(
                     ),
                     html.Div(
                         [
-                            html.Button("Start", id="start-test-btn", n_clicks=0, style=START_BUTTON_STYLE),
-                            html.Button("Pause", id="pause-test-btn", n_clicks=0, style=PAUSE_BUTTON_STYLE),
-                            html.Button("Resume", id="resume-test-btn", n_clicks=0, style=RESUME_BUTTON_STYLE),
-                            html.Button("Restart", id="restart-test-btn", n_clicks=0, style=RESTART_BUTTON_STYLE),
-                            html.Button("Stop", id="stop-test-btn", n_clicks=0, style=STOP_BUTTON_STYLE),
+                            html.Button(
+                                "Start",
+                                id="start-test-btn",
+                                n_clicks=0,
+                                style=START_BUTTON_STYLE,
+                                title="Start load generation with current configuration.",
+                            ),
+                            html.Button(
+                                "Pause",
+                                id="pause-test-btn",
+                                n_clicks=0,
+                                style=PAUSE_BUTTON_STYLE,
+                                title="Temporarily pause active load generation.",
+                            ),
+                            html.Button(
+                                "Resume",
+                                id="resume-test-btn",
+                                n_clicks=0,
+                                style=RESUME_BUTTON_STYLE,
+                                title="Resume a paused load test.",
+                            ),
+                            html.Button(
+                                "Restart",
+                                id="restart-test-btn",
+                                n_clicks=0,
+                                style=RESTART_BUTTON_STYLE,
+                                title="Restart immediately with current settings and cleared metrics.",
+                            ),
+                            html.Button(
+                                "Stop",
+                                id="stop-test-btn",
+                                n_clicks=0,
+                                style=STOP_BUTTON_STYLE,
+                                title="Gracefully stop workers after current in-flight operations.",
+                            ),
                             html.Button("Export CSV", id="download-csv-btn", n_clicks=0, style=ACTION_BUTTON_STYLE),
                             html.Button("Export PNG", id="download-png-btn", n_clicks=0, style=ACTION_BUTTON_STYLE),
                             html.Button("Export PDF", id="download-pdf-btn", n_clicks=0, style=ACTION_BUTTON_STYLE),
@@ -194,6 +224,37 @@ def create_dashboard(
                     "borderRadius": "12px",
                     "padding": "16px",
                 },
+            ),
+            html.Details(
+                [
+                    html.Summary(
+                        "Operator quick guide",
+                        style={"cursor": "pointer", "fontWeight": "600", "color": "#312e81"},
+                    ),
+                    html.Div(
+                        [
+                            html.Ul(
+                                [
+                                    html.Li("Review live controls (apply immediately) and static controls (apply per scope badge)."),
+                                    html.Li("Start the run from the UI. Monitor status, runtime progress, and insights."),
+                                    html.Li(
+                                        "If static settings are changed during an active run, they are staged for next run."
+                                    ),
+                                    html.Li("Use exports (CSV/PNG/PDF) for reporting and evidence."),
+                                ],
+                                style={"marginTop": "8px", "marginBottom": "0", "paddingLeft": "18px", "lineHeight": "1.7"},
+                            )
+                        ],
+                        style={"fontSize": "12px", "color": "#4b5563"},
+                    ),
+                ],
+                style={
+                    **CARD_STYLE,
+                    "marginTop": "12px",
+                    "background": "#f8fafc",
+                    "border": "1px solid #c7d2fe",
+                },
+                open=False,
             ),
             html.Div(
                 [
@@ -1114,6 +1175,13 @@ def create_dashboard(
             return _fmt(runner.max_virtual_users), _fmt(runner.target_worker_threads)
 
     @callback(
+        Output("start-test-btn", "disabled"),
+        Input("refresh", "n_intervals"),
+    )
+    def refresh_start_button_state(_: int):
+        return runner.is_running
+
+    @callback(
         Output("static-domain-scope-badge", "children"),
         Output("static-domain-scope-badge", "style"),
         Output("schema-domain-scope-badge", "children"),
@@ -1283,7 +1351,7 @@ def create_dashboard(
                 persist_metadata_config("start-run")
                 started = controller.start()
                 if not started:
-                    return "Start ignored because a run is already active."
+                    return _feedback_warning("Start ignored because a run is already active.")
                 if metadata_store is not None:
                     config_version = int(run_state.get("config_version") or 1)
                     run_id = metadata_store.record_run_started(config_version=config_version)
@@ -1295,7 +1363,7 @@ def create_dashboard(
                         payload={"action": "start", "run_id": run_id},
                     )
                 run_state["run_static_baseline"] = _static_config_snapshot(controller.current_config())
-                return "Load test started from dashboard."
+                return _feedback_info("Load test started from dashboard.")
             if triggered == "stop-test-btn":
                 if not stop_clicks:
                     raise PreventUpdate
@@ -1306,7 +1374,7 @@ def create_dashboard(
                         message="Stop requested from dashboard.",
                         payload={"action": "stop", "run_id": run_state.get("active_run_id")},
                     )
-                return "Stop requested. Workers are finishing in-flight operations."
+                return _feedback_info("Stop requested. Workers are finishing in-flight operations.")
             if triggered == "pause-test-btn":
                 if not pause_clicks:
                     raise PreventUpdate
@@ -1317,7 +1385,9 @@ def create_dashboard(
                         message="Pause requested from dashboard.",
                         payload={"action": "pause", "run_id": run_state.get("active_run_id")},
                     )
-                return "Load test paused." if paused else "Pause ignored (runner is not active)."
+                return _feedback_info("Load test paused.") if paused else _feedback_warning(
+                    "Pause ignored (runner is not active)."
+                )
             if triggered == "resume-test-btn":
                 if not resume_clicks:
                     raise PreventUpdate
@@ -1328,7 +1398,9 @@ def create_dashboard(
                         message="Resume requested from dashboard.",
                         payload={"action": "resume", "run_id": run_state.get("active_run_id")},
                     )
-                return "Load test resumed." if resumed else "Resume ignored (runner is not paused)."
+                return _feedback_info("Load test resumed.") if resumed else _feedback_warning(
+                    "Resume ignored (runner is not paused)."
+                )
             if triggered == "restart-test-btn":
                 if not restart_clicks:
                     raise PreventUpdate
@@ -1341,15 +1413,15 @@ def create_dashboard(
                     run_state["last_run_finished_at"] = None
                 if restarted:
                     run_state["run_static_baseline"] = _static_config_snapshot(controller.current_config())
-                return message
+                return _feedback_info(message)
             if triggered == "apply-duration-btn":
                 if not apply_clicks:
                     raise PreventUpdate
                 if duration_value is None:
-                    return "Duration value is required."
+                    return _feedback_warning("Duration value is required.")
                 updated = controller.update_duration_seconds(int(duration_value))
                 persist_metadata_config("apply-duration")
-                return f"Run duration updated to {updated} seconds."
+                return _feedback_info(f"Run duration updated to {updated} seconds.")
             if triggered == "apply-load-controls-btn":
                 if not apply_load_clicks:
                     raise PreventUpdate
@@ -1371,7 +1443,7 @@ def create_dashboard(
                         f" (worker pool currently {worker_pool}; scaling in progress)"
                     )
                 persist_metadata_config("apply-load-controls")
-                return (
+                return _feedback_info(
                     f"Live load controls applied: users {target_users}/{max_users}, "
                     f"worker threads {worker_threads}{pool_note}, "
                     f"think time {min_ms}-{max_ms} ms, target ops/user {rate_text}."
@@ -1380,7 +1452,7 @@ def create_dashboard(
                 if not apply_mix_clicks:
                     raise PreventUpdate
                 if None in (mix_read_value, mix_insert_value, mix_update_value, mix_delete_value):
-                    return "All operation mix values are required."
+                    return _feedback_warning("All operation mix values are required.")
                 normalized = controller.update_operation_mix(
                     read=float(mix_read_value),
                     insert=float(mix_insert_value),
@@ -1388,7 +1460,7 @@ def create_dashboard(
                     delete=float(mix_delete_value),
                 )
                 persist_metadata_config("apply-operation-mix")
-                return (
+                return _feedback_info(
                     "Operation mix updated to "
                     f"read {normalized['read'] * 100:.1f}%, "
                     f"insert {normalized['insert'] * 100:.1f}%, "
@@ -1407,7 +1479,7 @@ def create_dashboard(
                     progress_log_interval_value,
                 )
                 if any(value is None for value in required_retry_values):
-                    return "Retry and runtime logging values are required."
+                    return _feedback_warning("Retry and runtime logging values are required.")
                 retry_values = controller.update_retry_policy(
                     max_attempts=int(retry_max_attempts_value),
                     initial_backoff_ms=int(retry_initial_backoff_value),
@@ -1422,7 +1494,7 @@ def create_dashboard(
                     log_operation_failures=log_operation_failures,
                 )
                 persist_metadata_config("apply-resilience-controls")
-                return (
+                return _feedback_info(
                     "Resilience settings updated: "
                     f"retry attempts={retry_values[0]}, "
                     f"backoff={retry_values[1]}-{retry_values[2]} ms, "
@@ -1494,7 +1566,7 @@ def create_dashboard(
                 )
                 return _feedback_warning(message), message
             message = "Static config saved. Changes are staged and will apply when you start or restart the load test."
-            return message, message
+            return _feedback_info(message), message
         except ValueError as exc:
             logger.warning("Static config validation rejected input: %s", exc)
             message = str(exc)
@@ -1594,7 +1666,7 @@ def create_dashboard(
                 defaults.load.initial_seed_per_collection,
                 defaults.load.ramp_up_seconds,
                 schema_json,
-                message,
+                _feedback_info(message),
                 static_message,
             )
         except Exception as exc:  # pragma: no cover - UI safety
@@ -2109,6 +2181,21 @@ def _feedback_warning(message: str) -> html.Span:
             "background": "#fef3c7",
             "border": "1px solid #f59e0b",
             "color": "#92400e",
+            "fontWeight": "600",
+        },
+    )
+
+
+def _feedback_info(message: str) -> html.Span:
+    return html.Span(
+        message,
+        style={
+            "display": "inline-block",
+            "padding": "4px 8px",
+            "borderRadius": "8px",
+            "background": "#e0f2fe",
+            "border": "1px solid #38bdf8",
+            "color": "#0c4a6e",
             "fontWeight": "600",
         },
     )
