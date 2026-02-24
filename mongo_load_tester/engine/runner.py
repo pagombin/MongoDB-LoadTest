@@ -712,6 +712,8 @@ class LoadTestRunner:
 
     def _sample_active_users(self) -> None:
         with self._state_lock:
+            if not self._running:
+                return
             active_users, target_users, paused = self._current_user_levels_locked()
         self._metrics.record_active_users(active_users, target_users=target_users, paused=paused)
 

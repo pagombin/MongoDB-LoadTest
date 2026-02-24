@@ -1163,14 +1163,22 @@ def create_dashboard(
             window_seconds = int(timeline_window or 0)
             filtered_snapshot = _filter_snapshot_timeline(snapshot, window_seconds)
             filtered_snapshot = _remove_incomplete_live_second(filtered_snapshot, runner.is_running)
-            x_range = _timeline_x_range(window_seconds, snapshot.generated_at, runner.started_at)
+            x_range = _timeline_x_range(
+                window_seconds, snapshot.generated_at, runner.started_at,
+                is_running=runner.is_running, finished_at=runner.finished_at,
+            )
             stable_ops_per_sec = _compute_stable_ops_per_sec(snapshot.total_ops, runner.active_elapsed_seconds())
             error_rate = (snapshot.error_ops / snapshot.total_ops * 100.0) if snapshot.total_ops else 0.0
             success_rate = (snapshot.success_ops / snapshot.total_ops * 100.0) if snapshot.total_ops else 0.0
             retry_rate = (snapshot.retried_ops / snapshot.total_ops * 100.0) if snapshot.total_ops else 0.0
             status_text, status_style = _build_status_ui(runner)
             runtime_meta, progress_value, progress_label = _build_runtime_ui(runner)
-            last_updated = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+            if runner.is_running:
+                last_updated = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+            elif runner.finished_at is not None:
+                last_updated = runner.finished_at.strftime("%Y-%m-%d %H:%M:%S UTC")
+            else:
+                last_updated = "Waiting for test to start"
             duration_meta = (
                 f"Configured run duration: {_format_duration(runner.target_duration_seconds)} "
                 f"({runner.target_duration_seconds} sec)"
@@ -2271,14 +2279,21 @@ def _timeline_x_range(
     window_seconds: int,
     generated_at: datetime,
     run_started_at: datetime | None,
+    is_running: bool = False,
+    finished_at: datetime | None = None,
 ) -> tuple[datetime, datetime] | None:
-    end = generated_at
+    if run_started_at is None:
+        return None
+    if is_running:
+        end = generated_at
+    elif finished_at is not None:
+        end = finished_at
+    else:
+        end = generated_at
     if window_seconds > 0:
-        start = generated_at - timedelta(seconds=window_seconds)
+        start = end - timedelta(seconds=window_seconds)
         return start, end
-    if run_started_at is not None:
-        return run_started_at.replace(microsecond=0), end
-    return None
+    return run_started_at.replace(microsecond=0), end
 
 
 def _remove_incomplete_live_second(snapshot: MetricsSnapshot, is_running: bool) -> MetricsSnapshot:
