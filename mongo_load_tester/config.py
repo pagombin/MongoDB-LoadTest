@@ -179,6 +179,24 @@ class RetryConfig(BaseModel):
         return self
 
 
+class MetadataConfig(BaseModel):
+    """Metadata persistence and synchronization options."""
+
+    database_name: str = "loader_metadata"
+    load_test_id: str = "default-load-test"
+    sync_interval_seconds: int = Field(default=30, ge=5, le=3600)
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("database_name", "load_test_id")
+    @classmethod
+    def validate_non_empty(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("value must be a non-empty string")
+        return normalized
+
+
 class AppConfig(BaseModel):
     """Root configuration object."""
 
@@ -191,6 +209,7 @@ class AppConfig(BaseModel):
     export: ExportConfig = Field(default_factory=ExportConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     retry: RetryConfig = Field(default_factory=RetryConfig)
+    metadata: MetadataConfig = Field(default_factory=MetadataConfig)
     random_seed: int = Field(default=42, ge=0)
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)

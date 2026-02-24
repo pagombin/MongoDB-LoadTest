@@ -88,4 +88,9 @@ retry:
   backoff_multiplier: 2.0
   jitter_ratio: 0.2
 
+metadata:
+  database_name: "loader_metadata"
+  load_test_id: "default-load-test"
+  sync_interval_seconds: 30
+
 random_seed: 42

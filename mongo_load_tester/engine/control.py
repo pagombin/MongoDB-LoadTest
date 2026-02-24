@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 
+from mongo_load_tester.config import AppConfig
 from mongo_load_tester.engine.metrics import MetricsStore
 from mongo_load_tester.engine.runner import LoadTestRunner, RuntimeChangeEvent
 
@@ -113,6 +114,17 @@ class LoadTestController:
         )
         self._logger.info("Runtime logger level updated to %s.", normalized_level)
         return normalized_level, interval, failures
+
+    def current_config(self) -> AppConfig:
+        return self._runner.snapshot_config()
+
+    def apply_config(self, config: AppConfig, source: str = "metadata-sync") -> None:
+        self._runner.apply_config(config, record_change=(source != "startup"))
+        self.update_runtime_logging(
+            level_name=config.logging.level,
+            progress_log_interval_seconds=config.logging.progress_log_interval_seconds,
+            log_operation_failures=config.logging.log_operation_failures,
+        )
 
     def live_settings_snapshot(self) -> dict[str, object]:
         think_min, think_max, target_rate = self._runner.pacing_snapshot()

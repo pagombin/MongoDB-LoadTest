@@ -165,6 +165,48 @@ class LoadTestRunner:
                 return []
             return list(self._runtime_change_events)[-safe_limit:]
 
+    def snapshot_config(self) -> AppConfig:
+        with self._state_lock:
+            config = self._config.model_copy(deep=True)
+            config.load.virtual_users = self._max_virtual_users
+            config.load.worker_threads = self._target_worker_threads
+            config.load.duration_seconds = self._target_duration_seconds
+            config.operation_mix = self._operation_mix.model_copy(deep=True)
+            config.load.think_time_ms_min = self._think_time_ms_min
+            config.load.think_time_ms_max = self._think_time_ms_max
+            config.load.target_ops_per_user_per_sec = self._target_ops_per_user_per_sec
+            config.retry = RetryConfig(
+                max_attempts=self._retry_policy.max_attempts,
+                initial_backoff_ms=self._retry_policy.initial_backoff_ms,
+                max_backoff_ms=self._retry_policy.max_backoff_ms,
+                backoff_multiplier=self._retry_policy.backoff_multiplier,
+                jitter_ratio=self._retry_policy.jitter_ratio,
+            )
+            config.logging.progress_log_interval_seconds = self._progress_log_interval_seconds
+            config.logging.log_operation_failures = self._log_operation_failures
+            return config
+
+    def apply_config(self, config: AppConfig, record_change: bool = False) -> None:
+        with self._state_lock:
+            self._config = config.model_copy(deep=True)
+            self._max_virtual_users = max(config.load.virtual_users, 1)
+            self._target_virtual_users = max(min(config.load.virtual_users, self._max_virtual_users), 1)
+            self._target_worker_threads = max(min(config.load.worker_threads, self._max_virtual_users), 1)
+            self._target_duration_seconds = max(config.load.duration_seconds, 1)
+            self._operation_mix = config.operation_mix.model_copy(deep=True)
+            self._think_time_ms_min = config.load.think_time_ms_min
+            self._think_time_ms_max = config.load.think_time_ms_max
+            self._target_ops_per_user_per_sec = config.load.target_ops_per_user_per_sec
+            self._retry_policy = RetryPolicy.from_config(config.retry)
+            self._progress_log_interval_seconds = config.logging.progress_log_interval_seconds
+            self._log_operation_failures = config.logging.log_operation_failures
+            if self._running:
+                self._ensure_worker_assignments_locked(self._target_worker_threads)
+            self._rebalance_assignments_locked()
+        if record_change:
+            self._record_runtime_change("config_applied_from_metadata")
+        self._sample_active_users()
+
     def pause(self) -> bool:
         with self._state_lock:
             if not self._running or self._pause_event.is_set():

@@ -7,6 +7,7 @@ A configurable Python load/stress testing tool for MongoDB clusters, designed fo
 - multiple databases and collections
 - schema-driven payload generation
 - live dashboard with timelines and latency metrics
+- metadata-backed configuration persistence in MongoDB (`loader_metadata`)
 - pause/resume controls and live duration updates from dashboard
 - live load shaping controls (target users, pacing, operation mix, retry, logging)
 - users ramp-up/ramp-down timeline
@@ -135,6 +136,12 @@ http://<dashboard-host>:<dashboard-port>
 
 Defaults are `127.0.0.1:8050` unless changed in config.
 
+Important behavior:
+
+- The load test does **not** auto-start on dashboard launch.
+- Default settings are loaded from metadata in MongoDB (`loader_metadata`) for the configured `metadata.load_test_id`.
+- Review/update settings in the UI, then click **Start** to begin the run.
+
 ### 8) Run headless (no UI)
 
 ```bash
@@ -154,6 +161,7 @@ If that command is not in your PATH, use the `python3 -m mongo_load_tester.cli .
 ## Dashboard UX Highlights
 
 - Live status badge (running/completed/failed/initializing)
+- Start control in UI (run is explicitly started by user)
 - Pause/resume/stop controls directly in UI
 - One-click restart from UI with existing settings (metrics reset for clean rerun)
 - Runtime duration can be updated while the test is running
@@ -174,6 +182,7 @@ If that command is not in your PATH, use the `python3 -m mongo_load_tester.cli .
 - Operation distribution chart and per-operation summary table
 - Smart insights panel highlighting health/trend signals
 - Live control-state strip with recent runtime change history
+- Metadata sync notice in UI (external config changes can take up to 30s to apply)
 - Live logs panel in UI (INFO/WARNING/ERROR filters and adjustable tail lines)
 - One-click exports from browser:
   - timeline CSV (includes active users + retries)
@@ -195,6 +204,9 @@ Key knobs:
 - `schema.fields`: generated document fields
 - `logging.*`: log level, file rotation, UI buffer, and progress log cadence
 - `retry.*`: max attempts + exponential backoff + jitter for transient Mongo errors
+- `metadata.database_name`: metadata DB name (default `loader_metadata`)
+- `metadata.load_test_id`: unique configuration scope per load test
+- `metadata.sync_interval_seconds`: background metadata polling interval (default 30s)
 
 ### Exception safety
 
@@ -214,6 +226,22 @@ The runner uses a centralized retry controller for transient MongoDB failures:
   - connection ping
   - initial seeding batches
   - runtime read/insert/update/delete operations
+
+### Metadata-backed configuration model
+
+Configuration state is stored in the target cluster under the `loader_metadata` database:
+
+- `load_test_configs`: single upserted config document per `load_test_id`
+- `load_test_runs`: run lifecycle/status records
+- `load_test_events`: configuration and control-plane audit events
+
+The dashboard writes UI configuration changes back to metadata immediately. A background sync service also polls metadata every 30 seconds (configurable) and applies externally updated settings.
+
+Optional CLI override for config scope:
+
+```bash
+python3 -m mongo_load_tester.cli run --config config/loadtest.yaml --load-test-id perf-team-a
+```
 
 ## Notes for Production-Scale Runs
 

@@ -23,3 +23,10 @@ def test_invalid_operation_mix_fails_load(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError):
         load_config(path)
+
+
+def test_metadata_defaults_present() -> None:
+    config = AppConfig()
+    assert config.metadata.database_name == "loader_metadata"
+    assert config.metadata.load_test_id
+    assert config.metadata.sync_interval_seconds == 30

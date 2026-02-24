@@ -13,6 +13,7 @@ from mongo_load_tester.dashboard.app import create_dashboard
 from mongo_load_tester.engine.control import LoadTestController
 from mongo_load_tester.engine.metrics import MetricsStore
 from mongo_load_tester.engine.runner import LoadTestRunner
+from mongo_load_tester.metadata import ConfigSyncService, MetadataStore
 from mongo_load_tester.observability import configure_logging
 
 app = typer.Typer(help="MongoDB load/stress test runner with live dashboard.")
@@ -22,29 +23,70 @@ app = typer.Typer(help="MongoDB load/stress test runner with live dashboard.")
 def run_load_test(
     config: Path = typer.Option(..., "--config", "-c", exists=True, readable=True, help="Path to YAML config."),
     no_dashboard: bool = typer.Option(False, "--no-dashboard", help="Run headless without dashboard."),
+    load_test_id: str | None = typer.Option(
+        None,
+        "--load-test-id",
+        help="Optional metadata load test id override (default comes from config.metadata.load_test_id).",
+    ),
 ) -> None:
     """Run a load test from YAML config."""
 
     bootstrap_logger = logging.getLogger("mongo_load_tester.bootstrap")
+    metadata_store: MetadataStore | None = None
+    sync_service: ConfigSyncService | None = None
+    logger = logging.getLogger("mongo_load_tester")
+    log_buffer = None
     try:
-        app_config = load_config(config)
-        logger, log_buffer = configure_logging(app_config.logging)
+        bootstrap_config = load_config(config)
+        if load_test_id:
+            bootstrap_config.metadata.load_test_id = load_test_id
+        logger, log_buffer = configure_logging(bootstrap_config.logging)
+        metadata_store = MetadataStore(
+            mongo_config=bootstrap_config.mongo,
+            database_name=bootstrap_config.metadata.database_name,
+            load_test_id=bootstrap_config.metadata.load_test_id,
+            logger=logger,
+        )
+        config_record = metadata_store.get_or_create_config(bootstrap_config)
+        app_config = config_record.config
+        if app_config.logging != bootstrap_config.logging:
+            logger, log_buffer = configure_logging(app_config.logging)
     except Exception as exc:
         bootstrap_logger.exception("Failed to initialize run command.")
         typer.echo(f"Failed to start load test: {exc}")
         raise typer.Exit(code=1)
 
+    assert log_buffer is not None
     logger.info("Loaded config file: %s", config)
+    logger.info(
+        "Metadata configuration db=%s load_test_id=%s sync_interval=%ds",
+        app_config.metadata.database_name,
+        app_config.metadata.load_test_id,
+        app_config.metadata.sync_interval_seconds,
+    )
     metrics = MetricsStore(history_window_seconds=app_config.dashboard.history_window_seconds)
     runner = LoadTestRunner(app_config, metrics, logger=logger)
     controller = LoadTestController(runner=runner, metrics_store=metrics, logger=logger)
+    controller.apply_config(app_config, source="startup")
+    assert metadata_store is not None
+    sync_service = ConfigSyncService(
+        metadata_store=metadata_store,
+        controller=controller,
+        interval_seconds=app_config.metadata.sync_interval_seconds,
+        logger=logger,
+    )
+    sync_service.mark_applied_version(config_record.version)
+    sync_service.start()
 
     try:
         if no_dashboard or not app_config.dashboard.enabled:
             logger.info("Running in headless mode.")
             typer.echo("Starting headless load test...")
+            run_id = metadata_store.record_run_started(config_version=config_record.version)
             runner.run()
             snapshot = metrics.snapshot()
+            run_status = "failed" if runner.last_error else "completed"
+            metadata_store.record_run_finished(run_id=run_id, status=run_status, snapshot=snapshot, error=runner.last_error)
             if runner.last_error:
                 logger.error("Headless run ended with failure: %s", runner.last_error)
                 typer.echo(f"Run failed: {runner.last_error}")
@@ -59,9 +101,18 @@ def run_load_test(
             typer.echo(f"Completed. Total ops={snapshot.total_ops} p95={snapshot.p95_latency_ms:.2f}ms")
             return
 
-        controller.start()
-        dashboard = create_dashboard(app_config, metrics, runner, log_buffer, controller)
+        dashboard = create_dashboard(
+            config=app_config,
+            metrics_store=metrics,
+            runner=runner,
+            log_buffer=log_buffer,
+            controller=controller,
+            metadata_store=metadata_store,
+            config_sync_service=sync_service,
+            initial_config_version=config_record.version,
+        )
         typer.echo(f"Dashboard available at http://{app_config.dashboard.host}:{app_config.dashboard.port}")
+        typer.echo("Load test is READY and not started yet. Configure values in UI and click Start.")
         logger.info(
             "Dashboard available at http://%s:%d",
             app_config.dashboard.host,
@@ -83,10 +134,14 @@ def run_load_test(
         typer.echo(f"Run failed: {exc}")
         raise typer.Exit(code=1)
     finally:
+        if sync_service is not None:
+            sync_service.stop(timeout=5)
         controller.stop()
         controller.join(timeout=5)
         if runner.last_error:
             logger.error("Runner recorded error: %s", runner.last_error)
+        if metadata_store is not None:
+            metadata_store.close()
 
 
 @app.command("validate")

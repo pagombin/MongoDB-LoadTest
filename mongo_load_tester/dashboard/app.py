@@ -22,6 +22,8 @@ from mongo_load_tester.dashboard.figures import (
 from mongo_load_tester.engine.control import LoadTestController
 from mongo_load_tester.engine.metrics import MetricsStore
 from mongo_load_tester.engine.runner import LoadTestRunner
+from mongo_load_tester.metadata.store import MetadataStore
+from mongo_load_tester.metadata.sync import ConfigSyncService
 from mongo_load_tester.models import MetricsSnapshot
 from mongo_load_tester.observability import InMemoryLogBuffer
 
@@ -48,6 +50,15 @@ RESUME_BUTTON_STYLE = {
     "borderRadius": "8px",
     "border": "1px solid #10b981",
     "background": "#10b981",
+    "color": "white",
+    "cursor": "pointer",
+    "fontSize": "13px",
+}
+START_BUTTON_STYLE = {
+    "padding": "10px 12px",
+    "borderRadius": "8px",
+    "border": "1px solid #059669",
+    "background": "#059669",
     "color": "white",
     "cursor": "pointer",
     "fontSize": "13px",
@@ -95,9 +106,44 @@ def create_dashboard(
     runner: LoadTestRunner,
     log_buffer: InMemoryLogBuffer,
     controller: LoadTestController,
+    metadata_store: MetadataStore | None = None,
+    config_sync_service: ConfigSyncService | None = None,
+    initial_config_version: int = 1,
 ) -> Dash:
     app = Dash(__name__, title="MongoDB Load Tester")
     logger = logging.getLogger("mongo_load_tester.dashboard")
+    run_state: dict[str, object | None] = {
+        "active_run_id": None,
+        "last_run_finished_at": None,
+        "config_version": int(initial_config_version),
+    }
+
+    def persist_metadata_config(reason: str) -> None:
+        if metadata_store is None:
+            return
+        record = metadata_store.save_config(controller.current_config(), source="dashboard-ui", reason=reason)
+        run_state["config_version"] = record.version
+        if config_sync_service is not None:
+            config_sync_service.mark_applied_version(record.version)
+
+    def persist_run_completion_if_needed(snapshot: MetricsSnapshot) -> None:
+        if metadata_store is None:
+            return
+        run_id = run_state.get("active_run_id")
+        if not run_id:
+            return
+        if runner.is_running:
+            return
+        finished_at = runner.finished_at
+        if finished_at is None:
+            return
+        if run_state.get("last_run_finished_at") == finished_at:
+            return
+        status = "failed" if runner.last_error else "completed"
+        metadata_store.record_run_finished(run_id=str(run_id), status=status, snapshot=snapshot, error=runner.last_error)
+        run_state["last_run_finished_at"] = finished_at
+        run_state["active_run_id"] = None
+
     try:
         live_settings = controller.live_settings_snapshot()
         operation_mix = live_settings["operation_mix"]
@@ -123,6 +169,7 @@ def create_dashboard(
                     ),
                     html.Div(
                         [
+                            html.Button("Start", id="start-test-btn", n_clicks=0, style=START_BUTTON_STYLE),
                             html.Button("Pause", id="pause-test-btn", n_clicks=0, style=PAUSE_BUTTON_STYLE),
                             html.Button("Resume", id="resume-test-btn", n_clicks=0, style=RESUME_BUTTON_STYLE),
                             html.Button("Restart", id="restart-test-btn", n_clicks=0, style=RESTART_BUTTON_STYLE),
@@ -322,6 +369,10 @@ def create_dashboard(
                             html.Div(
                                 "Target users are applied instantly up to the provisioned maximum.",
                                 style={"marginTop": "6px", "fontSize": "12px", "color": "#6b7280"},
+                            ),
+                            html.Div(
+                                f"External metadata changes can take up to {config.metadata.sync_interval_seconds}s to apply.",
+                                style={"marginTop": "4px", "fontSize": "12px", "color": "#6b7280"},
                             ),
                         ],
                         style={**CARD_STYLE},
@@ -675,6 +726,7 @@ def create_dashboard(
     def refresh_dashboard(_: int, timeline_window: int, log_level: str, log_line_count: int):
         try:
             snapshot = metrics_store.snapshot()
+            persist_run_completion_if_needed(snapshot)
             window_seconds = int(timeline_window or 0)
             filtered_snapshot = _filter_snapshot_timeline(snapshot, window_seconds)
             filtered_snapshot = _remove_incomplete_live_second(filtered_snapshot, runner.is_running)
@@ -767,6 +819,11 @@ def create_dashboard(
                 f"retry attempts {retry_policy['max_attempts']} | "
                 f"log level {settings['log_level']} | progress logs every {settings['progress_log_interval_seconds']}s"
             )
+            if metadata_store is not None:
+                live_meta += (
+                    f" | load test id {metadata_store.load_test_id} | "
+                    f"metadata sync every {config.metadata.sync_interval_seconds}s"
+                )
             events = controller.runtime_change_events(limit=8)
             if events:
                 event_items = [
@@ -807,6 +864,7 @@ def create_dashboard(
 
     @callback(
         Output("control-feedback", "children"),
+        Input("start-test-btn", "n_clicks"),
         Input("stop-test-btn", "n_clicks"),
         Input("pause-test-btn", "n_clicks"),
         Input("resume-test-btn", "n_clicks"),
@@ -836,6 +894,7 @@ def create_dashboard(
         prevent_initial_call=True,
     )
     def control_runner(
+        start_clicks: int,
         stop_clicks: int,
         pause_clicks: int,
         resume_clicks: int,
@@ -867,25 +926,67 @@ def create_dashboard(
         if triggered is None:
             raise PreventUpdate
         try:
+            if triggered == "start-test-btn":
+                if not start_clicks:
+                    raise PreventUpdate
+                persist_metadata_config("start-run")
+                started = controller.start()
+                if not started:
+                    return "Start ignored because a run is already active."
+                if metadata_store is not None:
+                    config_version = int(run_state.get("config_version") or 1)
+                    run_id = metadata_store.record_run_started(config_version=config_version)
+                    run_state["active_run_id"] = run_id
+                    run_state["last_run_finished_at"] = None
+                    metadata_store.append_event(
+                        event_type="control_action",
+                        message="Start requested from dashboard.",
+                        payload={"action": "start", "run_id": run_id},
+                    )
+                return "Load test started from dashboard."
             if triggered == "stop-test-btn":
                 if not stop_clicks:
                     raise PreventUpdate
                 controller.stop()
+                if metadata_store is not None:
+                    metadata_store.append_event(
+                        event_type="control_action",
+                        message="Stop requested from dashboard.",
+                        payload={"action": "stop", "run_id": run_state.get("active_run_id")},
+                    )
                 return "Stop requested. Workers are finishing in-flight operations."
             if triggered == "pause-test-btn":
                 if not pause_clicks:
                     raise PreventUpdate
                 paused = controller.pause()
+                if paused and metadata_store is not None:
+                    metadata_store.append_event(
+                        event_type="control_action",
+                        message="Pause requested from dashboard.",
+                        payload={"action": "pause", "run_id": run_state.get("active_run_id")},
+                    )
                 return "Load test paused." if paused else "Pause ignored (runner is not active)."
             if triggered == "resume-test-btn":
                 if not resume_clicks:
                     raise PreventUpdate
                 resumed = controller.resume()
+                if resumed and metadata_store is not None:
+                    metadata_store.append_event(
+                        event_type="control_action",
+                        message="Resume requested from dashboard.",
+                        payload={"action": "resume", "run_id": run_state.get("active_run_id")},
+                    )
                 return "Load test resumed." if resumed else "Resume ignored (runner is not paused)."
             if triggered == "restart-test-btn":
                 if not restart_clicks:
                     raise PreventUpdate
-                _, message = controller.restart()
+                restarted, message = controller.restart()
+                if restarted and metadata_store is not None:
+                    persist_metadata_config("restart")
+                    config_version = int(run_state.get("config_version") or 1)
+                    run_id = metadata_store.record_run_started(config_version=config_version)
+                    run_state["active_run_id"] = run_id
+                    run_state["last_run_finished_at"] = None
                 return message
             if triggered == "apply-duration-btn":
                 if not apply_clicks:
@@ -893,6 +994,7 @@ def create_dashboard(
                 if duration_value is None:
                     return "Duration value is required."
                 updated = controller.update_duration_seconds(int(duration_value))
+                persist_metadata_config("apply-duration")
                 return f"Run duration updated to {updated} seconds."
             if triggered == "apply-load-controls-btn":
                 if not apply_load_clicks:
@@ -915,6 +1017,7 @@ def create_dashboard(
                     pool_note = (
                         f" (worker pool currently {worker_pool}; scaling in progress)"
                     )
+                persist_metadata_config("apply-load-controls")
                 return (
                     f"Live load controls applied: users {target_users}/{max_users}, "
                     f"worker threads {worker_threads}{pool_note}, "
@@ -931,6 +1034,7 @@ def create_dashboard(
                     update=float(mix_update_value),
                     delete=float(mix_delete_value),
                 )
+                persist_metadata_config("apply-operation-mix")
                 return (
                     "Operation mix updated to "
                     f"read {normalized['read'] * 100:.1f}%, "
@@ -964,6 +1068,7 @@ def create_dashboard(
                     progress_log_interval_seconds=int(progress_log_interval_value),
                     log_operation_failures=log_operation_failures,
                 )
+                persist_metadata_config("apply-resilience-controls")
                 return (
                     "Resilience settings updated: "
                     f"retry attempts={retry_values[0]}, "
@@ -1237,7 +1342,7 @@ def _build_status_ui(runner: LoadTestRunner) -> tuple[str, dict[str, str]]:
         return "RUNNING", STATUS_STYLE_MAP["running"]
     if runner.finished_at:
         return "COMPLETED", STATUS_STYLE_MAP["completed"]
-    return "INITIALIZING", STATUS_STYLE_MAP["initializing"]
+    return "READY (not started)", STATUS_STYLE_MAP["initializing"]
 
 
 def _build_runtime_ui(runner: LoadTestRunner) -> tuple[str, float, str]:
@@ -1246,7 +1351,7 @@ def _build_runtime_ui(runner: LoadTestRunner) -> tuple[str, float, str]:
     target_duration = max(runner.target_duration_seconds, 1)
     active_elapsed = runner.active_elapsed_seconds()
     if not started_at:
-        return "Waiting for runner startup", 0.0, "0.0% complete"
+        return "Waiting for user to start run", 0.0, "0.0% complete"
     if finished_at:
         elapsed = max((finished_at - started_at).total_seconds(), 0.0)
         return f"Completed in {elapsed:.1f}s", 100.0, "100.0% complete"
