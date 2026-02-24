@@ -427,14 +427,18 @@ class LoadTestRunner:
             self._pause_event.clear()
             self._running_worker_ids.clear()
             self._worker_assignments = []
-        self._id_registry = DocumentIdRegistry()
+            self._id_registry = DocumentIdRegistry()
+            log_max_users = self._max_virtual_users
+            log_target_users = self._target_virtual_users
+            log_workers = self._target_worker_threads
+            log_duration = self._target_duration_seconds
         self._metrics.record_active_users(0, target_users=0, paused=False)
         self._logger.info(
             "Load test starting max_users=%d target_users=%d workers=%d duration=%ds ramp_up=%ds",
-            self._max_virtual_users,
-            self._target_virtual_users,
-            self._target_worker_threads,
-            self._target_duration_seconds,
+            log_max_users,
+            log_target_users,
+            log_workers,
+            log_duration,
             self._config.load.ramp_up_seconds,
         )
         try:
@@ -471,7 +475,7 @@ class LoadTestRunner:
                         self.is_paused,
                     )
                     next_progress_log = time.monotonic() + self.progress_log_interval_seconds
-                time.sleep(0.2)
+                self._stop_event.wait(timeout=0.2)
         except BaseException as exc:  # pragma: no cover - runtime safety
             self._set_last_error(str(exc))
             self._logger.exception("Load test run failed.")
@@ -558,7 +562,8 @@ class LoadTestRunner:
                 mix_provider=self._current_operation_mix,
             )
             generator = DocumentGenerator(self._config.document_schema, rng)
-            assert self._client is not None
+            if self._client is None:
+                raise RuntimeError("MongoClient unavailable; cannot start worker.")
             executor = MongoOperationExecutor(
                 client=self._client,
                 namespace_selector=namespace_selector,
@@ -687,8 +692,7 @@ class LoadTestRunner:
 
     def _wait_if_paused(self) -> None:
         while self._pause_event.is_set() and not self._stop_event.is_set():
-            self._sample_active_users()
-            time.sleep(0.1)
+            self._stop_event.wait(timeout=0.5)
 
     def _duration_reached(self) -> bool:
         with self._state_lock:
@@ -725,7 +729,7 @@ class LoadTestRunner:
             think_min = self._think_time_ms_min / 1000.0
             think_max = self._think_time_ms_max / 1000.0
             target_rate = self._target_ops_per_user_per_sec
-            cycle_target_seconds = (1.0 / target_rate) if target_rate else 0.0
+            cycle_target_seconds = (1.0 / target_rate) if target_rate is not None else 0.0
             log_operation_failures = self._log_operation_failures
         return think_min, think_max, cycle_target_seconds, log_operation_failures
 
@@ -735,7 +739,7 @@ class LoadTestRunner:
 
     def _current_operation_mix(self) -> OperationMixConfig:
         with self._state_lock:
-            return self._operation_mix
+            return self._operation_mix.model_copy()
 
     def _current_user_levels_locked(self) -> tuple[int, int, bool]:
         paused = self._pause_event.is_set()

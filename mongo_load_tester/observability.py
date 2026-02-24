@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import sys
 import threading
@@ -64,7 +63,10 @@ def configure_logging(config: LoggingConfig) -> tuple[logging.Logger, InMemoryLo
     logger = logging.getLogger("mongo_load_tester")
     logger.setLevel(level)
     logger.propagate = False
-    logger.handlers.clear()
+
+    for handler in logger.handlers[:]:
+        handler.close()
+        logger.removeHandler(handler)
 
     formatter = logging.Formatter(
         fmt="%(asctime)s | %(levelname)-7s | %(threadName)s | %(name)s | %(message)s",
@@ -95,7 +97,6 @@ def configure_logging(config: LoggingConfig) -> tuple[logging.Logger, InMemoryLo
     memory_handler.setFormatter(formatter)
     logger.addHandler(memory_handler)
 
-    # Keep third-party noise manageable by default.
     logging.getLogger("pymongo").setLevel(logging.WARNING)
     logging.getLogger("dash").setLevel(logging.WARNING)
     install_global_exception_handlers(logger)
@@ -115,7 +116,7 @@ def install_global_exception_handlers(logger: logging.Logger) -> None:
         )
 
     def handle_thread_exception(args: threading.ExceptHookArgs):
-        if args.exc_type is KeyboardInterrupt:
+        if args.exc_type is not None and issubclass(args.exc_type, KeyboardInterrupt):
             logger.warning("KeyboardInterrupt in thread %s", args.thread.name if args.thread else "unknown")
             return
         logger.critical(
@@ -124,18 +125,5 @@ def install_global_exception_handlers(logger: logging.Logger) -> None:
             exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
         )
 
-    def handle_asyncio_exception(loop: asyncio.AbstractEventLoop, context: dict):
-        message = context.get("message", "Unhandled asyncio exception")
-        exc = context.get("exception")
-        if exc is None:
-            logger.critical("%s | context=%s", message, context)
-            return
-        logger.critical("%s", message, exc_info=(type(exc), exc, exc.__traceback__))
-
     sys.excepthook = handle_sys_exception
     threading.excepthook = handle_thread_exception
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        return
-    loop.set_exception_handler(handle_asyncio_exception)

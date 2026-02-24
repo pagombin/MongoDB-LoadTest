@@ -59,7 +59,8 @@ def run_load_test(
         typer.echo(f"Failed to start load test: {exc}")
         raise typer.Exit(code=1)
 
-    assert log_buffer is not None
+    if log_buffer is None:
+        raise RuntimeError("Log buffer was not initialized during startup.")
     logger.info("Loaded config file: %s", config)
     logger.info(
         "Metadata configuration db=%s load_test_id=%s sync_interval=%ds",
@@ -71,7 +72,8 @@ def run_load_test(
     runner = LoadTestRunner(app_config, metrics, logger=logger)
     controller = LoadTestController(runner=runner, metrics_store=metrics, logger=logger)
     controller.apply_config(app_config, source="startup")
-    assert metadata_store is not None
+    if metadata_store is None:
+        raise RuntimeError("Metadata store was not initialized during startup.")
     sync_service = ConfigSyncService(
         metadata_store=metadata_store,
         controller=controller,
@@ -86,10 +88,12 @@ def run_load_test(
             logger.info("Running in headless mode.")
             typer.echo("Starting headless load test...")
             run_id = metadata_store.record_run_started(config_version=config_record.version)
-            runner.run()
-            snapshot = metrics.snapshot()
-            run_status = "failed" if runner.last_error else "completed"
-            metadata_store.record_run_finished(run_id=run_id, status=run_status, snapshot=snapshot, error=runner.last_error)
+            try:
+                runner.run()
+            finally:
+                snapshot = metrics.snapshot()
+                run_status = "failed" if runner.last_error else "completed"
+                metadata_store.record_run_finished(run_id=run_id, status=run_status, snapshot=snapshot, error=runner.last_error)
             if runner.last_error:
                 logger.error("Headless run ended with failure: %s", runner.last_error)
                 typer.echo(f"Run failed: {runner.last_error}")
