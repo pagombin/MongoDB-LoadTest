@@ -352,7 +352,7 @@ def create_dashboard(
                                         step=1,
                                         value=config.load.duration_seconds,
                                         style={
-                                            "width": "120px",
+                                            "width": "180px",
                                             "padding": "8px",
                                             "borderRadius": "8px",
                                             "border": "1px solid #d1d5db",
