@@ -7,6 +7,7 @@ from mongo_load_tester.dashboard.app import (
     _filter_snapshot_timeline,
     _format_duration,
     _remove_incomplete_live_second,
+    _validate_think_time_values,
     _window_message,
 )
 from mongo_load_tester.models import MetricsSnapshot, TimelinePoint
@@ -96,3 +97,16 @@ def test_compute_stable_ops_per_sec_uses_active_elapsed() -> None:
     assert _compute_stable_ops_per_sec(0, 5.0) == 0.0
     assert _compute_stable_ops_per_sec(100, 0.0) == 0.0
     assert _compute_stable_ops_per_sec(100, 4.0) == 25.0
+
+
+def test_validate_think_time_values_accepts_valid_range() -> None:
+    assert _validate_think_time_values(0, 25) == (0, 25)
+
+
+def test_validate_think_time_values_rejects_invalid_range() -> None:
+    try:
+        _validate_think_time_values(30, 10)
+    except ValueError as exc:
+        assert "minimum cannot be greater" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for invalid think time range")

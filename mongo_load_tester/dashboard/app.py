@@ -1025,16 +1025,15 @@ def create_dashboard(
             if triggered == "apply-load-controls-btn":
                 if not apply_load_clicks:
                     raise PreventUpdate
-                if think_min_value is None or think_max_value is None:
-                    return "Think time minimum and maximum values are required."
+                think_min_ms, think_max_ms = _validate_think_time_values(think_min_value, think_max_value)
                 target_users_requested = _parse_positive_int(target_users_value, "Target users")
                 worker_threads_requested = _parse_positive_int(worker_threads_value, "Worker threads")
                 target_rate = _parse_optional_positive_float(target_ops_per_user_value, "Target ops/user/sec")
                 target_users, max_users = controller.update_target_virtual_users(target_users_requested)
                 worker_threads, worker_pool = controller.update_worker_threads(worker_threads_requested)
                 min_ms, max_ms, applied_rate = controller.update_pacing(
-                    think_time_ms_min=int(think_min_value),
-                    think_time_ms_max=int(think_max_value),
+                    think_time_ms_min=think_min_ms,
+                    think_time_ms_max=think_max_ms,
                     target_ops_per_user_per_sec=target_rate,
                 )
                 rate_text = "unbounded" if applied_rate is None else f"{applied_rate:.2f} ops/user/sec"
@@ -1104,9 +1103,12 @@ def create_dashboard(
                     f"operation failure logging={'on' if failures else 'off'}."
                 )
             raise PreventUpdate
+        except ValueError as exc:
+            logger.warning("Runner control validation rejected input: %s", exc)
+            return _feedback_warning(str(exc))
         except Exception as exc:  # pragma: no cover - UI safety
             logger.exception("Runner control callback failed.")
-            return f"Control action failed: {exc}"
+            return _feedback_error(f"Control action failed: {exc}")
 
     @callback(
         Output("download-csv", "data"),
@@ -1434,6 +1436,51 @@ def _format_duration(seconds: int) -> str:
 
 def _fmt(value: int) -> str:
     return f"{value:,}"
+
+
+def _validate_think_time_values(min_value: object, max_value: object) -> tuple[int, int]:
+    if min_value is None or max_value is None:
+        raise ValueError("Think time minimum and maximum values are required.")
+    think_min = int(min_value)
+    think_max = int(max_value)
+    if think_min > think_max:
+        raise ValueError(
+            "Warning: Think time minimum cannot be greater than think time maximum. "
+            "Please set min <= max and apply again."
+        )
+    if think_min < 0 or think_max < 0:
+        raise ValueError("Think time values must be zero or greater.")
+    return think_min, think_max
+
+
+def _feedback_warning(message: str) -> html.Span:
+    return html.Span(
+        message,
+        style={
+            "display": "inline-block",
+            "padding": "4px 8px",
+            "borderRadius": "8px",
+            "background": "#fef3c7",
+            "border": "1px solid #f59e0b",
+            "color": "#92400e",
+            "fontWeight": "600",
+        },
+    )
+
+
+def _feedback_error(message: str) -> html.Span:
+    return html.Span(
+        message,
+        style={
+            "display": "inline-block",
+            "padding": "4px 8px",
+            "borderRadius": "8px",
+            "background": "#fee2e2",
+            "border": "1px solid #ef4444",
+            "color": "#991b1b",
+            "fontWeight": "600",
+        },
+    )
 
 
 def _parse_positive_int(value: object, field_name: str) -> int:
