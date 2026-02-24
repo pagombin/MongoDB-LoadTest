@@ -122,6 +122,7 @@ def run_load_test(
             host=app_config.dashboard.host,
             port=app_config.dashboard.port,
             debug=False,
+            threaded=False,
         )
     except KeyboardInterrupt:
         logger.warning("Interrupted by user.")

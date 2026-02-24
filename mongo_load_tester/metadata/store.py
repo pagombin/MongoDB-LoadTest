@@ -39,7 +39,13 @@ class MetadataStore:
     ):
         self._logger = logger or logging.getLogger("mongo_load_tester.metadata")
         self._load_test_id = load_test_id
-        self._client = build_client(mongo_config)
+        # Metadata traffic is light; keep a conservative pool so UI callbacks
+        # do not consume many file descriptors on hosts with low ulimit values.
+        metadata_client_config = mongo_config.model_copy(deep=True)
+        metadata_client_config.app_name = f"{mongo_config.app_name}-metadata"
+        metadata_client_config.min_pool_size = 0
+        metadata_client_config.max_pool_size = min(max(mongo_config.max_pool_size, 1), 20)
+        self._client = build_client(metadata_client_config)
         self._database = self._client[database_name]
         self._configs: Collection = self._database["load_test_configs"]
         self._events: Collection = self._database["load_test_events"]
