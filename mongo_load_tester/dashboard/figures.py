@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import plotly.graph_objects as go
 
@@ -18,15 +18,56 @@ OP_COLORS = {
     "users": "#8b5cf6",
 }
 
+_MAX_PAUSE_OVERLAYS = 50
 
-def build_operations_timeline(snapshot: MetricsSnapshot, x_range: tuple[object, object] | None = None) -> go.Figure:
-    x_values = [point.second for point in snapshot.timeline]
-    read_counts = [point.op_counts.get("read", 0) for point in snapshot.timeline]
-    insert_counts = [point.op_counts.get("insert", 0) for point in snapshot.timeline]
-    update_counts = [point.op_counts.get("update", 0) for point in snapshot.timeline]
-    delete_counts = [point.op_counts.get("delete", 0) for point in snapshot.timeline]
-    write_counts = [ins + upd + dele for ins, upd, dele in zip(insert_counts, update_counts, delete_counts)]
-    total_counts = [point.total_ops for point in snapshot.timeline]
+
+def _apply_timeline_layout(
+    figure: go.Figure,
+    yaxis_title: str,
+    x_range: tuple[datetime, datetime] | None = None,
+    bottom_margin: int = 50,
+    x_title: str = "",
+) -> None:
+    """Shared layout configuration for all timeline figures."""
+    figure.update_layout(
+        title=None,
+        xaxis={"title": x_title, "title_standoff": 0 if not x_title else 16},
+        yaxis_title=yaxis_title,
+        template="plotly_white",
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=1.02,
+            xanchor="left",
+            x=0,
+            bgcolor="rgba(255,255,255,0.72)",
+            bordercolor="#e5e7eb",
+            borderwidth=1,
+        ),
+        hovermode="x unified",
+        margin={"l": 42, "r": 20, "t": 44, "b": bottom_margin},
+        plot_bgcolor="#f8fafc",
+        paper_bgcolor="white",
+    )
+    figure.update_xaxes(showgrid=True, gridcolor="#e2e8f0", zeroline=False, tickfont={"size": 11})
+    figure.update_yaxes(rangemode="tozero", showgrid=True, gridcolor="#e2e8f0")
+    if x_range is not None:
+        figure.update_xaxes(range=list(x_range))
+
+
+def build_operations_timeline(snapshot: MetricsSnapshot, x_range: tuple[datetime, datetime] | None = None) -> go.Figure:
+    timeline = snapshot.timeline
+    x_values = [point.second for point in timeline]
+    total_counts = [point.total_ops for point in timeline]
+    read_counts: list[int] = []
+    write_counts: list[int] = []
+    for point in timeline:
+        read_counts.append(point.op_counts.get("read", 0))
+        write_counts.append(
+            point.op_counts.get("insert", 0)
+            + point.op_counts.get("update", 0)
+            + point.op_counts.get("delete", 0)
+        )
 
     figure = go.Figure()
     figure.add_trace(
@@ -61,35 +102,12 @@ def build_operations_timeline(snapshot: MetricsSnapshot, x_range: tuple[object, 
             hovertemplate="Write ops: %{y}<extra></extra>",
         )
     )
-    figure.update_layout(
-        title=None,
-        xaxis={"title": "", "title_standoff": 0},
-        yaxis_title="Operations / sec",
-        template="plotly_white",
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="left",
-            x=0,
-            bgcolor="rgba(255,255,255,0.72)",
-            bordercolor="#e5e7eb",
-            borderwidth=1,
-        ),
-        hovermode="x unified",
-        margin={"l": 42, "r": 20, "t": 44, "b": 50},
-        plot_bgcolor="#f8fafc",
-        paper_bgcolor="white",
-    )
-    figure.update_xaxes(showgrid=True, gridcolor="#e2e8f0", zeroline=False, tickfont={"size": 11})
-    figure.update_yaxes(rangemode="tozero", showgrid=True, gridcolor="#e2e8f0")
-    if x_range is not None:
-        figure.update_xaxes(range=list(x_range))
+    _apply_timeline_layout(figure, yaxis_title="Operations / sec", x_range=x_range)
     _add_pause_overlays(figure, snapshot)
     return figure
 
 
-def build_latency_timeline(snapshot: MetricsSnapshot, x_range: tuple[object, object] | None = None) -> go.Figure:
+def build_latency_timeline(snapshot: MetricsSnapshot, x_range: tuple[datetime, datetime] | None = None) -> go.Figure:
     x_values = [point.second for point in snapshot.timeline]
     avg_values = [point.avg_latency_ms for point in snapshot.timeline]
     p95_values = [point.p95_latency_ms for point in snapshot.timeline]
@@ -117,35 +135,12 @@ def build_latency_timeline(snapshot: MetricsSnapshot, x_range: tuple[object, obj
             hovertemplate="P95 latency: %{y:.2f} ms<extra></extra>",
         )
     )
-    figure.update_layout(
-        title=None,
-        xaxis={"title": "", "title_standoff": 0},
-        yaxis_title="Latency (ms)",
-        template="plotly_white",
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="left",
-            x=0,
-            bgcolor="rgba(255,255,255,0.72)",
-            bordercolor="#e5e7eb",
-            borderwidth=1,
-        ),
-        hovermode="x unified",
-        margin={"l": 42, "r": 20, "t": 44, "b": 50},
-        plot_bgcolor="#f8fafc",
-        paper_bgcolor="white",
-    )
-    figure.update_xaxes(showgrid=True, gridcolor="#e2e8f0", zeroline=False, tickfont={"size": 11})
-    figure.update_yaxes(rangemode="tozero", showgrid=True, gridcolor="#e2e8f0")
-    if x_range is not None:
-        figure.update_xaxes(range=list(x_range))
+    _apply_timeline_layout(figure, yaxis_title="Latency (ms)", x_range=x_range)
     _add_pause_overlays(figure, snapshot)
     return figure
 
 
-def build_user_ramp_timeline(snapshot: MetricsSnapshot, x_range: tuple[object, object] | None = None) -> go.Figure:
+def build_user_ramp_timeline(snapshot: MetricsSnapshot, x_range: tuple[datetime, datetime] | None = None) -> go.Figure:
     x_values = [point.second for point in snapshot.timeline]
     users = [point.active_users for point in snapshot.timeline]
     target_users = [point.target_users for point in snapshot.timeline]
@@ -173,30 +168,10 @@ def build_user_ramp_timeline(snapshot: MetricsSnapshot, x_range: tuple[object, o
                 hovertemplate="Target users: %{y}<extra></extra>",
             )
         )
-    figure.update_layout(
-        title=None,
-        xaxis={"title": "Time (UTC)", "title_standoff": 16},
-        yaxis_title="Active virtual users",
-        template="plotly_white",
-        legend=dict(
-            orientation="h",
-            yanchor="bottom",
-            y=1.02,
-            xanchor="left",
-            x=0,
-            bgcolor="rgba(255,255,255,0.72)",
-            bordercolor="#e5e7eb",
-            borderwidth=1,
-        ),
-        hovermode="x unified",
-        margin={"l": 42, "r": 20, "t": 44, "b": 70},
-        plot_bgcolor="#f8fafc",
-        paper_bgcolor="white",
+    _apply_timeline_layout(
+        figure, yaxis_title="Active virtual users", x_range=x_range,
+        bottom_margin=70, x_title="Time (UTC)",
     )
-    figure.update_xaxes(showgrid=True, gridcolor="#e2e8f0", zeroline=False, tickfont={"size": 11})
-    figure.update_yaxes(rangemode="tozero", showgrid=True, gridcolor="#e2e8f0")
-    if x_range is not None:
-        figure.update_xaxes(range=list(x_range))
     _add_pause_overlays(figure, snapshot)
     return figure
 
@@ -251,7 +226,7 @@ def _add_pause_overlays(figure: go.Figure, snapshot: MetricsSnapshot) -> None:
     pause_spans = _pause_spans(snapshot)
     if not pause_spans:
         return
-    for start, end in pause_spans:
+    for start, end in pause_spans[:_MAX_PAUSE_OVERLAYS]:
         figure.add_vrect(
             x0=start,
             x1=end,
@@ -262,8 +237,8 @@ def _add_pause_overlays(figure: go.Figure, snapshot: MetricsSnapshot) -> None:
         )
 
 
-def _pause_spans(snapshot: MetricsSnapshot) -> list[tuple[object, object]]:
-    spans: list[tuple[object, object]] = []
+def _pause_spans(snapshot: MetricsSnapshot) -> list[tuple[datetime, datetime]]:
+    spans: list[tuple[datetime, datetime]] = []
     if not snapshot.timeline:
         return spans
     start = None

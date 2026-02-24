@@ -16,6 +16,10 @@ from mongo_load_tester.config import AppConfig, MongoConnectionConfig
 from mongo_load_tester.engine.client import build_client
 from mongo_load_tester.models import MetricsSnapshot
 
+CONFIGS_COLLECTION = "load_test_configs"
+EVENTS_COLLECTION = "load_test_events"
+RUNS_COLLECTION = "load_test_runs"
+
 
 @dataclass(frozen=True, slots=True)
 class ConfigRecord:
@@ -47,9 +51,9 @@ class MetadataStore:
         metadata_client_config.max_pool_size = min(max(mongo_config.max_pool_size, 1), 20)
         self._client = build_client(metadata_client_config)
         self._database = self._client[database_name]
-        self._configs: Collection = self._database["load_test_configs"]
-        self._events: Collection = self._database["load_test_events"]
-        self._runs: Collection = self._database["load_test_runs"]
+        self._configs: Collection = self._database[CONFIGS_COLLECTION]
+        self._events: Collection = self._database[EVENTS_COLLECTION]
+        self._runs: Collection = self._database[RUNS_COLLECTION]
         self._ensure_indexes()
 
     @property
@@ -91,7 +95,6 @@ class MetadataStore:
                 config=default_config,
             )
         except DuplicateKeyError:
-            # Another process initialized in parallel.
             current = self.fetch_config()
             if current is not None:
                 return current
@@ -121,7 +124,10 @@ class MetadataStore:
             upsert=True,
             return_document=ReturnDocument.AFTER,
         )
-        assert updated is not None
+        if updated is None:
+            raise RuntimeError(
+                f"Failed to upsert config for load_test_id={self._load_test_id}"
+            )
         record = self._parse_config_document(updated)
         self.append_event(
             event_type="config_updated",
@@ -177,7 +183,7 @@ class MetadataStore:
         error: str | None = None,
     ) -> None:
         now = datetime.now(UTC)
-        self._runs.update_one(
+        result = self._runs.update_one(
             {"load_test_id": self._load_test_id, "run_id": run_id},
             {
                 "$set": {
@@ -195,6 +201,12 @@ class MetadataStore:
                 }
             },
         )
+        if result.matched_count == 0:
+            self._logger.warning(
+                "record_run_finished found no matching run document for run_id=%s; "
+                "the run record may have been deleted externally.",
+                run_id,
+            )
         self.append_event(
             event_type="run_finished",
             message=f"Load test run finished with status={status}.",
@@ -228,14 +240,28 @@ class MetadataStore:
         return count
 
     def _ensure_indexes(self) -> None:
-        self._configs.create_index("load_test_id", unique=True)
-        self._events.create_index([("load_test_id", 1), ("created_at", -1)])
-        self._runs.create_index([("load_test_id", 1), ("started_at", -1)])
-        self._runs.create_index("run_id")
+        try:
+            self._configs.create_index("load_test_id", unique=True)
+            self._events.create_index([("load_test_id", 1), ("created_at", -1)])
+            self._runs.create_index([("load_test_id", 1), ("started_at", -1)])
+            self._runs.create_index("run_id")
+        except Exception:
+            self._logger.warning(
+                "Failed to create metadata indexes (insufficient privileges?). "
+                "The application will continue but queries may be slower.",
+                exc_info=True,
+            )
 
     def _parse_config_document(self, document: dict[str, Any]) -> ConfigRecord:
-        payload = document.get("config") or {}
-        config = AppConfig.model_validate(payload)
+        raw_config = document.get("config")
+        if not raw_config:
+            self._logger.warning(
+                "Stored config document for load_test_id=%s has missing or empty "
+                "'config' field; falling back to defaults.",
+                self._load_test_id,
+            )
+            raw_config = {}
+        config = AppConfig.model_validate(raw_config)
         updated_at_raw = document.get("updated_at")
         if isinstance(updated_at_raw, datetime):
             updated_at = updated_at_raw

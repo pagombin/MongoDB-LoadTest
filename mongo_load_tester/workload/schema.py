@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import random
 import string
 from datetime import UTC, datetime
@@ -21,6 +22,8 @@ class DocumentGenerator:
         return {field.name: self._generate_value(field) for field in self._schema.fields}
 
     def generate_update_fields(self) -> dict[str, Any]:
+        if not self._schema.fields:
+            return {}
         field = self._rng.choice(self._schema.fields)
         return {field.name: self._generate_value(field)}
 
@@ -31,7 +34,11 @@ class DocumentGenerator:
             chars = string.ascii_letters + string.digits
             return "".join(self._rng.choice(chars) for _ in range(field.length))
         if field.field_type == "int":
-            return self._rng.randint(int(field.min_value), int(field.max_value))
+            low = math.floor(field.min_value)
+            high = math.floor(field.max_value)
+            if low > high:
+                low, high = high, low
+            return self._rng.randint(low, high)
         if field.field_type == "float":
             return round(self._rng.uniform(field.min_value, field.max_value), 4)
         if field.field_type == "bool":

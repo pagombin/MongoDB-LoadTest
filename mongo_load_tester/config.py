@@ -27,6 +27,12 @@ class MongoConnectionConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
+    @model_validator(mode="after")
+    def validate_pool_sizes(self) -> "MongoConnectionConfig":
+        if self.min_pool_size > self.max_pool_size:
+            raise ValueError("min_pool_size must be <= max_pool_size")
+        return self
+
 
 class NamespaceConfig(BaseModel):
     """Target namespace spread for load."""
@@ -186,7 +192,7 @@ class MetadataConfig(BaseModel):
     load_test_id: str = "default-load-test"
     sync_interval_seconds: int = Field(default=30, ge=5, le=3600)
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
     @field_validator("database_name", "load_test_id")
     @classmethod

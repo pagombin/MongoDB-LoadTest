@@ -49,7 +49,7 @@ class TimelinePoint:
     op_counts: dict[str, int] = field(default_factory=dict)
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class MetricsSnapshot:
     """Thread-safe immutable view of current metrics."""
 

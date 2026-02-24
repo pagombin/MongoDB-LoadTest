@@ -46,6 +46,21 @@ class MongoOperationExecutor:
             self._retry_policy_provider = lambda: retry_policy
         else:
             raise ValueError("Either retry_policy or retry_policy_provider must be provided.")
+        self._cached_retry_controller: RetryController | None = None
+        self._cached_retry_policy_id: int | None = None
+
+    def _get_retry_controller(self) -> RetryController:
+        policy = self._retry_policy_provider()
+        policy_id = id(policy)
+        if self._cached_retry_controller is not None and self._cached_retry_policy_id == policy_id:
+            return self._cached_retry_controller
+        self._cached_retry_controller = RetryController(
+            policy=policy,
+            rng=self._rng,
+            log_warning=self._logger.warning,
+        )
+        self._cached_retry_policy_id = policy_id
+        return self._cached_retry_controller
 
     def execute_once(self) -> OperationResult:
         target = self._namespace_selector.choose()
@@ -56,11 +71,7 @@ class MongoOperationExecutor:
         error: str | None = None
         attempts = 1
         operation_name = f"{operation.value} {target.database}.{target.collection}"
-        retry_controller = RetryController(
-            policy=self._retry_policy_provider(),
-            rng=self._rng,
-            log_warning=self._logger.warning,
-        )
+        retry_controller = self._get_retry_controller()
 
         try:
             _, attempts = retry_controller.run(
@@ -114,7 +125,7 @@ class MongoOperationExecutor:
         if document_id is not None:
             collection.find_one({"_id": document_id})
             return
-        found = collection.find_one({}, {"_id": 1})
+        found = collection.find_one({}, {"_id": 1}, hint=[("_id", 1)])
         if found and "_id" in found:
             self._id_registry.add_id(database, coll, found["_id"])
 
@@ -128,24 +139,26 @@ class MongoOperationExecutor:
         document_id = self._choose_known_id(collection, database, coll)
         if document_id is None:
             document_id = ObjectId()
-        collection.update_one({"_id": document_id}, {"$set": update_fields}, upsert=True)
-        self._id_registry.add_id(database, coll, document_id)
+        result = collection.update_one({"_id": document_id}, {"$set": update_fields}, upsert=False)
+        if result.matched_count > 0:
+            self._id_registry.add_id(database, coll, document_id)
 
     def _run_delete(self, collection: Any, database: str, coll: str) -> None:
         document_id = self._choose_known_id(collection, database, coll)
         if document_id is None:
-            found = collection.find_one({}, {"_id": 1})
+            found = collection.find_one({}, {"_id": 1}, hint=[("_id", 1)])
             if not found:
                 return
             document_id = found["_id"]
-        collection.delete_one({"_id": document_id})
-        self._id_registry.remove_id(database, coll, document_id)
+        result = collection.delete_one({"_id": document_id})
+        if result.deleted_count > 0:
+            self._id_registry.remove_id(database, coll, document_id)
 
     def _choose_known_id(self, collection: Any, database: str, coll: str) -> Any | None:
         document_id = self._id_registry.get_random_id(database, coll, self._rng)
         if document_id is not None:
             return document_id
-        found = collection.find_one({}, {"_id": 1})
+        found = collection.find_one({}, {"_id": 1}, hint=[("_id", 1)])
         if not found:
             return None
         document_id = found["_id"]

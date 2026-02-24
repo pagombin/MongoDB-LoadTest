@@ -28,11 +28,15 @@ class OperationSelector:
             OperationType.DELETE,
         ]
         self._weights: list[float] = self._build_weights(operation_mix.normalized())
+        self._cached_mix_id: int | None = None
 
     def choose(self) -> OperationType:
         if self._mix_provider is not None:
-            weights = self._build_weights(self._mix_provider().normalized())
-            return self._rng.choices(self._operations, weights=weights, k=1)[0]
+            mix = self._mix_provider()
+            mix_id = id(mix)
+            if mix_id != self._cached_mix_id:
+                self._weights = self._build_weights(mix.normalized())
+                self._cached_mix_id = mix_id
         return self._rng.choices(self._operations, weights=self._weights, k=1)[0]
 
     @staticmethod

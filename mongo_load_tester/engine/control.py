@@ -8,6 +8,7 @@ import threading
 from mongo_load_tester.config import AppConfig
 from mongo_load_tester.engine.metrics import MetricsStore
 from mongo_load_tester.engine.runner import LoadTestRunner, RuntimeChangeEvent
+from mongo_load_tester.observability import InMemoryLogHandler
 
 
 class LoadTestController:
@@ -109,7 +110,7 @@ class LoadTestController:
         numeric_level = getattr(logging, normalized_level)
         self._logger.setLevel(numeric_level)
         for handler in self._logger.handlers:
-            if handler.__class__.__name__ == "InMemoryLogHandler":
+            if isinstance(handler, InMemoryLogHandler):
                 handler.setLevel(logging.DEBUG)
             else:
                 handler.setLevel(numeric_level)
@@ -160,20 +161,20 @@ class LoadTestController:
         return self._runner.runtime_change_events(limit=limit)
 
     def restart(self) -> tuple[bool, str]:
-        self._logger.info("Restart requested from dashboard.")
-        self.stop()
-        thread = self._thread_ref()
-        if thread is not None and thread.is_alive():
-            thread.join(timeout=15)
-        if thread is not None and thread.is_alive():
-            message = "Restart pending: previous run is still shutting down."
-            self._logger.warning(message)
-            return False, message
-        self._metrics_store.reset()
-        started = self.start()
-        if started:
+        with self._lock:
+            self._logger.info("Restart requested from dashboard.")
+            self._runner.stop()
+            if self._thread is not None and self._thread.is_alive():
+                self._thread.join(timeout=15)
+            if self._thread is not None and self._thread.is_alive():
+                message = "Restart pending: previous run is still shutting down."
+                self._logger.warning(message)
+                return False, message
+            self._metrics_store.reset()
+            thread = threading.Thread(target=self._runner.run, daemon=True, name="runner-main")
+            self._thread = thread
+            thread.start()
             return True, "Load test restarted with existing settings. Previous metrics were cleared."
-        return False, "Restart ignored because another run is already active."
 
     def join(self, timeout: float | None = None) -> None:
         thread = self._thread_ref()

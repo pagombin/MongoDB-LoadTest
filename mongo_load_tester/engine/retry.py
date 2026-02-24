@@ -72,8 +72,9 @@ class RetryPolicy:
             self.initial_backoff_ms * (self.backoff_multiplier ** (failed_attempt_index - 1)),
         )
         if self.jitter_ratio > 0:
-            jitter_ms = base_delay_ms * self.jitter_ratio
-            base_delay_ms += rng.uniform(-jitter_ms, jitter_ms)
+            low = base_delay_ms * (1.0 - self.jitter_ratio)
+            high = base_delay_ms * (1.0 + self.jitter_ratio)
+            base_delay_ms = rng.uniform(low, high)
         return max(base_delay_ms, 0.0) / 1000.0
 
 

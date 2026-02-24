@@ -13,30 +13,36 @@ from reportlab.pdfgen import canvas
 
 from mongo_load_tester.models import MetricsSnapshot
 
+_DEFAULT_CSV_FIELDNAMES = [
+    "timestamp_utc",
+    "total_ops",
+    "error_ops",
+    "retried_ops",
+    "avg_attempts_per_op",
+    "avg_latency_ms",
+    "p95_latency_ms",
+    "read_ops",
+    "insert_ops",
+    "update_ops",
+    "delete_ops",
+    "active_virtual_users",
+    "target_virtual_users",
+    "paused",
+]
+
 
 def build_csv_bytes(rows: list[dict[str, str | int | float | bool]]) -> bytes:
     """Serialize timeline rows to CSV bytes."""
 
     output = io.StringIO()
     if rows:
-        fieldnames = list(rows[0].keys())
+        seen: dict[str, None] = {}
+        for row in rows:
+            for key in row:
+                seen.setdefault(key, None)
+        fieldnames = list(seen)
     else:
-        fieldnames = [
-            "timestamp_utc",
-            "total_ops",
-            "error_ops",
-            "retried_ops",
-            "avg_attempts_per_op",
-            "avg_latency_ms",
-            "p95_latency_ms",
-            "read_ops",
-            "insert_ops",
-            "update_ops",
-            "delete_ops",
-            "active_virtual_users",
-            "target_virtual_users",
-            "paused",
-        ]
+        fieldnames = list(_DEFAULT_CSV_FIELDNAMES)
     writer = csv.DictWriter(output, fieldnames=fieldnames)
     writer.writeheader()
     for row in rows:
@@ -91,21 +97,25 @@ def build_pdf_report(
 
     chart_width = min(page_width - 60, image_width * 0.6)
     chart_height = min((page_height - 230) / 2, image_height * 0.4)
-    ops_png = build_png_bytes(ops_figure, image_width, image_height)
-    lat_png = build_png_bytes(latency_figure, image_width, image_height)
-    users_png = build_png_bytes(users_figure, image_width, image_height)
 
+    ops_png = build_png_bytes(ops_figure, image_width, image_height)
     ops_img = ImageReader(io.BytesIO(ops_png))
-    lat_img = ImageReader(io.BytesIO(lat_png))
-    users_img = ImageReader(io.BytesIO(users_png))
     first_chart_y = max(120, text_y - chart_height - 20)
-    second_chart_y = max(20, first_chart_y - chart_height - 20)
     pdf_canvas.drawImage(ops_img, 30, first_chart_y, width=chart_width, height=chart_height)
+
+    lat_png = build_png_bytes(latency_figure, image_width, image_height)
+    lat_img = ImageReader(io.BytesIO(lat_png))
+    second_chart_y = max(20, first_chart_y - chart_height - 20)
+    if second_chart_y < 30:
+        pdf_canvas.showPage()
+        second_chart_y = page_height - chart_height - 40
     pdf_canvas.drawImage(lat_img, 30, second_chart_y, width=chart_width, height=chart_height)
     pdf_canvas.showPage()
 
     pdf_canvas.setFont("Helvetica-Bold", 14)
     pdf_canvas.drawString(30, page_height - 30, "Users Ramp Timeline")
+    users_png = build_png_bytes(users_figure, image_width, image_height)
+    users_img = ImageReader(io.BytesIO(users_png))
     user_chart_width = min(page_width - 60, image_width * 0.72)
     user_chart_height = min(page_height - 100, image_height * 0.58)
     pdf_canvas.drawImage(users_img, 30, page_height - user_chart_height - 60, width=user_chart_width, height=user_chart_height)
