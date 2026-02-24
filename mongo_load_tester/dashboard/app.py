@@ -13,7 +13,7 @@ from dash import Dash, Input, Output, State, callback, ctx, dcc, html, no_update
 from dash.exceptions import PreventUpdate
 from plotly.subplots import make_subplots
 
-from mongo_load_tester.config import AppConfig, SchemaConfig, default_config
+from mongo_load_tester.config import FAKER_PROVIDERS, FIELD_TYPES, AppConfig, SchemaConfig, default_config
 from mongo_load_tester.dashboard.export import build_csv_bytes, build_pdf_report, build_png_bytes
 from mongo_load_tester.dashboard.figures import (
     build_error_breakdown,
@@ -899,7 +899,7 @@ def create_dashboard(
                             html.Div(
                                 [
                                     html.Span(
-                                        "Schema fields JSON",
+                                        "Document Schema & Query Targeting",
                                         style={"fontWeight": "700", "fontSize": "15px", "color": "#1e1b4b"},
                                     ),
                                     _scope_badge("ready", value_id="schema-domain-scope-badge"),
@@ -912,7 +912,7 @@ def create_dashboard(
                                 style={
                                     "marginTop": "8px",
                                     "width": "100%",
-                                    "height": "188px",
+                                    "height": "280px",
                                     "padding": "10px",
                                     "borderRadius": "8px",
                                     "border": "1px solid #d1d5db",
@@ -929,16 +929,93 @@ def create_dashboard(
                                         n_clicks=0,
                                         style={**_BTN_BASE, "border": "1px solid #6366f1", "background": "#eef2ff", "color": "#4338ca"},
                                     ),
+                                    html.Button(
+                                        "Reset to defaults",
+                                        id="reset-schema-btn",
+                                        n_clicks=0,
+                                        style={**_BTN_BASE, "border": "1px solid #d1d5db", "background": "#f9fafb", "color": "#6b7280"},
+                                    ),
                                 ],
-                                style={"marginTop": "8px"},
+                                style={"marginTop": "8px", "display": "flex", "gap": "8px"},
                             ),
                             html.Div(
                                 id="schema-validation-feedback",
                                 style={"marginTop": "6px", "fontSize": "12px"},
                             ),
+                            html.Details(
+                                [
+                                    html.Summary(
+                                        "Schema reference & query targeting guide",
+                                        style={"cursor": "pointer", "fontWeight": "600", "color": "#4338ca", "fontSize": "12px"},
+                                    ),
+                                    html.Div(
+                                        [
+                                            html.Div("Field types", style={"fontWeight": "700", "marginTop": "6px", "color": "#1e1b4b", "fontSize": "12px"}),
+                                            html.Table(
+                                                [
+                                                    html.Thead(html.Tr([
+                                                        html.Th("Type", style={"textAlign": "left", "padding": "3px 8px", "fontSize": "11px"}),
+                                                        html.Th("Properties", style={"textAlign": "left", "padding": "3px 8px", "fontSize": "11px"}),
+                                                        html.Th("Example", style={"textAlign": "left", "padding": "3px 8px", "fontSize": "11px"}),
+                                                    ])),
+                                                    html.Tbody([
+                                                        html.Tr([html.Td("string", style={"padding": "2px 8px"}), html.Td("length", style={"padding": "2px 8px"}), html.Td('{"name":"id","field_type":"string","length":8}', style={"padding": "2px 8px", "fontFamily": "monospace", "fontSize": "10px"})]),
+                                                        html.Tr([html.Td("int", style={"padding": "2px 8px"}), html.Td("min_value, max_value", style={"padding": "2px 8px"}), html.Td('{"name":"qty","field_type":"int","min_value":1,"max_value":100}', style={"padding": "2px 8px", "fontFamily": "monospace", "fontSize": "10px"})]),
+                                                        html.Tr([html.Td("float", style={"padding": "2px 8px"}), html.Td("min_value, max_value", style={"padding": "2px 8px"}), html.Td('{"name":"price","field_type":"float","min_value":0.01,"max_value":999.99}', style={"padding": "2px 8px", "fontFamily": "monospace", "fontSize": "10px"})]),
+                                                        html.Tr([html.Td("bool", style={"padding": "2px 8px"}), html.Td("—", style={"padding": "2px 8px"}), html.Td('{"name":"active","field_type":"bool"}', style={"padding": "2px 8px", "fontFamily": "monospace", "fontSize": "10px"})]),
+                                                        html.Tr([html.Td("choice", style={"padding": "2px 8px"}), html.Td("choices[]", style={"padding": "2px 8px"}), html.Td('{"name":"status","field_type":"choice","choices":["a","b","c"]}', style={"padding": "2px 8px", "fontFamily": "monospace", "fontSize": "10px"})]),
+                                                        html.Tr([html.Td("datetime", style={"padding": "2px 8px"}), html.Td("date_mode, date_range_days", style={"padding": "2px 8px"}), html.Td('{"name":"ts","field_type":"datetime","date_mode":"random_past","date_range_days":90}', style={"padding": "2px 8px", "fontFamily": "monospace", "fontSize": "10px"})]),
+                                                        html.Tr([html.Td("objectid", style={"padding": "2px 8px"}), html.Td("—", style={"padding": "2px 8px"}), html.Td('{"name":"ref","field_type":"objectid"}', style={"padding": "2px 8px", "fontFamily": "monospace", "fontSize": "10px"})]),
+                                                        html.Tr([html.Td("uuid", style={"padding": "2px 8px"}), html.Td("—", style={"padding": "2px 8px"}), html.Td('{"name":"trace","field_type":"uuid"}', style={"padding": "2px 8px", "fontFamily": "monospace", "fontSize": "10px"})]),
+                                                        html.Tr([html.Td("faker", style={"padding": "2px 8px"}), html.Td("faker_provider", style={"padding": "2px 8px"}), html.Td('{"name":"email","field_type":"faker","faker_provider":"email"}', style={"padding": "2px 8px", "fontFamily": "monospace", "fontSize": "10px"})]),
+                                                    ]),
+                                                ],
+                                                style={"width": "100%", "borderCollapse": "collapse", "fontSize": "11px", "marginTop": "4px"},
+                                            ),
+                                            html.Div("Date modes", style={"fontWeight": "700", "marginTop": "10px", "color": "#1e1b4b", "fontSize": "12px"}),
+                                            html.Ul([
+                                                html.Li([html.Code("now"), " — current UTC timestamp"]),
+                                                html.Li([html.Code("random_past"), " — random date within ", html.Code("date_range_days"), " days ago"]),
+                                                html.Li([html.Code("random_future"), " — random date within ", html.Code("date_range_days"), " days ahead"]),
+                                                html.Li([html.Code("increment"), " — starts from now, adds ", html.Code("date_increment_seconds"), " per document"]),
+                                            ], style={"fontSize": "11px", "paddingLeft": "16px", "marginTop": "2px", "lineHeight": "1.6"}),
+                                            html.Div("Faker providers", style={"fontWeight": "700", "marginTop": "10px", "color": "#1e1b4b", "fontSize": "12px"}),
+                                            html.Div(
+                                                ", ".join(FAKER_PROVIDERS),
+                                                style={"fontSize": "10.5px", "color": "#6b7280", "marginTop": "2px", "lineHeight": "1.5"},
+                                            ),
+                                            html.Div("Query targeting", style={"fontWeight": "700", "marginTop": "10px", "color": "#1e1b4b", "fontSize": "12px"}),
+                                            html.Div([
+                                                "Add a ", html.Code("query_targets"), " object to your schema JSON to control which fields are used for read/update/delete filters "
+                                                "instead of _id lookups. Indexes are created automatically on the specified fields during seeding.",
+                                            ], style={"fontSize": "11px", "marginTop": "2px", "lineHeight": "1.5"}),
+                                            html.Pre(
+                                                '{\n'
+                                                '  "fields": [ ... ],\n'
+                                                '  "query_targets": {\n'
+                                                '    "enabled": true,\n'
+                                                '    "read_filter_fields": ["tenant_id", "status"],\n'
+                                                '    "update_filter_fields": ["tenant_id"],\n'
+                                                '    "delete_filter_fields": ["status"],\n'
+                                                '    "create_indexes": true\n'
+                                                '  }\n'
+                                                '}',
+                                                style={
+                                                    "fontSize": "10.5px", "background": "#f1f5f9", "padding": "8px",
+                                                    "borderRadius": "6px", "marginTop": "4px", "border": "1px solid #e2e8f0",
+                                                    "lineHeight": "1.5",
+                                                },
+                                            ),
+                                        ],
+                                        style={"marginTop": "4px"},
+                                    ),
+                                ],
+                                style={"marginTop": "10px"},
+                                open=False,
+                            ),
                             html.Div(
                                 id="schema-domain-scope-note",
-                                children="Use a fields array or {\"fields\": [...]} payload. Schema changes are included when you save the run configuration.",
+                                children="Schema changes are included when you save the run configuration.",
                                 style={"marginTop": "8px", "fontSize": "11px", "color": "#9ca3af"},
                             ),
                         ],
@@ -2045,6 +2122,18 @@ def create_dashboard(
             )
 
     @callback(
+        Output("schema-fields-json-input", "value", allow_duplicate=True),
+        Output("schema-validation-feedback", "children", allow_duplicate=True),
+        Input("reset-schema-btn", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def reset_schema_to_defaults(n_clicks: int):
+        if not n_clicks:
+            raise PreventUpdate
+        default_schema = default_config().document_schema
+        return _schema_config_to_json(default_schema), _feedback_info("Schema reset to defaults.")
+
+    @callback(
         Output("duration-seconds-input", "value"),
         Output("target-users-input", "value"),
         Output("worker-threads-input", "value"),
@@ -2652,7 +2741,11 @@ def _format_duration(seconds: int) -> str:
 
 
 def _schema_config_to_json(schema: SchemaConfig) -> str:
-    payload = [field.model_dump(mode="json") for field in schema.fields]
+    payload = {
+        "fields": [field.model_dump(mode="json", exclude_defaults=True) for field in schema.fields],
+    }
+    if schema.query_targets.enabled:
+        payload["query_targets"] = schema.query_targets.model_dump(mode="json", exclude_defaults=True)
     return json.dumps(payload, indent=2, sort_keys=False)
 
 

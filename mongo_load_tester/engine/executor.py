@@ -11,6 +11,7 @@ from typing import Any, Callable
 from bson import ObjectId
 from pymongo import MongoClient
 
+from mongo_load_tester.config import QueryTargetConfig
 from mongo_load_tester.engine.retry import RetryController, RetryFailure, RetryPolicy
 from mongo_load_tester.engine.id_registry import DocumentIdRegistry
 from mongo_load_tester.models import OperationResult, OperationType
@@ -32,6 +33,7 @@ class MongoOperationExecutor:
         logger: logging.Logger,
         rng: random.Random,
         retry_policy_provider: Callable[[], RetryPolicy] | None = None,
+        query_targets: QueryTargetConfig | None = None,
     ):
         self._client = client
         self._namespace_selector = namespace_selector
@@ -40,6 +42,7 @@ class MongoOperationExecutor:
         self._id_registry = id_registry
         self._logger = logger
         self._rng = rng
+        self._query_targets = query_targets
         if retry_policy_provider is not None:
             self._retry_policy_provider = retry_policy_provider
         elif retry_policy is not None:
@@ -61,6 +64,10 @@ class MongoOperationExecutor:
         )
         self._cached_retry_policy_id = policy_id
         return self._cached_retry_controller
+
+    @property
+    def _use_query_targets(self) -> bool:
+        return self._query_targets is not None and self._query_targets.enabled
 
     def execute_once(self) -> OperationResult:
         target = self._namespace_selector.choose()
@@ -121,6 +128,11 @@ class MongoOperationExecutor:
         raise ValueError(f"Unsupported operation type: {operation}")
 
     def _run_read(self, collection: Any, database: str, coll: str) -> None:
+        if self._use_query_targets and self._query_targets.read_filter_fields:
+            query_filter = self._build_field_filter(collection, self._query_targets.read_filter_fields)
+            if query_filter:
+                collection.find_one(query_filter)
+                return
         document_id = self._choose_known_id(collection, database, coll)
         if document_id is not None:
             collection.find_one({"_id": document_id})
@@ -136,6 +148,11 @@ class MongoOperationExecutor:
 
     def _run_update(self, collection: Any, database: str, coll: str) -> None:
         update_fields = self._document_generator.generate_update_fields()
+        if self._use_query_targets and self._query_targets.update_filter_fields:
+            query_filter = self._build_field_filter(collection, self._query_targets.update_filter_fields)
+            if query_filter:
+                collection.update_one(query_filter, {"$set": update_fields})
+                return
         document_id = self._choose_known_id(collection, database, coll)
         if document_id is None:
             document_id = ObjectId()
@@ -144,6 +161,11 @@ class MongoOperationExecutor:
             self._id_registry.add_id(database, coll, document_id)
 
     def _run_delete(self, collection: Any, database: str, coll: str) -> None:
+        if self._use_query_targets and self._query_targets.delete_filter_fields:
+            query_filter = self._build_field_filter(collection, self._query_targets.delete_filter_fields)
+            if query_filter:
+                result = collection.delete_one(query_filter)
+                return
         document_id = self._choose_known_id(collection, database, coll)
         if document_id is None:
             found = collection.find_one({}, {"_id": 1}, hint=[("_id", 1)])
@@ -153,6 +175,18 @@ class MongoOperationExecutor:
         result = collection.delete_one({"_id": document_id})
         if result.deleted_count > 0:
             self._id_registry.remove_id(database, coll, document_id)
+
+    def _build_field_filter(self, collection: Any, fields: list[str]) -> dict[str, Any] | None:
+        """Sample a random document and build a filter from the specified fields."""
+        sample = list(collection.aggregate([{"$sample": {"size": 1}}]))
+        if not sample:
+            return None
+        doc = sample[0]
+        query: dict[str, Any] = {}
+        for field_name in fields:
+            if field_name in doc:
+                query[field_name] = doc[field_name]
+        return query if query else None
 
     def _choose_known_id(self, collection: Any, database: str, coll: str) -> Any | None:
         document_id = self._id_registry.get_random_id(database, coll, self._rng)

@@ -620,6 +620,7 @@ class LoadTestRunner:
                 logger=worker_logger,
                 rng=rng,
                 retry_policy_provider=self._current_retry_policy,
+                query_targets=self._config.document_schema.query_targets,
             )
 
             while not self._stop_event.is_set() and not self._duration_reached() and not assignment.dismissed.is_set():
@@ -723,6 +724,29 @@ class LoadTestRunner:
                 target.collection,
                 inserted_for_target,
             )
+            self._create_query_target_indexes(collection, target.database, target.collection)
+
+    def _create_query_target_indexes(self, collection: Any, database: str, coll: str) -> None:
+        qt = self._config.document_schema.query_targets
+        if not qt.enabled or not qt.create_indexes:
+            return
+        all_fields: set[str] = set()
+        all_fields.update(qt.read_filter_fields)
+        all_fields.update(qt.update_filter_fields)
+        all_fields.update(qt.delete_filter_fields)
+        for field_name in sorted(all_fields):
+            try:
+                collection.create_index(field_name)
+                self._logger.info(
+                    "Created query target index on %s.%s field=%s",
+                    database, coll, field_name,
+                )
+            except Exception:
+                self._logger.warning(
+                    "Failed to create index on %s.%s field=%s (may already exist or insufficient privileges).",
+                    database, coll, field_name,
+                    exc_info=True,
+                )
 
     def _register_running_worker(self, worker_id: int) -> None:
         with self._state_lock:
