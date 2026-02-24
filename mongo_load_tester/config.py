@@ -113,6 +113,10 @@ class UserLoadConfig(BaseModel):
 
     virtual_users: int = Field(default=200, ge=1)
     worker_threads: int = Field(default=80, ge=1)
+    max_worker_threads: int = Field(
+        default=500, ge=1,
+        description="Hard ceiling for worker threads. Requests above this are clamped.",
+    )
     duration_seconds: int = Field(default=300, ge=1)
     ramp_up_seconds: int = Field(default=30, ge=0)
     think_time_ms_min: int = Field(default=0, ge=0)
@@ -126,6 +130,15 @@ class UserLoadConfig(BaseModel):
     def validate_think_time(self) -> "UserLoadConfig":
         if self.think_time_ms_min > self.think_time_ms_max:
             raise ValueError("think_time_ms_min must be <= think_time_ms_max")
+        return self
+
+    @model_validator(mode="after")
+    def validate_worker_threads(self) -> "UserLoadConfig":
+        if self.worker_threads > self.max_worker_threads:
+            raise ValueError(
+                f"worker_threads ({self.worker_threads}) must be <= "
+                f"max_worker_threads ({self.max_worker_threads})"
+            )
         return self
 
 

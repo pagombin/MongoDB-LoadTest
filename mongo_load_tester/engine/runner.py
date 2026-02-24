@@ -7,7 +7,7 @@ import logging
 import random
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dataclass_field
 from datetime import UTC, datetime
 
 from pymongo import MongoClient
@@ -28,6 +28,10 @@ class _WorkerAssignment:
     simulated_users: int
     startup_delay_seconds: float
     user_offset: int
+    dismissed: threading.Event = dataclass_field(default_factory=threading.Event)
+
+_SCALE_UP_STAGGER_SECONDS = 0.5
+_ERROR_RATE_WARNING_THRESHOLD = 0.10
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +58,7 @@ class LoadTestRunner:
         self._max_virtual_users = max(config.load.virtual_users, 1)
         self._target_virtual_users = min(config.load.virtual_users, self._max_virtual_users)
         self._target_worker_threads = max(config.load.worker_threads, 1)
+        self._max_worker_threads = max(config.load.max_worker_threads, 1)
         self._target_duration_seconds = config.load.duration_seconds
         self._operation_mix = config.operation_mix.model_copy(deep=True)
         self._think_time_ms_min = config.load.think_time_ms_min
@@ -170,6 +175,7 @@ class LoadTestRunner:
             config = self._config.model_copy(deep=True)
             config.load.virtual_users = self._max_virtual_users
             config.load.worker_threads = self._target_worker_threads
+            config.load.max_worker_threads = self._max_worker_threads
             config.load.duration_seconds = self._target_duration_seconds
             config.operation_mix = self._operation_mix.model_copy(deep=True)
             config.load.think_time_ms_min = self._think_time_ms_min
@@ -190,8 +196,9 @@ class LoadTestRunner:
         with self._state_lock:
             self._config = config.model_copy(deep=True)
             self._max_virtual_users = max(config.load.virtual_users, 1)
+            self._max_worker_threads = max(config.load.max_worker_threads, 1)
             self._target_virtual_users = max(min(config.load.virtual_users, self._max_virtual_users), 1)
-            self._target_worker_threads = max(min(config.load.worker_threads, self._max_virtual_users), 1)
+            self._target_worker_threads = max(min(config.load.worker_threads, self._max_virtual_users, self._max_worker_threads), 1)
             self._target_duration_seconds = max(config.load.duration_seconds, 1)
             self._operation_mix = config.operation_mix.model_copy(deep=True)
             self._think_time_ms_min = config.load.think_time_ms_min
@@ -265,22 +272,37 @@ class LoadTestRunner:
     def update_worker_threads(self, worker_threads: int) -> tuple[int, int]:
         requested_threads = max(int(worker_threads), 1)
         with self._state_lock:
-            applied_threads = min(requested_threads, self._max_virtual_users)
-            self._target_worker_threads = applied_threads
-            self._config.load.worker_threads = applied_threads
+            capped = min(requested_threads, self._max_worker_threads, self._max_virtual_users)
+            was_capped = capped < requested_threads
+            old_target = self._target_worker_threads
+            self._target_worker_threads = capped
+            self._config.load.worker_threads = capped
             if self._running:
-                self._ensure_worker_assignments_locked(applied_threads)
+                if capped < old_target:
+                    self._dismiss_excess_workers_locked(capped)
+                self._ensure_worker_assignments_locked(capped)
             self._rebalance_assignments_locked()
             pool_size = len(self._worker_assignments)
-        self._logger.info(
-            "Live worker thread target updated to %d (requested=%d, pool=%d).",
-            applied_threads,
-            requested_threads,
-            pool_size,
-        )
-        self._record_runtime_change(f"worker_threads={applied_threads}")
+        if was_capped:
+            self._logger.warning(
+                "Worker thread request %d was capped to %d (max_worker_threads=%d).",
+                requested_threads,
+                capped,
+                self._max_worker_threads,
+            )
+            self._record_runtime_change(
+                f"worker_threads={capped} (capped from {requested_threads}, limit={self._max_worker_threads})"
+            )
+        else:
+            self._logger.info(
+                "Live worker thread target updated to %d (requested=%d, pool=%d).",
+                capped,
+                requested_threads,
+                pool_size,
+            )
+            self._record_runtime_change(f"worker_threads={capped}")
         self._sample_active_users()
-        return applied_threads, max(pool_size, applied_threads)
+        return capped, max(pool_size, capped)
 
     def update_operation_mix(
         self,
@@ -576,9 +598,9 @@ class LoadTestRunner:
                 retry_policy_provider=self._current_retry_policy,
             )
 
-            while not self._stop_event.is_set() and not self._duration_reached():
+            while not self._stop_event.is_set() and not self._duration_reached() and not assignment.dismissed.is_set():
                 self._wait_if_paused()
-                if self._stop_event.is_set() or self._duration_reached():
+                if self._stop_event.is_set() or self._duration_reached() or assignment.dismissed.is_set():
                     break
                 active_users_for_worker = self._active_users_for_assignment(assignment)
                 if active_users_for_worker <= 0:
@@ -588,7 +610,7 @@ class LoadTestRunner:
                 cycle_start = time.perf_counter()
                 for _ in range(active_users_for_worker):
                     self._wait_if_paused()
-                    if self._stop_event.is_set() or self._duration_reached():
+                    if self._stop_event.is_set() or self._duration_reached() or assignment.dismissed.is_set():
                         break
                     result = executor.execute_once()
                     self._metrics.record(result)
@@ -758,6 +780,14 @@ class LoadTestRunner:
             if assignment.worker_id in self._running_worker_ids
         )
 
+    def _dismiss_excess_workers_locked(self, new_target: int) -> None:
+        """Signal workers beyond new_target to exit gracefully."""
+        for assignment in self._worker_assignments:
+            if assignment.worker_id >= new_target:
+                if not assignment.dismissed.is_set():
+                    assignment.dismissed.set()
+                    self._logger.info("Dismissing worker %d (scale-down to %d).", assignment.worker_id, new_target)
+
     def _rebalance_assignments_locked(self) -> None:
         if not self._worker_assignments:
             return
@@ -797,19 +827,35 @@ class LoadTestRunner:
         if self._stop_event.is_set() or self._duration_reached():
             return
         assignments_to_start: list[_WorkerAssignment] = []
+        dismissed_ids: list[int] = []
         with self._state_lock:
-            desired_threads = min(max(self._target_worker_threads, 1), max(self._max_virtual_users, 1))
+            desired_threads = min(
+                max(self._target_worker_threads, 1),
+                max(self._max_virtual_users, 1),
+                max(self._max_worker_threads, 1),
+            )
             self._ensure_worker_assignments_locked(desired_threads)
             self._rebalance_assignments_locked()
             for assignment in self._worker_assignments:
+                if assignment.dismissed.is_set():
+                    thread = workers.get(assignment.worker_id)
+                    if thread is not None and not thread.is_alive():
+                        dismissed_ids.append(assignment.worker_id)
+                    continue
                 if assignment.worker_id >= desired_threads:
                     continue
                 thread = workers.get(assignment.worker_id)
                 if thread is None or not thread.is_alive():
                     assignments_to_start.append(assignment)
-        for assignment in assignments_to_start:
+        for wid in dismissed_ids:
+            workers.pop(wid, None)
+        pre_scale_error_ops = self._metrics.snapshot().error_ops if assignments_to_start else 0
+        pre_scale_total_ops = self._metrics.snapshot().total_ops if assignments_to_start else 0
+        for idx, assignment in enumerate(assignments_to_start):
             if self._stop_event.is_set():
                 break
+            if idx > 0:
+                time.sleep(_SCALE_UP_STAGGER_SECONDS)
             thread = threading.Thread(
                 target=self._worker_loop,
                 args=(assignment,),
@@ -818,6 +864,33 @@ class LoadTestRunner:
             )
             thread.start()
             workers[assignment.worker_id] = thread
+        if len(assignments_to_start) > 1:
+            self._schedule_error_rate_check(pre_scale_error_ops, pre_scale_total_ops, len(assignments_to_start))
+
+    def _schedule_error_rate_check(self, pre_error_ops: int, pre_total_ops: int, added_workers: int) -> None:
+        """After a scale-up, check error rate a few seconds later and warn if it spiked."""
+        def _check():
+            time.sleep(5.0)
+            if not self._running:
+                return
+            snapshot = self._metrics.snapshot()
+            new_errors = snapshot.error_ops - pre_error_ops
+            new_ops = snapshot.total_ops - pre_total_ops
+            if new_ops <= 0:
+                return
+            new_error_rate = new_errors / new_ops
+            if new_error_rate >= _ERROR_RATE_WARNING_THRESHOLD:
+                pct = new_error_rate * 100
+                self._logger.warning(
+                    "Error rate spiked to %.1f%% after adding %d worker(s). "
+                    "Consider reducing worker count or checking MongoDB capacity.",
+                    pct,
+                    added_workers,
+                )
+                self._record_runtime_change(
+                    f"WARNING: error rate {pct:.1f}% after scaling to {self._target_worker_threads} workers"
+                )
+        threading.Thread(target=_check, daemon=True, name="error-rate-check").start()
 
     def _record_runtime_change(self, message: str) -> None:
         with self._state_lock:
