@@ -202,6 +202,31 @@ class MetadataStore:
             level="ERROR" if error else "INFO",
         )
 
+    def reconcile_incomplete_runs(self, reason: str = "startup-reconcile") -> int:
+        """Mark previously running runs as interrupted."""
+
+        now = datetime.now(UTC)
+        result = self._runs.update_many(
+            {"load_test_id": self._load_test_id, "status": "running"},
+            {
+                "$set": {
+                    "status": "interrupted",
+                    "updated_at": now,
+                    "finished_at": now,
+                    "error": "Run ended unexpectedly before completion metadata was recorded.",
+                }
+            },
+        )
+        count = int(result.modified_count)
+        if count > 0:
+            self.append_event(
+                event_type="run_reconciled",
+                message=f"Reconciled {count} stale running run(s) as interrupted.",
+                payload={"count": count, "reason": reason},
+                level="WARNING",
+            )
+        return count
+
     def _ensure_indexes(self) -> None:
         self._configs.create_index("load_test_id", unique=True)
         self._events.create_index([("load_test_id", 1), ("created_at", -1)])

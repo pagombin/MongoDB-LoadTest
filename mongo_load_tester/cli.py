@@ -47,6 +47,9 @@ def run_load_test(
             load_test_id=bootstrap_config.metadata.load_test_id,
             logger=logger,
         )
+        reconciled_runs = metadata_store.reconcile_incomplete_runs(reason="application-start")
+        if reconciled_runs > 0:
+            logger.warning("Reconciled %d stale running metadata run(s) on startup.", reconciled_runs)
         config_record = metadata_store.get_or_create_config(bootstrap_config)
         app_config = config_record.config
         if app_config.logging != bootstrap_config.logging:

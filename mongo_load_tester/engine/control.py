@@ -32,6 +32,10 @@ class LoadTestController:
     def stop(self) -> None:
         self._runner.stop()
 
+    @property
+    def is_running(self) -> bool:
+        return self._runner.is_running
+
     def pause(self) -> bool:
         return self._runner.pause()
 

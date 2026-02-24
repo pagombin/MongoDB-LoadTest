@@ -118,12 +118,33 @@ def create_dashboard(
         "last_run_finished_at": None,
         "config_version": int(initial_config_version),
         "run_static_baseline": None,
+        "startup_static_baseline": None,
+        "staged_static_snapshot": None,
     }
 
-    def persist_metadata_config(reason: str) -> None:
+    def persist_metadata_config(
+        reason: str,
+        config_override: AppConfig | None = None,
+        mark_synced: bool = True,
+    ) -> None:
         if metadata_store is None:
             return
-        record = metadata_store.save_config(controller.current_config(), source="dashboard-ui", reason=reason)
+        record = metadata_store.save_config(
+            config_override or controller.current_config(),
+            source="dashboard-ui",
+            reason=reason,
+        )
+        run_state["config_version"] = record.version
+        if mark_synced and config_sync_service is not None:
+            config_sync_service.mark_applied_version(record.version)
+
+    def apply_latest_metadata_config_before_start() -> None:
+        if metadata_store is None:
+            return
+        record = metadata_store.fetch_config()
+        if record is None:
+            return
+        controller.apply_config(record.config, source="start-preload")
         run_state["config_version"] = record.version
         if config_sync_service is not None:
             config_sync_service.mark_applied_version(record.version)
@@ -145,6 +166,7 @@ def create_dashboard(
         run_state["last_run_finished_at"] = finished_at
         run_state["active_run_id"] = None
         run_state["run_static_baseline"] = None
+        run_state["staged_static_snapshot"] = None
 
     try:
         live_settings = controller.live_settings_snapshot()
@@ -156,6 +178,7 @@ def create_dashboard(
     read_ratio = operation_mix["read"] * 100
     write_ratio = 100 - read_ratio
     schema_fields_json_default = _schema_config_to_json(config.document_schema)
+    run_state["startup_static_baseline"] = _static_config_snapshot(controller.current_config())
 
     app.layout = html.Div(
         [
@@ -1202,6 +1225,19 @@ def create_dashboard(
                 "Namespace topology, seeding, ramp-up, and schema updates are staged for the next run.",
                 "Use either a fields array or {\"fields\": [...]} payload. Saved schema changes apply next run.",
             )
+        startup_baseline = run_state.get("startup_static_baseline")
+        current_snapshot = _static_config_snapshot(controller.current_config())
+        if isinstance(startup_baseline, dict) and current_snapshot != startup_baseline:
+            label = "USER CONFIG"
+            style = _scope_badge_style("user_config")
+            return (
+                label,
+                style,
+                label,
+                style,
+                "Custom startup configuration is selected and will be used when you click Start.",
+                "Custom schema defaults are selected and will be used when the run starts.",
+            )
         label = "ACTIVE DEFAULT"
         style = _scope_badge_style("active_default")
         return (
@@ -1228,19 +1264,34 @@ def create_dashboard(
         }
         if not runner.is_running:
             run_state["run_static_baseline"] = None
+            run_state["staged_static_snapshot"] = None
+            startup_baseline = run_state.get("startup_static_baseline")
+            current_snapshot = _static_config_snapshot(controller.current_config())
+            if isinstance(startup_baseline, dict):
+                startup_diff = _static_config_diff_labels(current_snapshot, startup_baseline)
+                if startup_diff:
+                    preview = ", ".join(startup_diff[:3])
+                    if len(startup_diff) > 3:
+                        preview += f" +{len(startup_diff) - 3} more"
+                    return (
+                        f"{len(startup_diff)} startup customization(s) selected: {preview}.",
+                        {**base_style, "background": "#e0f2fe", "border": "1px solid #7dd3fc", "color": "#0c4a6e"},
+                    )
             return (
                 "No staged static changes pending next run.",
                 {**base_style, "background": "#ecfdf5", "border": "1px solid #86efac", "color": "#166534"},
             )
         baseline = run_state.get("run_static_baseline")
+        staged_snapshot = run_state.get("staged_static_snapshot")
         current_snapshot = _static_config_snapshot(controller.current_config())
+        compare_snapshot = staged_snapshot if isinstance(staged_snapshot, dict) else current_snapshot
         if baseline is None:
             run_state["run_static_baseline"] = current_snapshot
             return (
                 "No staged static changes pending next run.",
                 {**base_style, "background": "#ecfdf5", "border": "1px solid #86efac", "color": "#166534"},
             )
-        diff_labels = _static_config_diff_labels(current_snapshot, baseline)
+        diff_labels = _static_config_diff_labels(compare_snapshot, baseline)
         if not diff_labels:
             return (
                 "No staged static changes pending next run.",
@@ -1348,6 +1399,7 @@ def create_dashboard(
             if triggered == "start-test-btn":
                 if not start_clicks:
                     raise PreventUpdate
+                apply_latest_metadata_config_before_start()
                 persist_metadata_config("start-run")
                 started = controller.start()
                 if not started:
@@ -1363,6 +1415,7 @@ def create_dashboard(
                         payload={"action": "start", "run_id": run_id},
                     )
                 run_state["run_static_baseline"] = _static_config_snapshot(controller.current_config())
+                run_state["staged_static_snapshot"] = None
                 return _feedback_info("Load test started from dashboard.")
             if triggered == "stop-test-btn":
                 if not stop_clicks:
@@ -1404,6 +1457,7 @@ def create_dashboard(
             if triggered == "restart-test-btn":
                 if not restart_clicks:
                     raise PreventUpdate
+                apply_latest_metadata_config_before_start()
                 restarted, message = controller.restart()
                 if restarted and metadata_store is not None:
                     persist_metadata_config("restart")
@@ -1413,6 +1467,7 @@ def create_dashboard(
                     run_state["last_run_finished_at"] = None
                 if restarted:
                     run_state["run_static_baseline"] = _static_config_snapshot(controller.current_config())
+                    run_state["staged_static_snapshot"] = None
                 return _feedback_info(message)
             if triggered == "apply-duration-btn":
                 if not apply_clicks:
@@ -1557,14 +1612,21 @@ def create_dashboard(
             staged_config.load.initial_seed_per_collection = initial_seed
             staged_config.load.ramp_up_seconds = ramp_up_seconds
             staged_config.document_schema = parsed_schema
-            controller.apply_config(staged_config, source="dashboard-static-config")
-            persist_metadata_config("apply-static-config")
             if runner.is_running:
+                run_state["staged_static_snapshot"] = _static_config_snapshot(staged_config)
+                persist_metadata_config(
+                    "apply-static-config-running",
+                    config_override=staged_config,
+                    mark_synced=False,
+                )
                 message = (
                     "Static config saved and staged for next run. Namespace/schema/seed/ramp-up changes "
                     "apply on next restart/start."
                 )
                 return _feedback_warning(message), message
+            controller.apply_config(staged_config, source="dashboard-static-config")
+            run_state["staged_static_snapshot"] = None
+            persist_metadata_config("apply-static-config")
             message = "Static config saved. Changes are staged and will apply when you start or restart the load test."
             return _feedback_info(message), message
         except ValueError as exc:
@@ -1612,30 +1674,77 @@ def create_dashboard(
             raise PreventUpdate
         try:
             defaults = default_config()
-            config_for_reset = controller.current_config()
-            config_for_reset.load.duration_seconds = defaults.load.duration_seconds
-            config_for_reset.load.virtual_users = defaults.load.virtual_users
-            config_for_reset.load.worker_threads = defaults.load.worker_threads
-            config_for_reset.load.think_time_ms_min = defaults.load.think_time_ms_min
-            config_for_reset.load.think_time_ms_max = defaults.load.think_time_ms_max
-            config_for_reset.load.target_ops_per_user_per_sec = defaults.load.target_ops_per_user_per_sec
-            config_for_reset.load.initial_seed_per_collection = defaults.load.initial_seed_per_collection
-            config_for_reset.load.ramp_up_seconds = defaults.load.ramp_up_seconds
-            config_for_reset.operation_mix = defaults.operation_mix.model_copy(deep=True)
-            config_for_reset.retry = defaults.retry.model_copy(deep=True)
-            config_for_reset.logging.level = defaults.logging.level
-            config_for_reset.logging.progress_log_interval_seconds = defaults.logging.progress_log_interval_seconds
-            config_for_reset.logging.log_operation_failures = defaults.logging.log_operation_failures
-            config_for_reset.namespace = defaults.namespace.model_copy(deep=True)
-            config_for_reset.document_schema = defaults.document_schema.model_copy(deep=True)
-            controller.apply_config(config_for_reset, source="dashboard-reset-defaults")
-            persist_metadata_config("reset-all-defaults")
+            if runner.is_running:
+                # Live-safe controls apply now; static controls are staged for next run.
+                controller.update_duration_seconds(defaults.load.duration_seconds)
+                controller.update_target_virtual_users(defaults.load.virtual_users)
+                controller.update_worker_threads(defaults.load.worker_threads)
+                controller.update_pacing(
+                    think_time_ms_min=defaults.load.think_time_ms_min,
+                    think_time_ms_max=defaults.load.think_time_ms_max,
+                    target_ops_per_user_per_sec=defaults.load.target_ops_per_user_per_sec,
+                )
+                controller.update_operation_mix(
+                    read=defaults.operation_mix.read,
+                    insert=defaults.operation_mix.insert,
+                    update=defaults.operation_mix.update,
+                    delete=defaults.operation_mix.delete,
+                )
+                controller.update_retry_policy(
+                    max_attempts=defaults.retry.max_attempts,
+                    initial_backoff_ms=defaults.retry.initial_backoff_ms,
+                    max_backoff_ms=defaults.retry.max_backoff_ms,
+                    backoff_multiplier=defaults.retry.backoff_multiplier,
+                    jitter_ratio=defaults.retry.jitter_ratio,
+                )
+                controller.update_runtime_logging(
+                    level_name=defaults.logging.level,
+                    progress_log_interval_seconds=defaults.logging.progress_log_interval_seconds,
+                    log_operation_failures=defaults.logging.log_operation_failures,
+                )
+                staged_config = controller.current_config()
+                staged_config.namespace = defaults.namespace.model_copy(deep=True)
+                staged_config.document_schema = defaults.document_schema.model_copy(deep=True)
+                staged_config.load.initial_seed_per_collection = defaults.load.initial_seed_per_collection
+                staged_config.load.ramp_up_seconds = defaults.load.ramp_up_seconds
+                run_state["staged_static_snapshot"] = _static_config_snapshot(staged_config)
+                persist_metadata_config(
+                    "reset-all-defaults-running",
+                    config_override=staged_config,
+                    mark_synced=False,
+                )
+                message = (
+                    "Live defaults applied now; static defaults are staged for next run and metadata updated."
+                )
+                static_message = (
+                    "Defaults staged for next run while load test is active (namespace/schema/seed/ramp-up)."
+                )
+            else:
+                config_for_reset = controller.current_config()
+                config_for_reset.load.duration_seconds = defaults.load.duration_seconds
+                config_for_reset.load.virtual_users = defaults.load.virtual_users
+                config_for_reset.load.worker_threads = defaults.load.worker_threads
+                config_for_reset.load.think_time_ms_min = defaults.load.think_time_ms_min
+                config_for_reset.load.think_time_ms_max = defaults.load.think_time_ms_max
+                config_for_reset.load.target_ops_per_user_per_sec = defaults.load.target_ops_per_user_per_sec
+                config_for_reset.load.initial_seed_per_collection = defaults.load.initial_seed_per_collection
+                config_for_reset.load.ramp_up_seconds = defaults.load.ramp_up_seconds
+                config_for_reset.operation_mix = defaults.operation_mix.model_copy(deep=True)
+                config_for_reset.retry = defaults.retry.model_copy(deep=True)
+                config_for_reset.logging.level = defaults.logging.level
+                config_for_reset.logging.progress_log_interval_seconds = defaults.logging.progress_log_interval_seconds
+                config_for_reset.logging.log_operation_failures = defaults.logging.log_operation_failures
+                config_for_reset.namespace = defaults.namespace.model_copy(deep=True)
+                config_for_reset.document_schema = defaults.document_schema.model_copy(deep=True)
+                controller.apply_config(config_for_reset, source="dashboard-reset-defaults")
+                run_state["staged_static_snapshot"] = None
+                persist_metadata_config("reset-all-defaults")
+                message = "All configurable settings were reset to defaults and metadata has been updated."
+                static_message = (
+                    "Defaults restored. Static namespace/schema/seed/ramp-up values are staged "
+                    "according to current run state."
+                )
             schema_json = _schema_config_to_json(defaults.document_schema)
-            message = "All configurable settings were reset to defaults and metadata has been updated."
-            static_message = (
-                "Defaults restored. Static namespace/schema/seed/ramp-up values are staged "
-                "according to current run state."
-            )
             return (
                 defaults.load.duration_seconds,
                 str(defaults.load.virtual_users),
@@ -1845,6 +1954,8 @@ def _scope_badge_style(scope_type: str) -> dict[str, str]:
     }
     if scope_type == "next_run":
         return {**base, "background": "#ede9fe", "color": "#5b21b6", "border": "1px solid #c4b5fd"}
+    if scope_type == "user_config":
+        return {**base, "background": "#e0f2fe", "color": "#0c4a6e", "border": "1px solid #7dd3fc"}
     return {**base, "background": "#dcfce7", "color": "#166534", "border": "1px solid #86efac"}
 
 

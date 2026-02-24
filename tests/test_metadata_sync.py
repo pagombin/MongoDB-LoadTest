@@ -30,6 +30,7 @@ class _FakeStore:
 @dataclass
 class _FakeController:
     applied_versions: list[int]
+    is_running: bool = False
 
     def apply_config(self, config: AppConfig, source: str = "metadata-sync") -> None:
         del source
@@ -69,3 +70,23 @@ def test_config_sync_service_applies_newer_versions_only() -> None:
     assert len(controller.applied_versions) == 2
     assert controller.applied_versions[-1] == 999
     assert service.last_applied_version == 2
+
+
+def test_config_sync_service_defers_application_while_running() -> None:
+    base_config = AppConfig()
+    store = _FakeStore(
+        record=ConfigRecord(
+            load_test_id="test",
+            version=3,
+            updated_at=datetime.now(UTC),
+            config=base_config,
+        ),
+        events=[],
+    )
+    controller = _FakeController(applied_versions=[], is_running=True)
+    service = ConfigSyncService(metadata_store=store, controller=controller, interval_seconds=30)
+
+    service.sync_once()
+
+    assert controller.applied_versions == []
+    assert service.last_applied_version == 0

@@ -187,6 +187,7 @@ If that command is not in your PATH, use the `python3 -m mongo_load_tester.cli .
 - Context tooltips on key control inputs (hover "i" for quick explanations)
 - Unified "Reset all settings to defaults" action (also persisted to metadata)
 - Static panel staged-change indicator (e.g., pending next-run changes count during active runs)
+- Static scope badges adapt by state: ACTIVE DEFAULT / USER CONFIG / NEXT RUN
 - Live logs panel in UI (INFO/WARNING/ERROR filters and adjustable tail lines)
 - One-click exports from browser:
   - timeline CSV (includes active users + retries)
@@ -240,6 +241,8 @@ Configuration state is stored in the target cluster under the `loader_metadata` 
 - `load_test_events`: configuration and control-plane audit events
 
 The dashboard writes UI configuration changes back to metadata immediately. A background sync service also polls metadata every 30 seconds (configurable) and applies externally updated settings.
+
+At startup, stale metadata runs left in `running` state (e.g., crash/kill/interrupt) are reconciled to `interrupted` automatically.
 
 Optional CLI override for config scope:
 
