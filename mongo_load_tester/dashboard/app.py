@@ -258,7 +258,17 @@ def create_dashboard(
                                         "Reset all settings to defaults",
                                         id="reset-defaults-btn",
                                         n_clicks=0,
-                                        style={**ACTION_BUTTON_STYLE, "border": "1px solid #f59e0b", "background": "#fffbeb"},
+                                        title=(
+                                            "Reset all live and static controls to default values, "
+                                            "and persist those defaults to metadata."
+                                        ),
+                                        style={
+                                            **ACTION_BUTTON_STYLE,
+                                            "border": "1px solid #b91c1c",
+                                            "background": "#dc2626",
+                                            "color": "white",
+                                            "fontWeight": "600",
+                                        },
                                     ),
                                 ],
                                 style={"display": "flex", "gap": "8px", "marginTop": "6px", "flexWrap": "wrap"},
