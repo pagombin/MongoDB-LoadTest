@@ -6,7 +6,10 @@ from mongo_load_tester.dashboard.app import (
     _compute_stable_ops_per_sec,
     _filter_snapshot_timeline,
     _format_duration,
+    _parse_non_negative_int,
+    _parse_schema_config,
     _remove_incomplete_live_second,
+    _schema_config_to_json,
     _validate_think_time_values,
     _window_message,
 )
@@ -110,3 +113,22 @@ def test_validate_think_time_values_rejects_invalid_range() -> None:
         assert "minimum cannot be greater" in str(exc)
     else:
         raise AssertionError("Expected ValueError for invalid think time range")
+
+
+def test_schema_json_roundtrip_and_validation() -> None:
+    schema = _parse_schema_config(
+        '[{"name":"tenant_id","field_type":"string","length":8},{"name":"amount","field_type":"float"}]'
+    )
+    rendered = _schema_config_to_json(schema)
+    parsed_again = _parse_schema_config(rendered)
+    assert len(parsed_again.fields) == 2
+    assert parsed_again.fields[0].name == "tenant_id"
+
+
+def test_parse_non_negative_int_rejects_negative_values() -> None:
+    try:
+        _parse_non_negative_int(-1, "Initial seed")
+    except ValueError as exc:
+        assert "zero or greater" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for negative integer")

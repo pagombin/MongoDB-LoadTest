@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -11,7 +12,7 @@ from dash import Dash, Input, Output, State, callback, ctx, dcc, html
 from dash.exceptions import PreventUpdate
 from plotly.subplots import make_subplots
 
-from mongo_load_tester.config import AppConfig
+from mongo_load_tester.config import AppConfig, SchemaConfig
 from mongo_load_tester.dashboard.export import build_csv_bytes, build_pdf_report, build_png_bytes
 from mongo_load_tester.dashboard.figures import (
     build_latency_timeline,
@@ -153,6 +154,7 @@ def create_dashboard(
     namespace_total = config.namespace.databases * config.namespace.collections_per_database
     read_ratio = operation_mix["read"] * 100
     write_ratio = 100 - read_ratio
+    schema_fields_json_default = _schema_config_to_json(config.document_schema)
 
     app.layout = html.Div(
         [
@@ -478,6 +480,126 @@ def create_dashboard(
                     ),
                 ],
                 style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "repeat(3, 1fr)", "gap": "12px"},
+            ),
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            html.Div(
+                                [
+                                    html.Span("Static config domains"),
+                                    _scope_badge("next run"),
+                                ],
+                                style={"fontSize": "12px", "color": "#6b7280", "display": "flex", "gap": "8px", "alignItems": "center"},
+                            ),
+                            html.Div(
+                                "Namespace topology, seeding, ramp-up, and schema are staged for next start/restart.",
+                                style={"marginTop": "6px", "fontSize": "12px", "color": "#6b7280"},
+                            ),
+                            html.Div(
+                                [
+                                    html.Div(
+                                        [
+                                            html.Div("Database prefix", style={"fontSize": "12px", "color": "#4b5563"}),
+                                            dcc.Input(
+                                                id="namespace-db-prefix-input",
+                                                type="text",
+                                                value=config.namespace.database_prefix,
+                                                style={
+                                                    "width": "100%",
+                                                    "padding": "8px",
+                                                    "borderRadius": "8px",
+                                                    "border": "1px solid #d1d5db",
+                                                    "marginTop": "6px",
+                                                },
+                                            ),
+                                        ]
+                                    ),
+                                    html.Div(
+                                        [
+                                            html.Div("Collection prefix", style={"fontSize": "12px", "color": "#4b5563"}),
+                                            dcc.Input(
+                                                id="namespace-collection-prefix-input",
+                                                type="text",
+                                                value=config.namespace.collection_prefix,
+                                                style={
+                                                    "width": "100%",
+                                                    "padding": "8px",
+                                                    "borderRadius": "8px",
+                                                    "border": "1px solid #d1d5db",
+                                                    "marginTop": "6px",
+                                                },
+                                            ),
+                                        ]
+                                    ),
+                                    _compact_number_input(
+                                        "Databases",
+                                        "namespace-databases-input",
+                                        config.namespace.databases,
+                                        min_value=1,
+                                    ),
+                                    _compact_number_input(
+                                        "Collections / database",
+                                        "namespace-collections-input",
+                                        config.namespace.collections_per_database,
+                                        min_value=1,
+                                    ),
+                                    _compact_number_input(
+                                        "Initial seed / collection",
+                                        "initial-seed-input",
+                                        config.load.initial_seed_per_collection,
+                                        min_value=0,
+                                    ),
+                                    _compact_number_input(
+                                        "Ramp-up seconds",
+                                        "ramp-up-seconds-input",
+                                        config.load.ramp_up_seconds,
+                                        min_value=0,
+                                    ),
+                                ],
+                                style={"display": "grid", "gridTemplateColumns": "repeat(3, 1fr)", "gap": "10px", "marginTop": "10px"},
+                            ),
+                            html.Button(
+                                "Save static config (next run)",
+                                id="apply-static-config-btn",
+                                n_clicks=0,
+                                style={**ACTION_BUTTON_STYLE, "marginTop": "10px"},
+                            ),
+                        ],
+                        style={**CARD_STYLE},
+                    ),
+                    html.Div(
+                        [
+                            html.Div(
+                                [
+                                    html.Span("Schema fields JSON"),
+                                    _scope_badge("next run"),
+                                ],
+                                style={"fontSize": "12px", "color": "#4b5563", "display": "flex", "gap": "8px", "alignItems": "center"},
+                            ),
+                            dcc.Textarea(
+                                id="schema-fields-json-input",
+                                value=schema_fields_json_default,
+                                style={
+                                    "marginTop": "8px",
+                                    "width": "100%",
+                                    "height": "188px",
+                                    "padding": "10px",
+                                    "borderRadius": "8px",
+                                    "border": "1px solid #d1d5db",
+                                    "fontFamily": "Menlo, Consolas, monospace",
+                                    "fontSize": "12px",
+                                },
+                            ),
+                            html.Div(
+                                "Use either a fields array or {\"fields\": [...]} payload. Saved changes apply on next run.",
+                                style={"marginTop": "8px", "fontSize": "12px", "color": "#6b7280"},
+                            ),
+                        ],
+                        style={**CARD_STYLE},
+                    ),
+                ],
+                style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "1.25fr 0.75fr", "gap": "12px"},
             ),
             html.Div(
                 [
@@ -1111,6 +1233,67 @@ def create_dashboard(
             return _feedback_error(f"Control action failed: {exc}")
 
     @callback(
+        Output("control-feedback", "children", allow_duplicate=True),
+        Input("apply-static-config-btn", "n_clicks"),
+        State("namespace-db-prefix-input", "value"),
+        State("namespace-collection-prefix-input", "value"),
+        State("namespace-databases-input", "value"),
+        State("namespace-collections-input", "value"),
+        State("initial-seed-input", "value"),
+        State("ramp-up-seconds-input", "value"),
+        State("schema-fields-json-input", "value"),
+        prevent_initial_call=True,
+    )
+    def apply_static_config(
+        apply_static_clicks: int,
+        namespace_db_prefix_value: str,
+        namespace_collection_prefix_value: str,
+        namespace_databases_value: int,
+        namespace_collections_value: int,
+        initial_seed_value: int,
+        ramp_up_seconds_value: int,
+        schema_fields_json_value: str,
+    ):
+        if not apply_static_clicks:
+            raise PreventUpdate
+        try:
+            namespace_db_prefix = _parse_non_empty_text(namespace_db_prefix_value, "Database prefix")
+            namespace_collection_prefix = _parse_non_empty_text(
+                namespace_collection_prefix_value,
+                "Collection prefix",
+            )
+            namespace_databases = _parse_positive_int(namespace_databases_value, "Namespace databases")
+            namespace_collections = _parse_positive_int(
+                namespace_collections_value,
+                "Collections per database",
+            )
+            initial_seed = _parse_non_negative_int(initial_seed_value, "Initial seed per collection")
+            ramp_up_seconds = _parse_non_negative_int(ramp_up_seconds_value, "Ramp-up seconds")
+            parsed_schema = _parse_schema_config(schema_fields_json_value)
+            staged_config = controller.current_config()
+            staged_config.namespace.database_prefix = namespace_db_prefix
+            staged_config.namespace.collection_prefix = namespace_collection_prefix
+            staged_config.namespace.databases = namespace_databases
+            staged_config.namespace.collections_per_database = namespace_collections
+            staged_config.load.initial_seed_per_collection = initial_seed
+            staged_config.load.ramp_up_seconds = ramp_up_seconds
+            staged_config.document_schema = parsed_schema
+            controller.apply_config(staged_config, source="dashboard-static-config")
+            persist_metadata_config("apply-static-config")
+            if runner.is_running:
+                return _feedback_warning(
+                    "Static config saved and staged for next run. Namespace/schema/seed/ramp-up changes "
+                    "apply on next restart/start."
+                )
+            return "Static config saved. Changes are staged and will apply when you start or restart the load test."
+        except ValueError as exc:
+            logger.warning("Static config validation rejected input: %s", exc)
+            return _feedback_warning(str(exc))
+        except Exception as exc:  # pragma: no cover - UI safety
+            logger.exception("Static config callback failed.")
+            return _feedback_error(f"Static config action failed: {exc}")
+
+    @callback(
         Output("download-csv", "data"),
         Input("download-csv-btn", "n_clicks"),
         prevent_initial_call=True,
@@ -1208,6 +1391,21 @@ def _metric_card(label: str, value_id: str, theme: tuple[str, str], tooltip: str
             "borderRadius": "10px",
             "padding": "12px",
             "minHeight": "78px",
+        },
+    )
+
+
+def _scope_badge(scope: str) -> html.Span:
+    return html.Span(
+        scope.upper(),
+        style={
+            "fontSize": "10px",
+            "padding": "2px 6px",
+            "borderRadius": "999px",
+            "fontWeight": "700",
+            "background": "#e0e7ff",
+            "color": "#3730a3",
+            "border": "1px solid #c7d2fe",
         },
     )
 
@@ -1434,8 +1632,55 @@ def _format_duration(seconds: int) -> str:
     return f"{hours}h {remaining_minutes}m"
 
 
+def _schema_config_to_json(schema: SchemaConfig) -> str:
+    payload = [field.model_dump(mode="json") for field in schema.fields]
+    return json.dumps(payload, indent=2, sort_keys=False)
+
+
 def _fmt(value: int) -> str:
     return f"{value:,}"
+
+
+def _parse_non_empty_text(value: object, field_name: str) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        raise ValueError(f"{field_name} is required.")
+    return raw
+
+
+def _parse_non_negative_int(value: object, field_name: str) -> int:
+    raw = str(value or "").strip().replace(",", "")
+    if not raw:
+        raise ValueError(f"{field_name} value is required.")
+    try:
+        parsed = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"{field_name} must be a whole number.") from exc
+    if parsed < 0:
+        raise ValueError(f"{field_name} must be zero or greater.")
+    return parsed
+
+
+def _parse_schema_config(value: object) -> SchemaConfig:
+    raw = str(value or "").strip()
+    if not raw:
+        raise ValueError("Schema fields JSON is required.")
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError("Schema fields JSON is invalid. Please provide valid JSON.") from exc
+    if isinstance(payload, list):
+        schema_payload = {"fields": payload}
+    elif isinstance(payload, dict):
+        if "fields" not in payload:
+            raise ValueError('Schema JSON object must include a "fields" key.')
+        schema_payload = payload
+    else:
+        raise ValueError('Schema JSON must be an array or an object with a "fields" key.')
+    try:
+        return SchemaConfig.model_validate(schema_payload)
+    except Exception as exc:
+        raise ValueError(f"Schema validation failed: {exc}") from exc
 
 
 def _validate_think_time_values(min_value: object, max_value: object) -> tuple[int, int]:
