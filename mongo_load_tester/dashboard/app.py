@@ -183,14 +183,18 @@ def create_dashboard(
     schema_fields_json_default = _schema_config_to_json(config.document_schema)
     run_state["startup_static_baseline"] = _static_config_snapshot(controller.current_config())
 
+    app.index_string = app.index_string.replace(
+        "</head>",
+        "<style>"
+        "@keyframes pulse {"
+        "  0%, 100% { opacity: 1; transform: scale(1); }"
+        "  50% { opacity: 0.85; transform: scale(1.005); box-shadow: 0 6px 20px rgba(239,68,68,0.25); }"
+        "}"
+        "</style></head>",
+    )
+
     app.layout = html.Div(
         [
-            html.Style("""
-                @keyframes pulse {
-                    0%, 100% { opacity: 1; transform: scale(1); }
-                    50% { opacity: 0.85; transform: scale(1.005); box-shadow: 0 6px 20px rgba(239,68,68,0.25); }
-                }
-            """),
             html.Div(
                 [
                     html.Div(
