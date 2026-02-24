@@ -34,60 +34,28 @@ from mongo_load_tester.metadata.sync import ConfigSyncService
 from mongo_load_tester.models import MetricsSnapshot
 from mongo_load_tester.observability import InMemoryLogBuffer
 
-CARD_STYLE = {"background": "white", "border": "1px solid #d6d3f9", "borderRadius": "12px", "padding": "14px"}
-ACTION_BUTTON_STYLE = {
-    "padding": "10px 12px",
+CARD_STYLE = {
+    "background": "white",
+    "border": "1px solid #e5e7eb",
+    "borderRadius": "14px",
+    "padding": "18px",
+    "boxShadow": "0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)",
+}
+_BTN_BASE = {
+    "padding": "9px 16px",
     "borderRadius": "8px",
-    "border": "1px solid #c7d2fe",
-    "background": "#eef2ff",
     "cursor": "pointer",
     "fontSize": "13px",
+    "fontWeight": "600",
+    "letterSpacing": "0.01em",
+    "transition": "all 0.15s ease",
 }
-PAUSE_BUTTON_STYLE = {
-    "padding": "10px 12px",
-    "borderRadius": "8px",
-    "border": "1px solid #f59e0b",
-    "background": "#f59e0b",
-    "color": "white",
-    "cursor": "pointer",
-    "fontSize": "13px",
-}
-RESUME_BUTTON_STYLE = {
-    "padding": "10px 12px",
-    "borderRadius": "8px",
-    "border": "1px solid #10b981",
-    "background": "#10b981",
-    "color": "white",
-    "cursor": "pointer",
-    "fontSize": "13px",
-}
-START_BUTTON_STYLE = {
-    "padding": "10px 12px",
-    "borderRadius": "8px",
-    "border": "1px solid #059669",
-    "background": "#059669",
-    "color": "white",
-    "cursor": "pointer",
-    "fontSize": "13px",
-}
-STOP_BUTTON_STYLE = {
-    "padding": "10px 12px",
-    "borderRadius": "8px",
-    "border": "1px solid #dc2626",
-    "background": "#dc2626",
-    "color": "white",
-    "cursor": "pointer",
-    "fontSize": "13px",
-}
-RESTART_BUTTON_STYLE = {
-    "padding": "10px 12px",
-    "borderRadius": "8px",
-    "border": "1px solid #2563eb",
-    "background": "#2563eb",
-    "color": "white",
-    "cursor": "pointer",
-    "fontSize": "13px",
-}
+ACTION_BUTTON_STYLE = {**_BTN_BASE, "border": "1px solid #c7d2fe", "background": "#eef2ff", "color": "#3730a3"}
+PAUSE_BUTTON_STYLE = {**_BTN_BASE, "border": "none", "background": "#f59e0b", "color": "white"}
+RESUME_BUTTON_STYLE = {**_BTN_BASE, "border": "none", "background": "#10b981", "color": "white"}
+START_BUTTON_STYLE = {**_BTN_BASE, "border": "none", "background": "#059669", "color": "white"}
+STOP_BUTTON_STYLE = {**_BTN_BASE, "border": "none", "background": "#dc2626", "color": "white"}
+RESTART_BUTTON_STYLE = {**_BTN_BASE, "border": "none", "background": "#2563eb", "color": "white"}
 STATUS_STYLE_MAP = {
     "running": {"background": "#dcfce7", "color": "#166534", "border": "1px solid #86efac"},
     "paused": {"background": "#fef3c7", "color": "#92400e", "border": "1px solid #fcd34d"},
@@ -105,6 +73,16 @@ KPI_THEMES = [
     ("#fef2f2", "#fecaca"),
     ("#eef2ff", "#c7d2fe"),
 ]
+_SECTION_HEADER_STYLE = {
+    "fontSize": "16px",
+    "fontWeight": "700",
+    "color": "#1e1b4b",
+    "marginTop": "28px",
+    "marginBottom": "12px",
+    "paddingBottom": "8px",
+    "borderBottom": "2px solid #e0e7ff",
+    "letterSpacing": "-0.01em",
+}
 
 
 def create_dashboard(
@@ -211,10 +189,19 @@ def create_dashboard(
                 [
                     html.Div(
                         [
-                            html.H1("MongoDB Load Tester", style={"margin": "0", "fontSize": "30px", "color": "#312e81"}),
+                            html.H1(
+                                "MongoDB Load Tester",
+                                style={
+                                    "margin": "0",
+                                    "fontSize": "28px",
+                                    "fontWeight": "800",
+                                    "color": "white",
+                                    "letterSpacing": "-0.02em",
+                                },
+                            ),
                             html.Div(
                                 "Live OLTP telemetry, resilient control plane, and export-ready reports.",
-                                style={"color": "#4c1d95", "fontSize": "14px", "marginTop": "4px"},
+                                style={"color": "#c7d2fe", "fontSize": "13px", "marginTop": "2px"},
                             ),
                         ]
                     ),
@@ -267,10 +254,10 @@ def create_dashboard(
                     "justifyContent": "space-between",
                     "alignItems": "center",
                     "gap": "14px",
-                    "background": "linear-gradient(90deg, #eef2ff 0%, #faf5ff 100%)",
-                    "border": "1px solid #c4b5fd",
-                    "borderRadius": "12px",
-                    "padding": "16px",
+                    "background": "linear-gradient(135deg, #312e81 0%, #4c1d95 50%, #6d28d9 100%)",
+                    "borderRadius": "16px",
+                    "padding": "20px 24px",
+                    "boxShadow": "0 4px 12px rgba(49,46,129,0.25)",
                 },
             ),
             html.Details(
@@ -929,6 +916,7 @@ def create_dashboard(
                 ],
                 style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "1fr", "gap": "12px"},
             ),
+            html.Div("Throughput & Users", style=_SECTION_HEADER_STYLE),
             html.Div(
                 [
                     html.Div(
@@ -953,11 +941,12 @@ def create_dashboard(
                 ],
                 style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "1fr", "gap": "12px"},
             ),
+            html.Div("Latency Analysis", style=_SECTION_HEADER_STYLE),
             html.Div(
                 [
                     html.Div(
                         [
-                            html.Div("Latency Health", style={"fontWeight": "600", "marginBottom": "6px", "color": "#312e81"}),
+                            html.Div("Latency Percentiles (p50 / avg / p95 / p99)", style={"fontWeight": "600", "marginBottom": "6px", "color": "#312e81"}),
                             dcc.Graph(id="latency-graph", style={"height": "340px"}),
                         ],
                         style={**CARD_STYLE},
@@ -965,6 +954,7 @@ def create_dashboard(
                 ],
                 style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "1fr", "gap": "12px"},
             ),
+            html.Div("Errors & Reliability", style=_SECTION_HEADER_STYLE),
             html.Div(
                 [
                     html.Div(
@@ -977,6 +967,7 @@ def create_dashboard(
                 ],
                 style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "1fr", "gap": "12px"},
             ),
+            html.Div("Per-Operation Breakdown", style=_SECTION_HEADER_STYLE),
             html.Div(
                 [
                     html.Div(
@@ -1097,16 +1088,18 @@ def create_dashboard(
                 id="log-view",
                 style={
                     "marginTop": "12px",
-                    "background": "#111827",
-                    "color": "#e5e7eb",
-                    "padding": "12px",
-                    "borderRadius": "8px",
-                    "fontSize": "12px",
-                    "lineHeight": "1.45",
-                    "maxHeight": "340px",
+                    "background": "#0f172a",
+                    "color": "#e2e8f0",
+                    "padding": "16px",
+                    "borderRadius": "12px",
+                    "fontSize": "11.5px",
+                    "fontFamily": "'JetBrains Mono', 'Fira Code', Menlo, Consolas, monospace",
+                    "lineHeight": "1.55",
+                    "maxHeight": "380px",
                     "overflowY": "auto",
                     "whiteSpace": "pre-wrap",
-                    "border": "1px solid #1f2937",
+                    "border": "1px solid #1e293b",
+                    "boxShadow": "inset 0 2px 4px rgba(0,0,0,0.15)",
                 },
             ),
             dcc.Download(id="download-csv"),
@@ -1114,7 +1107,12 @@ def create_dashboard(
             dcc.Download(id="download-pdf"),
             dcc.Interval(id="refresh", interval=config.dashboard.refresh_interval_ms, n_intervals=0),
         ],
-        style={"padding": "16px", "fontFamily": "Inter, Arial, sans-serif", "background": "#eef2ff"},
+        style={
+            "padding": "20px 24px",
+            "fontFamily": "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+            "background": "linear-gradient(180deg, #f0f0ff 0%, #f5f3ff 30%, #faf9ff 100%)",
+            "minHeight": "100vh",
+        },
     )
 
     @callback(
@@ -2008,14 +2006,15 @@ def _metric_card(label: str, value_id: str, theme: tuple[str, str], tooltip: str
         )
     return html.Div(
         [
-            html.Div(label_node, style={"fontSize": "12px", "color": "#4b5563"}),
-            html.Div(id=value_id, style={"fontSize": "22px", "fontWeight": "700", "marginTop": "6px", "color": "#111827"}),
+            html.Div(label_node, style={"fontSize": "11px", "color": "#6b7280", "fontWeight": "500", "textTransform": "uppercase", "letterSpacing": "0.04em"}),
+            html.Div(id=value_id, style={"fontSize": "24px", "fontWeight": "800", "marginTop": "6px", "color": "#111827", "letterSpacing": "-0.02em"}),
         ],
         style={
             "background": background,
             "border": f"1px solid {border}",
-            "borderRadius": "10px",
-            "padding": "12px",
+            "borderRadius": "12px",
+            "padding": "14px 16px",
+            "boxShadow": "0 1px 2px rgba(0,0,0,0.04)",
             "minHeight": "78px",
         },
     )
