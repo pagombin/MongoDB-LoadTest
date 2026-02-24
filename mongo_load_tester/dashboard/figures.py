@@ -35,7 +35,7 @@ def build_operations_timeline(snapshot: MetricsSnapshot, x_range: tuple[object, 
             y=total_counts,
             mode="lines",
             name="total_ops",
-            line={"width": 3.2, "color": OP_COLORS["total"], "shape": "spline", "smoothing": 0.55},
+            line={"width": 2.1, "color": OP_COLORS["total"], "shape": "spline", "smoothing": 0.55},
             hovertemplate="Total ops: %{y}<extra></extra>",
         )
     )
@@ -45,7 +45,7 @@ def build_operations_timeline(snapshot: MetricsSnapshot, x_range: tuple[object, 
             y=read_counts,
             mode="lines",
             name="read_ops",
-            line={"width": 2.4, "color": OP_COLORS["read"], "shape": "spline", "smoothing": 0.5},
+            line={"width": 1.7, "color": OP_COLORS["read"], "shape": "spline", "smoothing": 0.5},
             hovertemplate="Read ops: %{y}<extra></extra>",
         )
     )
@@ -55,7 +55,7 @@ def build_operations_timeline(snapshot: MetricsSnapshot, x_range: tuple[object, 
             y=write_counts,
             mode="lines",
             name="write_ops",
-            line={"width": 2.4, "color": OP_COLORS["insert"], "shape": "spline", "smoothing": 0.5},
+            line={"width": 1.7, "color": OP_COLORS["insert"], "shape": "spline", "smoothing": 0.5},
             fill="tozeroy",
             fillcolor="rgba(34, 197, 94, 0.08)",
             hovertemplate="Write ops: %{y}<extra></extra>",
@@ -101,7 +101,7 @@ def build_latency_timeline(snapshot: MetricsSnapshot, x_range: tuple[object, obj
             y=avg_values,
             mode="lines",
             name="avg_latency_ms",
-            line={"width": 2.6, "color": "#2563eb", "shape": "spline", "smoothing": 0.45},
+            line={"width": 1.9, "color": "#2563eb", "shape": "spline", "smoothing": 0.45},
             fill="tozeroy",
             fillcolor="rgba(37, 99, 235, 0.1)",
             hovertemplate="Avg latency: %{y:.2f} ms<extra></extra>",
@@ -113,7 +113,7 @@ def build_latency_timeline(snapshot: MetricsSnapshot, x_range: tuple[object, obj
             y=p95_values,
             mode="lines",
             name="p95_latency_ms",
-            line={"width": 2.4, "color": "#ec4899", "shape": "spline", "smoothing": 0.45},
+            line={"width": 1.7, "color": "#ec4899", "shape": "spline", "smoothing": 0.45},
             hovertemplate="P95 latency: %{y:.2f} ms<extra></extra>",
         )
     )
@@ -156,7 +156,7 @@ def build_user_ramp_timeline(snapshot: MetricsSnapshot, x_range: tuple[object, o
             y=users,
             mode="lines",
             name="active_virtual_users",
-            line={"width": 2.6, "color": OP_COLORS["users"], "shape": "hv"},
+            line={"width": 1.8, "color": OP_COLORS["users"], "shape": "hv"},
             fill="tozeroy",
             fillcolor="rgba(139, 92, 246, 0.18)",
             hovertemplate="Active users: %{y}<extra></extra>",
@@ -169,7 +169,7 @@ def build_user_ramp_timeline(snapshot: MetricsSnapshot, x_range: tuple[object, o
                 y=target_users,
                 mode="lines",
                 name="target_users",
-                line={"width": 1.8, "color": "#334155", "dash": "dash"},
+                line={"width": 1.3, "color": "#334155", "dash": "dash"},
                 hovertemplate="Target users: %{y}<extra></extra>",
             )
         )
