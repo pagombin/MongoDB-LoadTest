@@ -278,23 +278,105 @@ def create_dashboard(
                 [
                     html.Summary(
                         "Operator quick guide",
-                        style={"cursor": "pointer", "fontWeight": "600", "color": "#312e81"},
+                        style={"cursor": "pointer", "fontWeight": "700", "color": "#312e81", "fontSize": "14px"},
                     ),
                     html.Div(
                         [
+                            html.Div(
+                                "Getting started",
+                                style={"fontWeight": "700", "marginTop": "10px", "marginBottom": "4px", "color": "#1e1b4b"},
+                            ),
                             html.Ul(
                                 [
-                                    html.Li("Review live controls (apply immediately) and static controls (apply per scope badge)."),
-                                    html.Li("Start the run from the UI. Monitor status, runtime progress, and insights."),
-                                    html.Li(
-                                        "If static settings are changed during an active run, they are staged for next run."
-                                    ),
-                                    html.Li("Use exports (CSV/PNG/PDF) for reporting and evidence."),
+                                    html.Li([
+                                        html.Span("Run Configuration", style={"fontWeight": "600"}),
+                                        " shows your config file defaults on startup. Modify namespace, schema, seeding, and ramp-up here before starting. Click ",
+                                        html.Span("Apply configuration", style={"fontWeight": "600"}),
+                                        " to save, then ",
+                                        html.Span("Start", style={"fontWeight": "600"}),
+                                        " to begin.",
+                                    ]),
+                                    html.Li([
+                                        html.Span("Live controls", style={"fontWeight": "600"}),
+                                        " (users, workers, think time, operation mix, retry policy) apply immediately to a running test — no restart needed.",
+                                    ]),
+                                    html.Li([
+                                        "Use the ",
+                                        html.Span("Validate JSON", style={"fontWeight": "600"}),
+                                        " button to check your schema before saving.",
+                                    ]),
                                 ],
-                                style={"marginTop": "8px", "marginBottom": "0", "paddingLeft": "18px", "lineHeight": "1.7"},
-                            )
+                                style={"marginTop": "4px", "marginBottom": "0", "paddingLeft": "18px", "lineHeight": "1.8"},
+                            ),
+                            html.Div(
+                                "During a test",
+                                style={"fontWeight": "700", "marginTop": "12px", "marginBottom": "4px", "color": "#1e1b4b"},
+                            ),
+                            html.Ul(
+                                [
+                                    html.Li([
+                                        "Run Configuration changes made during an active test are ",
+                                        html.Span("staged for the next run", style={"fontWeight": "600"}),
+                                        " — the button changes to ",
+                                        html.Span("Stage for next run", style={"fontWeight": "600", "color": "#b45309"}),
+                                        " to make this clear.",
+                                    ]),
+                                    html.Li([
+                                        html.Span("Scaling workers down", style={"fontWeight": "600"}),
+                                        " dismisses excess workers immediately. ",
+                                        html.Span("Scaling up", style={"fontWeight": "600"}),
+                                        " adds workers gradually (staggered) to avoid thundering-herd connections.",
+                                    ]),
+                                    html.Li([
+                                        "Worker threads are capped at ",
+                                        html.Span("max_worker_threads", style={"fontWeight": "600"}),
+                                        " (default 500) and cannot exceed the number of virtual users. A visible alert banner appears if either limit is hit.",
+                                    ]),
+                                    html.Li("If the error rate spikes above 10% after scaling workers, a warning banner appears automatically."),
+                                    html.Li("Pause/Resume preserves elapsed time. Paused periods appear as amber overlays on all timeline charts."),
+                                ],
+                                style={"marginTop": "4px", "marginBottom": "0", "paddingLeft": "18px", "lineHeight": "1.8"},
+                            ),
+                            html.Div(
+                                "Charts & metrics",
+                                style={"fontWeight": "700", "marginTop": "12px", "marginBottom": "4px", "color": "#1e1b4b"},
+                            ),
+                            html.Ul(
+                                [
+                                    html.Li("Charts and KPIs only update while a test is running. They freeze when the test stops."),
+                                    html.Li("Hover the (?) icon next to any chart title for a detailed explanation of what it shows and how to interpret it."),
+                                    html.Li([
+                                        "The ",
+                                        html.Span("Latency Percentiles", style={"fontWeight": "600"}),
+                                        " chart shows p50/avg/p95/p99 — when lines diverge, you have a long-tail problem.",
+                                    ]),
+                                    html.Li([
+                                        "The ",
+                                        html.Span("Latency Distribution", style={"fontWeight": "600"}),
+                                        " histogram reveals bimodal patterns and GC pauses that percentiles alone cannot show.",
+                                    ]),
+                                    html.Li("Use the timeline filter dropdown to zoom into specific time windows across all charts simultaneously."),
+                                ],
+                                style={"marginTop": "4px", "marginBottom": "0", "paddingLeft": "18px", "lineHeight": "1.8"},
+                            ),
+                            html.Div(
+                                "Exports & metadata",
+                                style={"fontWeight": "700", "marginTop": "12px", "marginBottom": "4px", "color": "#1e1b4b"},
+                            ),
+                            html.Ul(
+                                [
+                                    html.Li("Export CSV for raw per-second data, PNG for individual charts, or PDF for a complete report."),
+                                    html.Li([
+                                        "Each load test is identified by ",
+                                        html.Span("load_test_id", style={"fontWeight": "600"}),
+                                        " — all config, runs, and events are scoped to this ID in the metadata database.",
+                                    ]),
+                                    html.Li("Run history (with full metrics summaries) is persisted automatically and can be queried from the metadata collections."),
+                                ],
+                                style={"marginTop": "4px", "marginBottom": "0", "paddingLeft": "18px", "lineHeight": "1.8"},
+                            ),
                         ],
-                        style={"fontSize": "12px", "color": "#4b5563"},
+                        style={"fontSize": "12.5px", "color": "#374151"},
                     ),
                 ],
                 style={
@@ -960,7 +1042,7 @@ def create_dashboard(
                 [
                     html.Div(
                         [
-                            html.Div("Operations Throughput", style={"fontWeight": "600", "marginBottom": "6px", "color": "#312e81"}),
+                            _chart_title("Operations Throughput", "Total operations per second over time, broken down into read ops and combined write ops (insert + update + delete). Use this to monitor overall cluster throughput and spot drops or plateaus."),
                             dcc.Graph(id="ops-graph", style={"height": "350px"}),
                         ],
                         style={**CARD_STYLE},
@@ -972,7 +1054,7 @@ def create_dashboard(
                 [
                     html.Div(
                         [
-                            html.Div("Users Ramp View", style={"fontWeight": "600", "marginBottom": "6px", "color": "#312e81"}),
+                            _chart_title("Users Ramp View", "Active virtual users vs target users over time. Shows the ramp-up curve and how closely actual concurrency tracks the configured target. Dashed line is the target; solid fill is actual. Paused periods are highlighted in amber."),
                             dcc.Graph(id="users-graph", style={"height": "350px"}),
                         ],
                         style={**CARD_STYLE},
@@ -985,7 +1067,7 @@ def create_dashboard(
                 [
                     html.Div(
                         [
-                            html.Div("Latency Percentiles (p50 / avg / p95 / p99)", style={"fontWeight": "600", "marginBottom": "6px", "color": "#312e81"}),
+                            _chart_title("Latency Percentiles", "Per-second latency distribution: p50 (median), average, p95, and p99 tail latency. When lines are close together, latency is consistent. When p99 diverges from p50, you have a long tail — investigate slow queries, GC pauses, or hot partitions."),
                             dcc.Graph(id="latency-graph", style={"height": "340px"}),
                         ],
                         style={**CARD_STYLE},
@@ -998,7 +1080,7 @@ def create_dashboard(
                 [
                     html.Div(
                         [
-                            html.Div("Errors & Retries", style={"fontWeight": "600", "marginBottom": "6px", "color": "#312e81"}),
+                            _chart_title("Errors & Retries", "Error and retry counts per second with error rate percentage on the right axis. Spikes here often correlate with MongoDB failovers, network blips, or connection pool exhaustion. A steady retry count with zero errors means the retry policy is working correctly."),
                             dcc.Graph(id="error-retry-graph", style={"height": "340px"}),
                         ],
                         style={**CARD_STYLE},
@@ -1011,7 +1093,7 @@ def create_dashboard(
                 [
                     html.Div(
                         [
-                            html.Div("Throughput by Operation Type", style={"fontWeight": "600", "marginBottom": "6px", "color": "#312e81"}),
+                            _chart_title("Throughput by Operation Type", "Stacked area chart showing ops/sec for each operation type individually: read, insert, update, and delete. Useful for verifying the configured operation mix is being applied correctly and spotting if one type is bottlenecking."),
                             dcc.Graph(id="per-op-throughput-graph", style={"height": "340px"}),
                         ],
                         style={**CARD_STYLE},
@@ -1023,7 +1105,7 @@ def create_dashboard(
                 [
                     html.Div(
                         [
-                            html.Div("Latency by Operation Type", style={"fontWeight": "600", "marginBottom": "6px", "color": "#312e81"}),
+                            _chart_title("Latency by Operation Type", "Average latency per operation type over time. Compare read vs write latency to identify if writes are slower (common with write concern majority) or if deletes cause lock contention. Missing lines mean that operation type had no activity in that period."),
                             dcc.Graph(id="per-op-latency-graph", style={"height": "340px"}),
                         ],
                         style={**CARD_STYLE},
@@ -1035,14 +1117,14 @@ def create_dashboard(
                 [
                     html.Div(
                         [
-                            html.Div("Operation Mix", style={"fontWeight": "600", "marginBottom": "6px", "color": "#312e81"}),
+                            _chart_title("Operation Mix", "Donut chart showing the cumulative distribution of operation types for the entire run. Compare this against your configured mix percentages to verify the workload is balanced as expected."),
                             dcc.Graph(id="distribution-graph", style={"height": "330px"}),
                         ],
                         style={**CARD_STYLE},
                     ),
                     html.Div(
                         [
-                            html.Div("Error Breakdown", style={"fontWeight": "600", "marginBottom": "6px", "color": "#312e81"}),
+                            _chart_title("Error Breakdown", "Categorized breakdown of all errors: timeout, network, primary stepdown, server selection, duplicate key, write concern, auth, and other. Helps pinpoint whether errors are infrastructure-related (network/timeout) or application-related (duplicate key/auth)."),
                             dcc.Graph(id="error-breakdown-graph", style={"height": "330px"}),
                         ],
                         style={**CARD_STYLE},
@@ -1054,7 +1136,7 @@ def create_dashboard(
                 [
                     html.Div(
                         [
-                            html.Div("Latency Distribution", style={"fontWeight": "600", "marginBottom": "6px", "color": "#312e81"}),
+                            _chart_title("Latency Distribution", "Histogram of operation latencies across fixed buckets with a cumulative percentage line. Reveals the shape of your latency distribution — a single peak means consistent performance; multiple peaks or a long tail suggests GC pauses, cold caches, or contention hotspots."),
                             dcc.Graph(id="latency-histogram-graph", style={"height": "340px"}),
                         ],
                         style={**CARD_STYLE},
@@ -1066,14 +1148,14 @@ def create_dashboard(
                 [
                     html.Div(
                         [
-                            html.Div("Operation breakdown (overall)", style={"fontWeight": "600", "marginBottom": "8px"}),
+                            _chart_title("Operation Breakdown", "Per-operation summary table showing count, percentage share, average latency, p95 and p99 tail latency. Use this to compare performance characteristics across read, insert, update, and delete operations."),
                             html.Div(id="operation-table"),
                         ],
                         style={**CARD_STYLE},
                     ),
                     html.Div(
                         [
-                            html.Div("Smart insights", style={"fontWeight": "600", "marginBottom": "8px"}),
+                            _chart_title("Smart Insights", "Automated analysis of your test results. Flags high error rates (>1%), elevated p95 latency (>50ms), retry rates (>2%), and throughput trends (comparing first half vs second half of the run). Green means healthy; yellow/red means investigate."),
                             html.Div(id="smart-insights"),
                         ],
                         style={**CARD_STYLE},
@@ -2235,6 +2317,31 @@ def _metric_card(label: str, value_id: str, theme: tuple[str, str], tooltip: str
             "boxShadow": "0 1px 2px rgba(0,0,0,0.04)",
             "minHeight": "78px",
         },
+    )
+
+
+def _chart_title(label: str, tooltip: str) -> html.Div:
+    return html.Div(
+        [
+            html.Span(label, style={"fontWeight": "600", "color": "#312e81"}),
+            html.Span(
+                "?",
+                title=tooltip,
+                style={
+                    "fontSize": "10px",
+                    "padding": "0px 5px",
+                    "borderRadius": "999px",
+                    "border": "1px solid #a5b4fc",
+                    "color": "#4338ca",
+                    "fontWeight": "700",
+                    "cursor": "help",
+                    "lineHeight": "16px",
+                    "display": "inline-block",
+                    "textAlign": "center",
+                },
+            ),
+        ],
+        style={"display": "flex", "gap": "8px", "alignItems": "center", "marginBottom": "6px"},
     )
 
 
