@@ -10,9 +10,12 @@ from mongo_load_tester.dashboard.app import (
     _parse_schema_config,
     _remove_incomplete_live_second,
     _schema_config_to_json,
+    _static_config_diff_labels,
+    _static_config_snapshot,
     _validate_think_time_values,
     _window_message,
 )
+from mongo_load_tester.config import AppConfig
 from mongo_load_tester.models import MetricsSnapshot, TimelinePoint
 
 
@@ -132,3 +135,18 @@ def test_parse_non_negative_int_rejects_negative_values() -> None:
         assert "zero or greater" in str(exc)
     else:
         raise AssertionError("Expected ValueError for negative integer")
+
+
+def test_static_config_diff_labels_reports_changed_domains() -> None:
+    base = AppConfig()
+    baseline = _static_config_snapshot(base)
+    changed = base.model_copy(deep=True)
+    changed.namespace.databases = 3
+    changed.load.ramp_up_seconds = 120
+    changed.document_schema.fields[0].name = "tenant_code"
+    current = _static_config_snapshot(changed)
+
+    labels = _static_config_diff_labels(current, baseline)
+    assert "databases" in labels
+    assert "ramp-up seconds" in labels
+    assert "schema fields" in labels

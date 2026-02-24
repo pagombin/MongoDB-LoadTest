@@ -186,6 +186,7 @@ If that command is not in your PATH, use the `python3 -m mongo_load_tester.cli .
 - Dedicated static-config panel with explicit "next run" scope (namespace/schema/seed/ramp-up)
 - Context tooltips on key control inputs (hover "i" for quick explanations)
 - Unified "Reset all settings to defaults" action (also persisted to metadata)
+- Static panel staged-change indicator (e.g., pending next-run changes count during active runs)
 - Live logs panel in UI (INFO/WARNING/ERROR filters and adjustable tail lines)
 - One-click exports from browser:
   - timeline CSV (includes active users + retries)

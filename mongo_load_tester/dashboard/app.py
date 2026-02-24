@@ -117,6 +117,7 @@ def create_dashboard(
         "active_run_id": None,
         "last_run_finished_at": None,
         "config_version": int(initial_config_version),
+        "run_static_baseline": None,
     }
 
     def persist_metadata_config(reason: str) -> None:
@@ -128,8 +129,6 @@ def create_dashboard(
             config_sync_service.mark_applied_version(record.version)
 
     def persist_run_completion_if_needed(snapshot: MetricsSnapshot) -> None:
-        if metadata_store is None:
-            return
         run_id = run_state.get("active_run_id")
         if not run_id:
             return
@@ -141,9 +140,11 @@ def create_dashboard(
         if run_state.get("last_run_finished_at") == finished_at:
             return
         status = "failed" if runner.last_error else "completed"
-        metadata_store.record_run_finished(run_id=str(run_id), status=status, snapshot=snapshot, error=runner.last_error)
+        if metadata_store is not None:
+            metadata_store.record_run_finished(run_id=str(run_id), status=status, snapshot=snapshot, error=runner.last_error)
         run_state["last_run_finished_at"] = finished_at
         run_state["active_run_id"] = None
+        run_state["run_static_baseline"] = None
 
     try:
         live_settings = controller.live_settings_snapshot()
@@ -678,6 +679,20 @@ def create_dashboard(
                                 children="No pending static changes.",
                                 style={"marginTop": "8px", "fontSize": "12px", "color": "#6b7280"},
                             ),
+                            html.Div(
+                                id="static-staged-indicator",
+                                children="No staged static changes pending next run.",
+                                style={
+                                    "marginTop": "8px",
+                                    "fontSize": "12px",
+                                    "padding": "6px 8px",
+                                    "borderRadius": "8px",
+                                    "background": "#ecfdf5",
+                                    "border": "1px solid #86efac",
+                                    "color": "#166534",
+                                    "fontWeight": "600",
+                                },
+                            ),
                         ],
                         style={**CARD_STYLE},
                     ),
@@ -1130,6 +1145,48 @@ def create_dashboard(
             "Use either a fields array or {\"fields\": [...]} payload. This schema is used when the run starts.",
         )
 
+    @callback(
+        Output("static-staged-indicator", "children"),
+        Output("static-staged-indicator", "style"),
+        Input("refresh", "n_intervals"),
+    )
+    def refresh_static_staged_indicator(_: int):
+        base_style = {
+            "marginTop": "8px",
+            "fontSize": "12px",
+            "padding": "6px 8px",
+            "borderRadius": "8px",
+            "fontWeight": "600",
+        }
+        if not runner.is_running:
+            run_state["run_static_baseline"] = None
+            return (
+                "No staged static changes pending next run.",
+                {**base_style, "background": "#ecfdf5", "border": "1px solid #86efac", "color": "#166534"},
+            )
+        baseline = run_state.get("run_static_baseline")
+        current_snapshot = _static_config_snapshot(controller.current_config())
+        if baseline is None:
+            run_state["run_static_baseline"] = current_snapshot
+            return (
+                "No staged static changes pending next run.",
+                {**base_style, "background": "#ecfdf5", "border": "1px solid #86efac", "color": "#166534"},
+            )
+        diff_labels = _static_config_diff_labels(current_snapshot, baseline)
+        if not diff_labels:
+            return (
+                "No staged static changes pending next run.",
+                {**base_style, "background": "#ecfdf5", "border": "1px solid #86efac", "color": "#166534"},
+            )
+        preview = ", ".join(diff_labels[:3])
+        if len(diff_labels) > 3:
+            preview += f" +{len(diff_labels) - 3} more"
+        message = f"{len(diff_labels)} staged change(s) pending next run: {preview}."
+        return (
+            message,
+            {**base_style, "background": "#fffbeb", "border": "1px solid #f59e0b", "color": "#92400e"},
+        )
+
     # Compatibility callback: supports older clients that still request a single
     # 7-output live-control update signature.
     @callback(
@@ -1237,6 +1294,7 @@ def create_dashboard(
                         message="Start requested from dashboard.",
                         payload={"action": "start", "run_id": run_id},
                     )
+                run_state["run_static_baseline"] = _static_config_snapshot(controller.current_config())
                 return "Load test started from dashboard."
             if triggered == "stop-test-btn":
                 if not stop_clicks:
@@ -1281,6 +1339,8 @@ def create_dashboard(
                     run_id = metadata_store.record_run_started(config_version=config_version)
                     run_state["active_run_id"] = run_id
                     run_state["last_run_finished_at"] = None
+                if restarted:
+                    run_state["run_static_baseline"] = _static_config_snapshot(controller.current_config())
                 return message
             if triggered == "apply-duration-btn":
                 if not apply_clicks:
@@ -1942,6 +2002,40 @@ def _format_duration(seconds: int) -> str:
 def _schema_config_to_json(schema: SchemaConfig) -> str:
     payload = [field.model_dump(mode="json") for field in schema.fields]
     return json.dumps(payload, indent=2, sort_keys=False)
+
+
+def _static_config_snapshot(config: AppConfig) -> dict[str, object]:
+    return {
+        "namespace.database_prefix": config.namespace.database_prefix,
+        "namespace.collection_prefix": config.namespace.collection_prefix,
+        "namespace.databases": config.namespace.databases,
+        "namespace.collections_per_database": config.namespace.collections_per_database,
+        "load.initial_seed_per_collection": config.load.initial_seed_per_collection,
+        "load.ramp_up_seconds": config.load.ramp_up_seconds,
+        "schema.fields": json.dumps(
+            [field.model_dump(mode="json") for field in config.document_schema.fields],
+            sort_keys=True,
+        ),
+    }
+
+
+def _static_config_diff_labels(current: dict[str, object], baseline: object) -> list[str]:
+    if not isinstance(baseline, dict):
+        return []
+    labels = {
+        "namespace.database_prefix": "database prefix",
+        "namespace.collection_prefix": "collection prefix",
+        "namespace.databases": "databases",
+        "namespace.collections_per_database": "collections/database",
+        "load.initial_seed_per_collection": "initial seed/collection",
+        "load.ramp_up_seconds": "ramp-up seconds",
+        "schema.fields": "schema fields",
+    }
+    changed: list[str] = []
+    for key, label in labels.items():
+        if current.get(key) != baseline.get(key):
+            changed.append(label)
+    return changed
 
 
 def _fmt(value: int) -> str:
