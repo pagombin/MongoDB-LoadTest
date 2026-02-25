@@ -1519,7 +1519,8 @@ def create_dashboard(
             persist_run_completion_if_needed(snapshot)
             snapshot = _filter_snapshot_to_run_start(snapshot, runner.started_at)
             window_seconds = int(timeline_window or 0)
-            filtered_snapshot = _filter_snapshot_timeline(snapshot, window_seconds)
+            filter_reference = snapshot.generated_at if runner.is_running else runner.finished_at
+            filtered_snapshot = _filter_snapshot_timeline(snapshot, window_seconds, reference_time=filter_reference)
             filtered_snapshot = _remove_incomplete_live_second(filtered_snapshot, runner.is_running)
             x_range = _timeline_x_range(
                 window_seconds, snapshot.generated_at, runner.started_at,
@@ -3202,10 +3203,15 @@ def _build_runtime_ui(runner: LoadTestRunner) -> tuple[str, float, str]:
     return f"Elapsed: {active_elapsed:.1f}s | Remaining: {remaining:.1f}s", progress, f"{progress:.1f}% complete"
 
 
-def _filter_snapshot_timeline(snapshot: MetricsSnapshot, window_seconds: int) -> MetricsSnapshot:
+def _filter_snapshot_timeline(
+    snapshot: MetricsSnapshot,
+    window_seconds: int,
+    reference_time: datetime | None = None,
+) -> MetricsSnapshot:
     if window_seconds <= 0:
         return snapshot
-    cutoff = snapshot.generated_at - timedelta(seconds=window_seconds)
+    ref = reference_time or snapshot.generated_at
+    cutoff = ref - timedelta(seconds=window_seconds)
     filtered = [point for point in snapshot.timeline if point.second >= cutoff]
     return replace(snapshot, timeline=filtered)
 
