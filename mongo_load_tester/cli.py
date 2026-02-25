@@ -28,6 +28,12 @@ def run_load_test(
         "--load-test-id",
         help="Optional metadata load test id override (default comes from config.metadata.load_test_id).",
     ),
+    worker_id: str | None = typer.Option(
+        None,
+        "--worker-id",
+        help="Unique ID for this worker process. When set, enables distributed metrics publishing "
+        "so multiple worker processes can feed a single dashboard. Use with --no-dashboard.",
+    ),
 ) -> None:
     """Run a load test from YAML config."""
 
@@ -84,14 +90,31 @@ def run_load_test(
     sync_service.mark_applied_version(config_record.version)
     sync_service.start()
 
+    metrics_publisher = None
     try:
         if no_dashboard or not app_config.dashboard.enabled:
             logger.info("Running in headless mode.")
             typer.echo("Starting headless load test...")
+            if worker_id:
+                from mongo_load_tester.engine.distributed import MetricsPublisher, DISTRIBUTED_METRICS_COLLECTION
+                from mongo_load_tester.engine.client import build_client as _build_client
+                _pub_client = _build_client(app_config.mongo)
+                _pub_collection = _pub_client[app_config.metadata.database_name][DISTRIBUTED_METRICS_COLLECTION]
+                metrics_publisher = MetricsPublisher(
+                    metrics_store=metrics,
+                    collection=_pub_collection,
+                    load_test_id=app_config.metadata.load_test_id,
+                    worker_id=worker_id,
+                    logger=logger,
+                )
+                metrics_publisher.start()
+                logger.info("Distributed metrics publisher started (worker_id=%s).", worker_id)
             run_id = metadata_store.record_run_started(config_version=config_record.version)
             try:
                 runner.run()
             finally:
+                if metrics_publisher:
+                    metrics_publisher.stop()
                 snapshot = metrics.snapshot()
                 run_status = "failed" if runner.last_error else "completed"
                 metadata_store.record_run_finished(run_id=run_id, status=run_status, snapshot=snapshot, error=runner.last_error)

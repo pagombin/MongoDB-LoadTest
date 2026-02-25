@@ -225,6 +225,43 @@ class MetricsStore:
 
             self._trim_history(second_epoch)
 
+    def record_batch(self, results: list[OperationResult]) -> None:
+        """Record multiple results in a single lock acquisition."""
+        if not results:
+            return
+        with self._lock:
+            for result in results:
+                op_name = result.operation.value
+                second_epoch = int(result.timestamp.timestamp())
+                self._total_ops += 1
+                self._latency_sum += result.latency_ms
+                self._total_attempts += max(result.attempts, 1)
+                if result.attempts > 1:
+                    self._retried_ops += 1
+                self._operation_counts[op_name] += 1
+                self._operation_latency_sum[op_name] += result.latency_ms
+                self._operation_latency_reservoirs[op_name].add(result.latency_ms)
+                self._add_latency_sample(result.latency_ms)
+                if result.success:
+                    self._success_ops += 1
+                else:
+                    self._error_ops += 1
+                    category = _categorize_error(result.error)
+                    self._error_categories[category] += 1
+                bucket = self._timeline.setdefault(second_epoch, _TimelineBucket())
+                bucket.total_ops += 1
+                bucket.latency_sum += result.latency_ms
+                bucket.attempts_sum += max(result.attempts, 1)
+                if result.attempts > 1:
+                    bucket.retried_ops += 1
+                bucket.add_latency(result.latency_ms)
+                bucket.op_counts[op_name] += 1
+                bucket.op_latency_sums[op_name] += result.latency_ms
+                bucket.op_latency_counts[op_name] += 1
+                if not result.success:
+                    bucket.error_ops += 1
+            self._trim_history(int(results[-1].timestamp.timestamp()))
+
     def _add_latency_sample(self, value: float) -> None:
         """Reservoir sampling (Vitter's Algorithm R) for global latency percentiles."""
         self._latency_total_count += 1

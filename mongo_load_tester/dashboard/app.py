@@ -126,6 +126,21 @@ def create_dashboard(
         "staged_static_snapshot": None,
     })
 
+    distributed_aggregator = None
+    if metadata_store is not None:
+        try:
+            from mongo_load_tester.engine.distributed import MetricsAggregator, DISTRIBUTED_METRICS_COLLECTION
+            from mongo_load_tester.engine.client import build_client as _build_client
+            _agg_client = _build_client(config.mongo)
+            _agg_collection = _agg_client[config.metadata.database_name][DISTRIBUTED_METRICS_COLLECTION]
+            distributed_aggregator = MetricsAggregator(
+                collection=_agg_collection,
+                load_test_id=config.metadata.load_test_id,
+                logger=logger,
+            )
+        except Exception:
+            logger.warning("Failed to initialize distributed metrics aggregator.", exc_info=True)
+
     def persist_metadata_config(
         reason: str,
         config_override: AppConfig | None = None,
@@ -1214,6 +1229,10 @@ def create_dashboard(
                 style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "repeat(5, 1fr)", "gap": "10px"},
             ),
             html.Div(
+                id="distributed-workers-panel",
+                style={"display": "none"},
+            ),
+            html.Div(
                 [
                     html.Div(
                         [
@@ -1691,6 +1710,65 @@ def create_dashboard(
         except Exception as exc:  # pragma: no cover - UI safety
             logger.exception("Dashboard refresh callback failed.")
             return _refresh_error_payload(str(exc))
+
+    @callback(
+        Output("distributed-workers-panel", "children"),
+        Output("distributed-workers-panel", "style"),
+        Input("refresh", "n_intervals"),
+    )
+    def refresh_distributed_workers(_: int):
+        if distributed_aggregator is None:
+            return "", {"display": "none"}
+        try:
+            agg = distributed_aggregator.aggregate()
+        except Exception:
+            return "", {"display": "none"}
+        if agg is None or agg["worker_count"] == 0:
+            return "", {"display": "none"}
+        workers = agg["workers"]
+        total_ops_sec = agg["ops_per_second"]
+        worker_rows = []
+        for w in workers:
+            ts = w.get("timestamp")
+            age = ""
+            if ts:
+                delta = (datetime.now(UTC) - ts).total_seconds() if hasattr(ts, "timestamp") else 0
+                age = f"{delta:.0f}s ago" if delta < 120 else "stale"
+            worker_rows.append(
+                html.Tr([
+                    html.Td(w["worker_id"], style={"padding": "4px 8px", "fontWeight": "600"}),
+                    html.Td(f"{w['ops_per_second']:.0f}", style={"padding": "4px 8px"}),
+                    html.Td(f"{w['total_ops']:,}", style={"padding": "4px 8px"}),
+                    html.Td(f"{w['p95_latency_ms']:.1f} ms", style={"padding": "4px 8px"}),
+                    html.Td(age, style={"padding": "4px 8px", "color": "#6b7280"}),
+                ])
+            )
+        content = html.Div([
+            html.Div([
+                html.Span("Distributed Workers", style={"fontWeight": "700", "fontSize": "14px", "color": "#1e1b4b"}),
+                html.Span(
+                    f"  {agg['worker_count']} worker(s) | {total_ops_sec:,.0f} aggregate ops/sec",
+                    style={"fontSize": "12px", "color": "#6b7280", "marginLeft": "10px"},
+                ),
+            ]),
+            html.Table([
+                html.Thead(html.Tr([
+                    html.Th("Worker", style={"textAlign": "left", "padding": "4px 8px", "fontSize": "11px"}),
+                    html.Th("Ops/sec", style={"textAlign": "left", "padding": "4px 8px", "fontSize": "11px"}),
+                    html.Th("Total ops", style={"textAlign": "left", "padding": "4px 8px", "fontSize": "11px"}),
+                    html.Th("P95 latency", style={"textAlign": "left", "padding": "4px 8px", "fontSize": "11px"}),
+                    html.Th("Last update", style={"textAlign": "left", "padding": "4px 8px", "fontSize": "11px"}),
+                ])),
+                html.Tbody(worker_rows),
+            ], style={"width": "100%", "borderCollapse": "collapse", "fontSize": "12px", "marginTop": "8px"}),
+        ])
+        panel_style = {
+            **CARD_STYLE,
+            "marginTop": "12px",
+            "background": "linear-gradient(90deg, #ede9fe, #eef2ff)",
+            "border": "1px solid #c4b5fd",
+        }
+        return content, panel_style
 
     _SCALING_ALERT_DISPLAY_SECONDS = 8
     _scaling_alert_state: dict[str, object] = {"messages": [], "show_until": 0.0}

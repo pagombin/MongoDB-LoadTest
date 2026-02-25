@@ -640,12 +640,18 @@ class LoadTestRunner:
                 schema_registry=self._schema_registry,
             )
 
+            batch_buffer: list = []
+            _BATCH_SIZE = 50
+
             while not self._stop_event.is_set() and not self._duration_reached() and not assignment.dismissed.is_set():
                 self._wait_if_paused()
                 if self._stop_event.is_set() or self._duration_reached() or assignment.dismissed.is_set():
                     break
                 active_users_for_worker = self._active_users_for_assignment(assignment)
                 if active_users_for_worker <= 0:
+                    if batch_buffer:
+                        self._metrics.record_batch(batch_buffer)
+                        batch_buffer.clear()
                     time.sleep(0.05)
                     continue
                 think_min, think_max, cycle_target_seconds, log_operation_failures = self._worker_cycle_settings()
@@ -655,7 +661,10 @@ class LoadTestRunner:
                     if self._stop_event.is_set() or self._duration_reached() or assignment.dismissed.is_set():
                         break
                     result = executor.execute_once()
-                    self._metrics.record(result)
+                    batch_buffer.append(result)
+                    if len(batch_buffer) >= _BATCH_SIZE:
+                        self._metrics.record_batch(batch_buffer)
+                        batch_buffer.clear()
                     if not result.success and log_operation_failures:
                         worker_logger.error(
                             "Operation failed op=%s ns=%s.%s attempts=%d latency_ms=%.2f error=%s",
@@ -669,6 +678,10 @@ class LoadTestRunner:
                     if think_max > 0:
                         time.sleep(rng.uniform(think_min, think_max))
 
+                if batch_buffer:
+                    self._metrics.record_batch(batch_buffer)
+                    batch_buffer.clear()
+
                 if cycle_target_seconds > 0:
                     cycle_elapsed = time.perf_counter() - cycle_start
                     if cycle_elapsed < cycle_target_seconds:
@@ -678,6 +691,11 @@ class LoadTestRunner:
             worker_logger.exception("Worker crashed unexpectedly.")
             self._stop_event.set()
         finally:
+            if batch_buffer:
+                try:
+                    self._metrics.record_batch(batch_buffer)
+                except Exception:
+                    pass
             if worker_users_registered:
                 self._unregister_running_worker(assignment.worker_id)
             worker_logger.info("Worker exiting.")
