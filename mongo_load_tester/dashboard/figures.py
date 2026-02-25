@@ -341,9 +341,8 @@ def build_per_op_throughput_timeline(snapshot: MetricsSnapshot, x_range: tuple[d
         figure.add_trace(
             go.Scatter(
                 x=x_values, y=counts, mode="lines", name=f"{op_type}_ops",
-                line={"width": 1.7, "color": color, "shape": "spline", "smoothing": 0.5},
+                line={"width": 1.8, "color": color, "shape": "spline", "smoothing": 0.5},
                 hovertemplate=f"{op_type.capitalize()} ops: %{{y}}<extra></extra>",
-                stackgroup="ops",
             )
         )
     _apply_timeline_layout(figure, yaxis_title="Operations / sec", x_range=x_range)
