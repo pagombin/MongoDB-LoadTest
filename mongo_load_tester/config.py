@@ -192,7 +192,33 @@ class QueryTargetConfig(BaseModel):
         description="Automatically create indexes on query target fields during seeding.",
     )
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_legacy_fields(cls, data: Any) -> Any:
+        """Migrate old flat field lists into the new nested structure."""
+        if not isinstance(data, dict):
+            return data
+        if "read_filter_fields" in data:
+            read = data.setdefault("read", {})
+            if isinstance(read, dict) and not read.get("filter_fields"):
+                read["filter_fields"] = data.pop("read_filter_fields")
+            else:
+                data.pop("read_filter_fields", None)
+        if "update_filter_fields" in data:
+            update = data.setdefault("update", {})
+            if isinstance(update, dict) and not update.get("filter_fields"):
+                update["filter_fields"] = data.pop("update_filter_fields")
+            else:
+                data.pop("update_filter_fields", None)
+        if "delete_filter_fields" in data:
+            delete = data.setdefault("delete", {})
+            if isinstance(delete, dict) and not delete.get("filter_fields"):
+                delete["filter_fields"] = data.pop("delete_filter_fields")
+            else:
+                data.pop("delete_filter_fields", None)
+        return data
 
     @property
     def read_filter_fields(self) -> list[str]:
