@@ -19,6 +19,7 @@ from mongo_load_tester.models import MetricsSnapshot
 CONFIGS_COLLECTION = "load_test_configs"
 EVENTS_COLLECTION = "load_test_events"
 RUNS_COLLECTION = "load_test_runs"
+COLLECTION_SCHEMAS_COLLECTION = "collection_schemas"
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +55,7 @@ class MetadataStore:
         self._configs: Collection = self._database[CONFIGS_COLLECTION]
         self._events: Collection = self._database[EVENTS_COLLECTION]
         self._runs: Collection = self._database[RUNS_COLLECTION]
+        self._collection_schemas: Collection = self._database[COLLECTION_SCHEMAS_COLLECTION]
         self._ensure_indexes()
 
     @property
@@ -250,12 +252,49 @@ class MetadataStore:
             )
         return count
 
+    def save_collection_schema(
+        self, database: str, collection: str, schema_payload: dict[str, Any],
+    ) -> None:
+        """Save or update a per-collection schema override."""
+        now = datetime.now(UTC)
+        target = f"{database}.{collection}"
+        self._collection_schemas.update_one(
+            {"load_test_id": self._load_test_id, "target": target},
+            {
+                "$set": {
+                    "database": database,
+                    "collection": collection,
+                    "schema": schema_payload,
+                    "updated_at": now,
+                },
+                "$setOnInsert": {"load_test_id": self._load_test_id, "target": target, "created_at": now},
+            },
+            upsert=True,
+        )
+
+    def delete_collection_schema(self, database: str, collection: str) -> None:
+        target = f"{database}.{collection}"
+        self._collection_schemas.delete_one(
+            {"load_test_id": self._load_test_id, "target": target},
+        )
+
+    def fetch_collection_schemas(self) -> list[dict[str, Any]]:
+        """Return all per-collection schema overrides for this load test."""
+        cursor = self._collection_schemas.find(
+            {"load_test_id": self._load_test_id},
+            {"_id": 0, "database": 1, "collection": 1, "schema": 1, "updated_at": 1},
+        )
+        return list(cursor)
+
     def _ensure_indexes(self) -> None:
         try:
             self._configs.create_index("load_test_id", unique=True)
             self._events.create_index([("load_test_id", 1), ("created_at", -1)])
             self._runs.create_index([("load_test_id", 1), ("started_at", -1)])
             self._runs.create_index("run_id")
+            self._collection_schemas.create_index(
+                [("load_test_id", 1), ("target", 1)], unique=True,
+            )
         except Exception:
             self._logger.warning(
                 "Failed to create metadata indexes for load_test_id=%s in database=%s "

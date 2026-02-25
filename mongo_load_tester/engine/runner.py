@@ -12,12 +12,13 @@ from datetime import UTC, datetime
 
 from pymongo import MongoClient
 
-from mongo_load_tester.config import AppConfig, OperationMixConfig, RetryConfig
+from mongo_load_tester.config import AppConfig, OperationMixConfig, RetryConfig, SchemaConfig
 from mongo_load_tester.engine.client import build_client
 from mongo_load_tester.engine.executor import MongoOperationExecutor
 from mongo_load_tester.engine.id_registry import DocumentIdRegistry
 from mongo_load_tester.engine.metrics import MetricsStore
 from mongo_load_tester.engine.retry import RetryController, RetryFailure, RetryPolicy
+from mongo_load_tester.workload.registry import SchemaRegistry
 from mongo_load_tester.workload.schema import DocumentGenerator
 from mongo_load_tester.workload.selection import NamespaceSelector, OperationSelector
 
@@ -75,6 +76,7 @@ class LoadTestRunner:
         self._retry_policy = RetryPolicy.from_config(config.retry)
         self._runtime_change_events: deque[RuntimeChangeEvent] = deque(maxlen=120)
         self._scaling_alerts: deque[str] = deque(maxlen=20)
+        self._schema_registry = SchemaRegistry(config.document_schema, config.random_seed)
         self._worker_assignments: list[_WorkerAssignment] = []
         self._running_worker_ids: set[int] = set()
 
@@ -177,6 +179,17 @@ class LoadTestRunner:
             alerts = list(self._scaling_alerts)
             self._scaling_alerts.clear()
             return alerts
+
+    @property
+    def schema_registry(self) -> SchemaRegistry:
+        return self._schema_registry
+
+    def register_collection_schema(self, database: str, collection: str, schema: SchemaConfig) -> None:
+        self._schema_registry.register(database, collection, schema)
+        self._logger.info(
+            "Registered per-collection schema for %s.%s (%d fields).",
+            database, collection, len(schema.fields),
+        )
 
     def snapshot_config(self) -> AppConfig:
         with self._state_lock:
@@ -621,6 +634,7 @@ class LoadTestRunner:
                 rng=rng,
                 retry_policy_provider=self._current_retry_policy,
                 query_targets=self._config.document_schema.query_targets,
+                schema_registry=self._schema_registry,
             )
 
             while not self._stop_event.is_set() and not self._duration_reached() and not assignment.dismissed.is_set():
@@ -679,7 +693,6 @@ class LoadTestRunner:
             log_warning=self._logger.warning,
         )
         namespace_selector = NamespaceSelector(self._config.namespace, rng)
-        generator = DocumentGenerator(self._config.document_schema, rng)
         batch_size = 500
         total_targets = len(namespace_selector.targets)
         self._logger.info(
@@ -690,6 +703,7 @@ class LoadTestRunner:
         )
 
         for target in namespace_selector.targets:
+            generator = self._schema_registry.get_generator(target.database, target.collection, rng)
             remaining = seed_count
             collection = client[target.database][target.collection]
             inserted_for_target = 0

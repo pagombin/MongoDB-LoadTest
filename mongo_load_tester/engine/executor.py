@@ -15,6 +15,7 @@ from mongo_load_tester.config import QueryTargetConfig
 from mongo_load_tester.engine.retry import RetryController, RetryFailure, RetryPolicy
 from mongo_load_tester.engine.id_registry import DocumentIdRegistry
 from mongo_load_tester.models import OperationResult, OperationType
+from mongo_load_tester.workload.registry import SchemaRegistry
 from mongo_load_tester.workload.schema import DocumentGenerator
 from mongo_load_tester.workload.selection import NamespaceSelector, OperationSelector
 
@@ -34,6 +35,7 @@ class MongoOperationExecutor:
         rng: random.Random,
         retry_policy_provider: Callable[[], RetryPolicy] | None = None,
         query_targets: QueryTargetConfig | None = None,
+        schema_registry: SchemaRegistry | None = None,
     ):
         self._client = client
         self._namespace_selector = namespace_selector
@@ -43,6 +45,7 @@ class MongoOperationExecutor:
         self._logger = logger
         self._rng = rng
         self._query_targets = query_targets
+        self._schema_registry = schema_registry
         if retry_policy_provider is not None:
             self._retry_policy_provider = retry_policy_provider
         elif retry_policy is not None:
@@ -141,13 +144,20 @@ class MongoOperationExecutor:
         if found and "_id" in found:
             self._id_registry.add_id(database, coll, found["_id"])
 
+    def _get_generator(self, database: str, coll: str) -> DocumentGenerator:
+        if self._schema_registry is not None:
+            return self._schema_registry.get_generator(database, coll, self._rng)
+        return self._document_generator
+
     def _run_insert(self, collection: Any, database: str, coll: str) -> None:
-        document = self._document_generator.generate_document()
+        gen = self._get_generator(database, coll)
+        document = gen.generate_document()
         inserted = collection.insert_one(document)
         self._id_registry.add_id(database, coll, inserted.inserted_id)
 
     def _run_update(self, collection: Any, database: str, coll: str) -> None:
-        update_fields = self._document_generator.generate_update_fields()
+        gen = self._get_generator(database, coll)
+        update_fields = gen.generate_update_fields()
         if self._use_query_targets and self._query_targets.update_filter_fields:
             query_filter = self._build_field_filter(collection, self._query_targets.update_filter_fields)
             if query_filter:

@@ -1354,8 +1354,23 @@ def create_dashboard(
                                 style={"display": "flex", "justifyContent": "space-between", "alignItems": "center", "marginBottom": "12px"},
                             ),
                             html.Div(
-                                "Add fields to your document schema. Configure each field's name, type, and generation rules.",
-                                style={"fontSize": "12.5px", "color": "#6b7280", "marginBottom": "16px"},
+                                [
+                                    html.Div([
+                                        html.Label("Apply schema to", style={"fontSize": "11px", "fontWeight": "600", "color": "#374151"}),
+                                        dcc.Dropdown(
+                                            id="sb-target-selector",
+                                            options=[{"label": "All collections (default schema)", "value": "__all__"}],
+                                            value="__all__",
+                                            clearable=False,
+                                            style={"fontSize": "13px", "marginTop": "3px"},
+                                        ),
+                                    ], style={"flex": "1"}),
+                                    html.Div(
+                                        id="sb-target-info",
+                                        style={"flex": "1", "fontSize": "11px", "color": "#6b7280", "alignSelf": "end", "paddingBottom": "6px"},
+                                    ),
+                                ],
+                                style={"display": "flex", "gap": "12px", "marginBottom": "14px"},
                             ),
                             html.Div(
                                 [
@@ -2275,6 +2290,8 @@ def create_dashboard(
     @callback(
         Output("schema-builder-overlay", "style"),
         Output("schema-builder-fields", "data"),
+        Output("sb-target-selector", "options"),
+        Output("sb-target-info", "children"),
         Input("open-schema-builder-btn", "n_clicks"),
         Input("close-schema-builder-btn", "n_clicks"),
         Input("sb-cancel-btn", "n_clicks"),
@@ -2295,8 +2312,21 @@ def create_dashboard(
         triggered = ctx.triggered_id
         if triggered == "open-schema-builder-btn":
             fields = current_fields if current_fields else []
-            return _overlay_visible, fields
-        return _overlay_hidden, current_fields or []
+            current_config = controller.current_config()
+            ns = current_config.namespace
+            options = [{"label": "All collections (default schema)", "value": "__all__"}]
+            for db_idx in range(ns.databases):
+                db_name = f"{ns.database_prefix}_{db_idx + 1}"
+                for coll_idx in range(ns.collections_per_database):
+                    coll_name = f"{ns.collection_prefix}_{coll_idx + 1}"
+                    target = f"{db_name}.{coll_name}"
+                    has_custom = runner.schema_registry.has_override(db_name, coll_name)
+                    label = f"{target} (custom)" if has_custom else target
+                    options.append({"label": label, "value": target})
+            overrides = runner.schema_registry.all_overrides()
+            info = f"{len(overrides)} collection(s) with custom schemas" if overrides else "All collections use the default schema"
+            return _overlay_visible, fields, options, info
+        return _overlay_hidden, current_fields or [], no_update, no_update
 
     @callback(
         Output("sb-rule-inputs", "children"),
@@ -2457,9 +2487,10 @@ def create_dashboard(
         Output("schema-validation-feedback", "children", allow_duplicate=True),
         Input("sb-save-btn", "n_clicks"),
         State("schema-builder-fields", "data"),
+        State("sb-target-selector", "value"),
         prevent_initial_call=True,
     )
-    def save_schema_from_builder(n_clicks, fields):
+    def save_schema_from_builder(n_clicks, fields, target_value):
         if not n_clicks:
             raise PreventUpdate
         fields = fields or []
@@ -2469,11 +2500,30 @@ def create_dashboard(
         payload = {"fields": schema_fields}
         json_str = json.dumps(payload, indent=2, sort_keys=False)
         try:
-            _parse_schema_config(json_str)
+            schema = _parse_schema_config(json_str)
         except ValueError as exc:
             return no_update, no_update, _feedback_error(f"Generated schema is invalid: {exc}")
+        target = target_value or "__all__"
+        if target != "__all__":
+            parts = target.split(".", 1)
+            if len(parts) == 2:
+                db_name, coll_name = parts
+                runner.register_collection_schema(db_name, coll_name, schema)
+                if metadata_store is not None:
+                    metadata_store.save_collection_schema(
+                        db_name, coll_name, schema.model_dump(mode="json"),
+                    )
+                    metadata_store.append_event(
+                        event_type="collection_schema_saved",
+                        message=f"Per-collection schema saved for {target}.",
+                        payload={"target": target, "field_count": len(schema.fields)},
+                    )
         hidden_style = {"display": "none"}
-        return json_str, hidden_style, _feedback_info(f"Schema builder applied {len(schema_fields)} field(s).")
+        if target != "__all__":
+            msg = f"Schema with {len(schema_fields)} field(s) saved for {target}."
+        else:
+            msg = f"Default schema applied with {len(schema_fields)} field(s)."
+        return json_str, hidden_style, _feedback_info(msg)
 
     @callback(
         Output("schema-builder-fields", "data", allow_duplicate=True),

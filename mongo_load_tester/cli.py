@@ -8,7 +8,7 @@ from pathlib import Path
 import typer
 import yaml
 
-from mongo_load_tester.config import default_config, load_config
+from mongo_load_tester.config import SchemaConfig, default_config, load_config
 from mongo_load_tester.dashboard.app import create_dashboard
 from mongo_load_tester.engine.control import LoadTestController
 from mongo_load_tester.engine.metrics import MetricsStore
@@ -74,6 +74,7 @@ def run_load_test(
     controller.apply_config(app_config, source="startup")
     if metadata_store is None:
         raise RuntimeError("Metadata store was not initialized during startup.")
+    _load_collection_schemas(metadata_store, runner, logger)
     sync_service = ConfigSyncService(
         metadata_store=metadata_store,
         controller=controller,
@@ -186,6 +187,34 @@ def init_config(
         typer.echo(f"Failed to write starter config: {exc}")
         raise typer.Exit(code=1)
     typer.echo(f"Wrote starter config: {output}")
+
+
+def _load_collection_schemas(
+    metadata_store: MetadataStore,
+    runner: LoadTestRunner,
+    logger: logging.Logger,
+) -> None:
+    """Load per-collection schema overrides from metadata into the runner's registry."""
+    try:
+        docs = metadata_store.fetch_collection_schemas()
+        for doc in docs:
+            db = doc.get("database", "")
+            coll = doc.get("collection", "")
+            raw_schema = doc.get("schema")
+            if not db or not coll or not raw_schema:
+                continue
+            try:
+                schema = SchemaConfig.model_validate(raw_schema)
+                runner.register_collection_schema(db, coll, schema)
+            except Exception as exc:
+                logger.warning(
+                    "Skipping invalid per-collection schema for %s.%s: %s",
+                    db, coll, exc,
+                )
+        if docs:
+            logger.info("Loaded %d per-collection schema override(s) from metadata.", len(docs))
+    except Exception:
+        logger.warning("Failed to load per-collection schemas from metadata.", exc_info=True)
 
 
 def main() -> None:
