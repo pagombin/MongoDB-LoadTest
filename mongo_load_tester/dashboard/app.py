@@ -879,7 +879,14 @@ def create_dashboard(
                                         "Apply configuration",
                                         id="apply-static-config-btn",
                                         n_clicks=0,
-                                        style={**_BTN_BASE, "border": "none", "background": "#059669", "color": "white", "marginRight": "8px"},
+                                        style={**_BTN_BASE, "border": "none", "background": "#059669", "color": "white"},
+                                    ),
+                                    html.Button(
+                                        "Reset to defaults",
+                                        id="reset-run-config-btn",
+                                        n_clicks=0,
+                                        title="Reset all Run Configuration values and the Schema Builder to the original config file defaults.",
+                                        style={**_BTN_BASE, "border": "1px solid #f87171", "background": "#fef2f2", "color": "#dc2626"},
                                     ),
                                 ],
                                 style={"marginTop": "12px", "display": "flex", "alignItems": "center", "gap": "8px"},
@@ -2230,6 +2237,70 @@ def create_dashboard(
             logger.exception("Static config callback failed.")
             message = f"Static config action failed: {exc}"
             return _feedback_error(message), message
+
+    @callback(
+        Output("namespace-db-prefix-input", "value", allow_duplicate=True),
+        Output("namespace-collection-prefix-input", "value", allow_duplicate=True),
+        Output("namespace-databases-input", "value", allow_duplicate=True),
+        Output("namespace-collections-input", "value", allow_duplicate=True),
+        Output("initial-seed-input", "value", allow_duplicate=True),
+        Output("ramp-up-seconds-input", "value", allow_duplicate=True),
+        Output("schema-fields-json-input", "value", allow_duplicate=True),
+        Output("static-config-feedback", "children", allow_duplicate=True),
+        Output("schema-validation-feedback", "children", allow_duplicate=True),
+        Output("schema-builder-fields", "data", allow_duplicate=True),
+        Input("reset-run-config-btn", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def reset_run_config_to_defaults(n_clicks: int):
+        if not n_clicks:
+            raise PreventUpdate
+        defaults = default_config()
+        default_schema_json = _schema_config_to_json(defaults.document_schema)
+
+        overrides = runner.schema_registry.all_overrides()
+        if overrides and metadata_store is not None:
+            for (db, coll) in overrides:
+                metadata_store.delete_collection_schema(db, coll)
+            logger.info("Cleared %d per-collection schema override(s) from metadata.", len(overrides))
+
+        runner._schema_registry = __import__(
+            "mongo_load_tester.workload.registry", fromlist=["SchemaRegistry"]
+        ).SchemaRegistry(defaults.document_schema, defaults.random_seed)
+
+        if runner.is_running:
+            run_state["staged_static_snapshot"] = _static_config_snapshot(defaults)
+            if metadata_store is not None:
+                persist_metadata_config("reset-run-config-defaults-staged", config_override=defaults, mark_synced=False)
+            feedback = _feedback_warning(
+                "Run Configuration and Schema Builder reset to defaults. "
+                "Changes are staged for the next run (current test is unaffected). "
+                "Per-collection schema overrides have been cleared."
+            )
+        else:
+            controller.apply_config(defaults, source="dashboard-reset-run-config")
+            run_state["staged_static_snapshot"] = None
+            run_state["startup_static_baseline"] = _static_config_snapshot(defaults)
+            if metadata_store is not None:
+                persist_metadata_config("reset-run-config-defaults")
+            feedback = _feedback_info(
+                "Run Configuration and Schema Builder reset to config file defaults. "
+                "Per-collection schema overrides have been cleared. "
+                "Click Start to begin with these settings."
+            )
+
+        return (
+            defaults.namespace.database_prefix,
+            defaults.namespace.collection_prefix,
+            defaults.namespace.databases,
+            defaults.namespace.collections_per_database,
+            defaults.load.initial_seed_per_collection,
+            defaults.load.ramp_up_seconds,
+            default_schema_json,
+            feedback,
+            "",
+            [],
+        )
 
     @callback(
         Output("schema-validation-feedback", "children"),
