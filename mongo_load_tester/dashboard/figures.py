@@ -57,7 +57,9 @@ def _apply_timeline_layout(
         showgrid=True, gridcolor="#eef2f7", gridwidth=1,
         zeroline=False, tickfont={"size": 10, "color": "#6b7280"},
         showline=True, linewidth=1, linecolor="#e2e8f0",
+        rangeslider={"visible": False},
     )
+    figure.update_layout(dragmode="zoom")
     figure.update_yaxes(
         rangemode="tozero", showgrid=True, gridcolor="#eef2f7", gridwidth=1,
         tickfont={"size": 10, "color": "#6b7280"},

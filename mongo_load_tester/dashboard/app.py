@@ -1295,6 +1295,7 @@ def create_dashboard(
                 ],
                 style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "1fr", "gap": "12px"},
             ),
+            html.Div(id="charts-worker-notice", style={"display": "none"}),
             html.Div("Throughput & Users", style=_SECTION_HEADER_STYLE),
             html.Div(
                 [
@@ -1481,6 +1482,16 @@ def create_dashboard(
                     "boxShadow": "inset 0 2px 4px rgba(0,0,0,0.15)",
                 },
             ),
+            dcc.ConfirmDialog(
+                id="confirm-reset-defaults",
+                message=(
+                    "This will reset ALL settings to their config file defaults.\n\n"
+                    "If a load test is currently running, it will be STOPPED and all "
+                    "metrics will be cleared.\n\n"
+                    "Per-collection schema overrides will also be removed.\n\n"
+                    "Do you want to continue?"
+                ),
+            ),
             dcc.Download(id="download-csv"),
             dcc.Download(id="download-png"),
             dcc.Download(id="download-pdf"),
@@ -1664,6 +1675,7 @@ def create_dashboard(
             filter_reference = snapshot.generated_at if runner.is_running else runner.finished_at
             filtered_snapshot = _filter_snapshot_timeline(snapshot, window_seconds, reference_time=filter_reference)
             filtered_snapshot = _remove_incomplete_live_second(filtered_snapshot, runner.is_running)
+            filtered_snapshot = _downsample_timeline(filtered_snapshot)
             x_range = _timeline_x_range(
                 window_seconds, snapshot.generated_at, runner.started_at,
                 is_running=runner.is_running, finished_at=runner.finished_at,
@@ -1853,6 +1865,31 @@ def create_dashboard(
             "border": "1px solid #c4b5fd",
         }
         return content, panel_style
+
+    @callback(
+        Output("charts-worker-notice", "children"),
+        Output("charts-worker-notice", "style"),
+        Input("refresh", "n_intervals"),
+    )
+    def refresh_charts_worker_notice(_: int):
+        agg = _get_cached_aggregation()
+        if agg and agg.get("worker_count", 0) > 1:
+            return (
+                html.Div([
+                    html.Span("Note: ", style={"fontWeight": "700"}),
+                    "Timeline charts below reflect the ",
+                    html.Span("leader's local metrics", style={"fontWeight": "600"}),
+                    " only. KPIs (Total ops, Ops/sec, etc.) and the Worker Registry show ",
+                    html.Span("aggregated data across all workers", style={"fontWeight": "600"}),
+                    ".",
+                ], style={"fontSize": "12px"}),
+                {
+                    "marginTop": "12px", "padding": "10px 14px",
+                    "background": "#ede9fe", "border": "1px solid #c4b5fd",
+                    "borderRadius": "10px", "color": "#5b21b6",
+                },
+            )
+        return "", {"display": "none"}
 
     _SCALING_ALERT_DISPLAY_SECONDS = 8
     _scaling_alert_state: dict[str, object] = {"messages": [], "show_until": 0.0}
@@ -2313,6 +2350,8 @@ def create_dashboard(
                     run_id = metadata_store.record_run_started(config_version=config_version)
                     run_state["active_run_id"] = run_id
                     run_state["last_run_finished_at"] = None
+                    metadata_store.set_workload_state("STARTED", run_id=run_id)
+                    metadata_store.heartbeat_worker("leader", "running")
                 if restarted:
                     run_state["run_static_baseline"] = _static_config_snapshot(controller.current_config())
                     run_state["staged_static_snapshot"] = None
@@ -3042,6 +3081,16 @@ def create_dashboard(
         )
 
     @callback(
+        Output("confirm-reset-defaults", "displayed"),
+        Input("reset-defaults-btn", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def show_reset_confirm(n_clicks):
+        if not n_clicks:
+            raise PreventUpdate
+        return True
+
+    @callback(
         Output("duration-seconds-input", "value"),
         Output("target-users-input", "value"),
         Output("worker-threads-input", "value"),
@@ -3070,85 +3119,50 @@ def create_dashboard(
         Output("schema-fields-json-input", "value"),
         Output("control-feedback", "children", allow_duplicate=True),
         Output("static-config-feedback", "children", allow_duplicate=True),
-        Input("reset-defaults-btn", "n_clicks"),
+        Input("confirm-reset-defaults", "submit_n_clicks"),
         prevent_initial_call=True,
     )
-    def reset_all_settings_to_defaults(reset_clicks: int):
-        if not reset_clicks:
+    def reset_all_settings_to_defaults(submit_clicks):
+        if not submit_clicks:
             raise PreventUpdate
         try:
             defaults = default_config()
-            if runner.is_running:
-                # Live-safe controls apply now; static controls are staged for next run.
-                controller.update_duration_seconds(defaults.load.duration_seconds)
-                controller.update_target_virtual_users(defaults.load.virtual_users)
-                controller.update_worker_threads(defaults.load.worker_threads)
-                controller.update_pacing(
-                    think_time_ms_min=defaults.load.think_time_ms_min,
-                    think_time_ms_max=defaults.load.think_time_ms_max,
-                    target_ops_per_user_per_sec=defaults.load.target_ops_per_user_per_sec,
-                )
-                controller.update_operation_mix(
-                    read=defaults.operation_mix.read,
-                    insert=defaults.operation_mix.insert,
-                    update=defaults.operation_mix.update,
-                    delete=defaults.operation_mix.delete,
-                    find_and_modify=defaults.operation_mix.find_and_modify,
-                )
-                controller.update_retry_policy(
-                    max_attempts=defaults.retry.max_attempts,
-                    initial_backoff_ms=defaults.retry.initial_backoff_ms,
-                    max_backoff_ms=defaults.retry.max_backoff_ms,
-                    backoff_multiplier=defaults.retry.backoff_multiplier,
-                    jitter_ratio=defaults.retry.jitter_ratio,
-                )
-                controller.update_runtime_logging(
-                    level_name=defaults.logging.level,
-                    progress_log_interval_seconds=defaults.logging.progress_log_interval_seconds,
-                    log_operation_failures=defaults.logging.log_operation_failures,
-                )
-                staged_config = controller.current_config()
-                staged_config.namespace = defaults.namespace.model_copy(deep=True)
-                staged_config.document_schema = defaults.document_schema.model_copy(deep=True)
-                staged_config.load.initial_seed_per_collection = defaults.load.initial_seed_per_collection
-                staged_config.load.ramp_up_seconds = defaults.load.ramp_up_seconds
-                run_state["staged_static_snapshot"] = _static_config_snapshot(staged_config)
-                persist_metadata_config(
-                    "reset-all-defaults-running",
-                    config_override=staged_config,
-                    mark_synced=False,
-                )
-                message = (
-                    "Live defaults applied now; static defaults are staged for next run and metadata updated."
-                )
-                static_message = (
-                    "Defaults staged for next run while load test is active (namespace/schema/seed/ramp-up)."
-                )
+            was_running = runner.is_running
+            if was_running:
+                controller.stop()
+                controller.join(timeout=10)
+                if metadata_store is not None:
+                    metadata_store.set_workload_state("STOPPED")
+                    metadata_store.heartbeat_worker("leader", "idle")
+                metrics_store.reset()
+                run_state["active_run_id"] = None
+                run_state["last_run_finished_at"] = None
+
+            config_for_reset = controller.current_config()
+            config_for_reset.load.duration_seconds = defaults.load.duration_seconds
+            config_for_reset.load.virtual_users = defaults.load.virtual_users
+            config_for_reset.load.worker_threads = defaults.load.worker_threads
+            config_for_reset.load.think_time_ms_min = defaults.load.think_time_ms_min
+            config_for_reset.load.think_time_ms_max = defaults.load.think_time_ms_max
+            config_for_reset.load.target_ops_per_user_per_sec = defaults.load.target_ops_per_user_per_sec
+            config_for_reset.load.initial_seed_per_collection = defaults.load.initial_seed_per_collection
+            config_for_reset.load.ramp_up_seconds = defaults.load.ramp_up_seconds
+            config_for_reset.operation_mix = defaults.operation_mix.model_copy(deep=True)
+            config_for_reset.retry = defaults.retry.model_copy(deep=True)
+            config_for_reset.logging.level = defaults.logging.level
+            config_for_reset.logging.progress_log_interval_seconds = defaults.logging.progress_log_interval_seconds
+            config_for_reset.logging.log_operation_failures = defaults.logging.log_operation_failures
+            config_for_reset.namespace = defaults.namespace.model_copy(deep=True)
+            config_for_reset.document_schema = defaults.document_schema.model_copy(deep=True)
+            controller.apply_config(config_for_reset, source="dashboard-reset-defaults")
+            run_state["staged_static_snapshot"] = None
+            run_state["startup_static_baseline"] = _static_config_snapshot(config_for_reset)
+            persist_metadata_config("reset-all-defaults")
+            if was_running:
+                message = "Load test stopped. All settings reset to defaults and metrics cleared."
             else:
-                config_for_reset = controller.current_config()
-                config_for_reset.load.duration_seconds = defaults.load.duration_seconds
-                config_for_reset.load.virtual_users = defaults.load.virtual_users
-                config_for_reset.load.worker_threads = defaults.load.worker_threads
-                config_for_reset.load.think_time_ms_min = defaults.load.think_time_ms_min
-                config_for_reset.load.think_time_ms_max = defaults.load.think_time_ms_max
-                config_for_reset.load.target_ops_per_user_per_sec = defaults.load.target_ops_per_user_per_sec
-                config_for_reset.load.initial_seed_per_collection = defaults.load.initial_seed_per_collection
-                config_for_reset.load.ramp_up_seconds = defaults.load.ramp_up_seconds
-                config_for_reset.operation_mix = defaults.operation_mix.model_copy(deep=True)
-                config_for_reset.retry = defaults.retry.model_copy(deep=True)
-                config_for_reset.logging.level = defaults.logging.level
-                config_for_reset.logging.progress_log_interval_seconds = defaults.logging.progress_log_interval_seconds
-                config_for_reset.logging.log_operation_failures = defaults.logging.log_operation_failures
-                config_for_reset.namespace = defaults.namespace.model_copy(deep=True)
-                config_for_reset.document_schema = defaults.document_schema.model_copy(deep=True)
-                controller.apply_config(config_for_reset, source="dashboard-reset-defaults")
-                run_state["staged_static_snapshot"] = None
-                persist_metadata_config("reset-all-defaults")
-                message = "All configurable settings were reset to defaults and metadata has been updated."
-                static_message = (
-                    "Defaults restored. Static namespace/schema/seed/ramp-up values are staged "
-                    "according to current run state."
-                )
+                message = "All settings reset to defaults and metadata updated."
+            static_message = "Defaults restored. Click Start when ready."
             schema_json = _schema_config_to_json(defaults.document_schema)
             return (
                 defaults.load.duration_seconds,
@@ -3628,6 +3642,17 @@ def _filter_snapshot_timeline(
     cutoff = ref - timedelta(seconds=window_seconds)
     filtered = [point for point in snapshot.timeline if point.second >= cutoff]
     return replace(snapshot, timeline=filtered)
+
+
+def _downsample_timeline(snapshot: MetricsSnapshot, max_points: int = 600) -> MetricsSnapshot:
+    """Reduce timeline density for longer timeframes to keep charts responsive."""
+    if len(snapshot.timeline) <= max_points:
+        return snapshot
+    step = max(1, len(snapshot.timeline) // max_points)
+    downsampled = snapshot.timeline[::step]
+    if snapshot.timeline and snapshot.timeline[-1] not in downsampled:
+        downsampled.append(snapshot.timeline[-1])
+    return replace(snapshot, timeline=downsampled)
 
 
 def _filter_snapshot_to_run_start(snapshot: MetricsSnapshot, run_started_at: datetime | None) -> MetricsSnapshot:
