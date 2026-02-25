@@ -34,6 +34,7 @@ def _apply_timeline_layout(
         title=None,
         xaxis={"title": x_title, "title_standoff": 0 if not x_title else 16},
         yaxis_title=yaxis_title,
+        yaxis_title_font={"size": 12, "color": "#4b5563"},
         template="plotly_white",
         legend=dict(
             orientation="h",
@@ -41,17 +42,27 @@ def _apply_timeline_layout(
             y=1.02,
             xanchor="left",
             x=0,
-            bgcolor="rgba(255,255,255,0.72)",
+            bgcolor="rgba(255,255,255,0.85)",
             bordercolor="#e5e7eb",
             borderwidth=1,
+            font={"size": 11},
         ),
         hovermode="x unified",
-        margin={"l": 42, "r": 20, "t": 44, "b": bottom_margin},
-        plot_bgcolor="#f8fafc",
+        hoverlabel={"bgcolor": "white", "bordercolor": "#d1d5db", "font_size": 12},
+        margin={"l": 50, "r": 24, "t": 36, "b": bottom_margin},
+        plot_bgcolor="#fafbff",
         paper_bgcolor="white",
     )
-    figure.update_xaxes(showgrid=True, gridcolor="#e2e8f0", zeroline=False, tickfont={"size": 11})
-    figure.update_yaxes(rangemode="tozero", showgrid=True, gridcolor="#e2e8f0")
+    figure.update_xaxes(
+        showgrid=True, gridcolor="#eef2f7", gridwidth=1,
+        zeroline=False, tickfont={"size": 10, "color": "#6b7280"},
+        showline=True, linewidth=1, linecolor="#e2e8f0",
+    )
+    figure.update_yaxes(
+        rangemode="tozero", showgrid=True, gridcolor="#eef2f7", gridwidth=1,
+        tickfont={"size": 10, "color": "#6b7280"},
+        showline=True, linewidth=1, linecolor="#e2e8f0",
+    )
     if x_range is not None:
         figure.update_xaxes(range=list(x_range))
 

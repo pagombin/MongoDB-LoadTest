@@ -1070,6 +1070,113 @@ def create_dashboard(
                 ],
                 style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "1.25fr 0.75fr", "gap": "12px"},
             ),
+            html.Details(
+                [
+                    html.Summary(
+                        [
+                            html.Span("Operation Targeting", style={"fontWeight": "700", "fontSize": "14px", "color": "#1e1b4b"}),
+                            html.Span(
+                                " — configure how reads, updates, deletes, and findAndModify find and modify documents",
+                                style={"fontSize": "12px", "color": "#6b7280", "fontWeight": "400"},
+                            ),
+                        ],
+                        style={"cursor": "pointer", "listStyle": "none"},
+                    ),
+                    html.Div(
+                        [
+                            html.Div(
+                                [
+                                    html.Span("Enable query targeting", style={"fontSize": "12.5px", "fontWeight": "600", "color": "#374151"}),
+                                    html.Span(
+                                        " — when enabled, operations filter on specific fields instead of _id. Configure per-operation rules below.",
+                                        style={"fontSize": "12px", "color": "#6b7280"},
+                                    ),
+                                ],
+                                style={"marginBottom": "10px"},
+                            ),
+                            html.Div(
+                                "Paste or edit the query_targets JSON. This is part of your schema config and is saved when you Apply Configuration or save from the Schema Builder.",
+                                style={"fontSize": "11.5px", "color": "#9ca3af", "marginBottom": "8px"},
+                            ),
+                            dcc.Textarea(
+                                id="op-targeting-json-input",
+                                value=json.dumps(_default_query_targets_payload(config), indent=2),
+                                style={
+                                    "width": "100%", "height": "240px", "padding": "10px",
+                                    "borderRadius": "8px", "border": "1px solid #d1d5db",
+                                    "fontFamily": "'JetBrains Mono', Menlo, Consolas, monospace",
+                                    "fontSize": "11.5px", "lineHeight": "1.5",
+                                },
+                            ),
+                            html.Div(
+                                [
+                                    html.Button(
+                                        "Apply targeting", id="apply-op-targeting-btn", n_clicks=0,
+                                        style={**_BTN_BASE, "border": "none", "background": "#4f46e5", "color": "white"},
+                                    ),
+                                    html.Button(
+                                        "Validate", id="validate-op-targeting-btn", n_clicks=0,
+                                        style={**_BTN_BASE, "border": "1px solid #6366f1", "background": "#eef2ff", "color": "#4338ca"},
+                                    ),
+                                    html.Button(
+                                        "Reset to defaults", id="reset-op-targeting-btn", n_clicks=0,
+                                        style={**_BTN_BASE, "border": "1px solid #d1d5db", "background": "#f9fafb", "color": "#6b7280"},
+                                    ),
+                                ],
+                                style={"marginTop": "8px", "display": "flex", "gap": "8px"},
+                            ),
+                            html.Div(id="op-targeting-feedback", style={"marginTop": "6px", "fontSize": "12px"}),
+                            html.Details(
+                                [
+                                    html.Summary("Operation targeting reference", style={"cursor": "pointer", "fontWeight": "600", "color": "#4338ca", "fontSize": "12px"}),
+                                    html.Div([
+                                        html.Pre(
+                                            '{\n'
+                                            '  "enabled": true,\n'
+                                            '  "read": {\n'
+                                            '    "filter_fields": ["tenant_id", "status"],\n'
+                                            '    "projection_fields": ["order_total", "status"],\n'
+                                            '    "sort_field": "updated_at", "sort_direction": "desc"\n'
+                                            '  },\n'
+                                            '  "update": {\n'
+                                            '    "filter_fields": ["tenant_id"],\n'
+                                            '    "operators": {\n'
+                                            '      "set_fields": ["status"],\n'
+                                            '      "inc_fields": ["priority"],\n'
+                                            '      "current_date_fields": ["updated_at"]\n'
+                                            '    }\n'
+                                            '  },\n'
+                                            '  "delete": { "filter_fields": ["status"] },\n'
+                                            '  "find_and_modify": {\n'
+                                            '    "filter_fields": ["tenant_id"],\n'
+                                            '    "operators": { "set_fields": ["status"], "current_date_fields": ["updated_at"] },\n'
+                                            '    "sort_field": "priority", "sort_direction": "asc",\n'
+                                            '    "return_updated": true, "upsert": false\n'
+                                            '  },\n'
+                                            '  "create_indexes": true\n'
+                                            '}',
+                                            style=_PRE_STYLE,
+                                        ),
+                                        html.Div("Update operators", style={"fontWeight": "700", "marginTop": "8px", "color": "#1e1b4b", "fontSize": "12px"}),
+                                        html.Ul([
+                                            html.Li([html.Code("set_fields"), " — $set with generated values from your schema"]),
+                                            html.Li([html.Code("inc_fields"), " — $inc by random 1-10 (numeric fields)"]),
+                                            html.Li([html.Code("unset_fields"), " — $unset to remove fields"]),
+                                            html.Li([html.Code("push_fields"), " — $push generated value onto arrays"]),
+                                            html.Li([html.Code("current_date_fields"), " — $currentDate for timestamps"]),
+                                        ], style={"fontSize": "11px", "paddingLeft": "16px", "marginTop": "2px", "lineHeight": "1.6"}),
+                                    ]),
+                                ],
+                                style={"marginTop": "10px"},
+                                open=False,
+                            ),
+                        ],
+                        style={"marginTop": "10px"},
+                    ),
+                ],
+                style={**CARD_STYLE, "marginTop": "12px"},
+                open=False,
+            ),
             html.Div(
                 [
                     html.Div(id="live-controls-meta", style={"fontSize": "12px", "color": "#4c1d95"}),
@@ -2303,6 +2410,74 @@ def create_dashboard(
         )
 
     @callback(
+        Output("op-targeting-feedback", "children"),
+        Output("schema-fields-json-input", "value", allow_duplicate=True),
+        Input("apply-op-targeting-btn", "n_clicks"),
+        State("op-targeting-json-input", "value"),
+        State("schema-fields-json-input", "value"),
+        prevent_initial_call=True,
+    )
+    def apply_op_targeting(n_clicks, targeting_json, current_schema_json):
+        if not n_clicks:
+            raise PreventUpdate
+        try:
+            raw = json.loads(targeting_json or "{}")
+            from mongo_load_tester.config import QueryTargetConfig as QTC
+            qt = QTC.model_validate(raw)
+        except Exception as exc:
+            return _feedback_error(f"Invalid targeting config: {exc}"), no_update
+        try:
+            schema = _parse_schema_config(current_schema_json)
+        except Exception:
+            schema = default_config().document_schema
+        schema_dict = schema.model_dump(mode="json")
+        schema_dict["query_targets"] = qt.model_dump(mode="json")
+        new_schema = SchemaConfig.model_validate(schema_dict)
+        if not runner.is_running:
+            cfg = controller.current_config()
+            cfg.document_schema = new_schema
+            controller.apply_config(cfg, source="dashboard-op-targeting")
+            persist_metadata_config("apply-op-targeting")
+        new_json = _schema_config_to_json(new_schema)
+        enabled_text = "enabled" if qt.enabled else "disabled"
+        return (
+            _feedback_info(f"Operation targeting {enabled_text} and saved."),
+            new_json,
+        )
+
+    @callback(
+        Output("op-targeting-feedback", "children", allow_duplicate=True),
+        Input("validate-op-targeting-btn", "n_clicks"),
+        State("op-targeting-json-input", "value"),
+        prevent_initial_call=True,
+    )
+    def validate_op_targeting(n_clicks, targeting_json):
+        if not n_clicks:
+            raise PreventUpdate
+        try:
+            raw = json.loads(targeting_json or "{}")
+            from mongo_load_tester.config import QueryTargetConfig as QTC
+            QTC.model_validate(raw)
+            return _feedback_info("Operation targeting configuration is valid.")
+        except json.JSONDecodeError as exc:
+            return _feedback_error(f"Invalid JSON: {exc}")
+        except Exception as exc:
+            return _feedback_error(f"Validation failed: {exc}")
+
+    @callback(
+        Output("op-targeting-json-input", "value"),
+        Output("op-targeting-feedback", "children", allow_duplicate=True),
+        Input("reset-op-targeting-btn", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def reset_op_targeting(n_clicks):
+        if not n_clicks:
+            raise PreventUpdate
+        defaults = default_config()
+        payload = _default_query_targets_payload(defaults)
+        return json.dumps(payload, indent=2), _feedback_info("Operation targeting reset to defaults (disabled).")
+
+    @callback(
         Output("schema-validation-feedback", "children"),
         Input("validate-schema-btn", "n_clicks"),
         State("schema-fields-json-input", "value"),
@@ -2990,6 +3165,11 @@ def _metric_card(label: str, value_id: str, theme: tuple[str, str], tooltip: str
             "minHeight": "78px",
         },
     )
+
+
+def _default_query_targets_payload(cfg: AppConfig) -> dict:
+    qt = cfg.document_schema.query_targets
+    return qt.model_dump(mode="json", exclude_defaults=False)
 
 
 _PRE_STYLE = {
