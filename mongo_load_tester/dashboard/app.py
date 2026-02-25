@@ -2077,7 +2077,7 @@ def create_dashboard(
     )
     def refresh_live_control_state_legacy(_: int):
         duration, target_users, read_write_mix, live_meta, events = refresh_live_control_state(_)
-        max_users, worker_threads = refresh_capacity_chips(_)
+        max_users, worker_threads, _ns = refresh_capacity_chips(_)
         return (
             duration,
             max_users,
