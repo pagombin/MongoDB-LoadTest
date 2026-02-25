@@ -26,6 +26,7 @@ class OperationSelector:
             OperationType.INSERT,
             OperationType.UPDATE,
             OperationType.DELETE,
+            OperationType.FIND_AND_MODIFY,
         ]
         self._weights: list[float] = self._build_weights(operation_mix.normalized())
         self._cached_mix_id: int | None = None
@@ -46,6 +47,7 @@ class OperationSelector:
             normalized["insert"],
             normalized["update"],
             normalized["delete"],
+            normalized.get("find_and_modify", 0.0),
         ]
 
 

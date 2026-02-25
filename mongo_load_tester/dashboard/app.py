@@ -648,8 +648,14 @@ def create_dashboard(
                                         config.operation_mix.delete,
                                         tooltip="Relative delete weight for cleanup/delete scenarios.",
                                     ),
+                                    _weighted_input(
+                                        "Find & Modify",
+                                        "mix-fam-input",
+                                        config.operation_mix.find_and_modify,
+                                        tooltip="Relative weight for findAndModify (atomic find+update). Configure targeting in the Schema Builder.",
+                                    ),
                                 ],
-                                style={"display": "grid", "gridTemplateColumns": "repeat(2, 1fr)", "gap": "8px", "marginTop": "8px"},
+                                style={"display": "grid", "gridTemplateColumns": "repeat(3, 1fr)", "gap": "8px", "marginTop": "8px"},
                             ),
                             html.Button(
                                 "Apply operation mix",
@@ -1925,6 +1931,7 @@ def create_dashboard(
         State("mix-insert-input", "value"),
         State("mix-update-input", "value"),
         State("mix-delete-input", "value"),
+        State("mix-fam-input", "value"),
         State("retry-max-attempts-input", "value"),
         State("retry-initial-backoff-input", "value"),
         State("retry-max-backoff-input", "value"),
@@ -1955,6 +1962,7 @@ def create_dashboard(
         mix_insert_value: float,
         mix_update_value: float,
         mix_delete_value: float,
+        mix_fam_value: float,
         retry_max_attempts_value: int,
         retry_initial_backoff_value: int,
         retry_max_backoff_value: int,
@@ -2089,11 +2097,13 @@ def create_dashboard(
                     raise PreventUpdate
                 if None in (mix_read_value, mix_insert_value, mix_update_value, mix_delete_value):
                     return _feedback_warning("All operation mix values are required.")
+                fam = float(mix_fam_value or 0)
                 normalized = controller.update_operation_mix(
                     read=float(mix_read_value),
                     insert=float(mix_insert_value),
                     update=float(mix_update_value),
                     delete=float(mix_delete_value),
+                    find_and_modify=fam,
                 )
                 persist_metadata_config("apply-operation-mix")
                 return _feedback_info(
@@ -2101,7 +2111,8 @@ def create_dashboard(
                     f"read {normalized['read'] * 100:.1f}%, "
                     f"insert {normalized['insert'] * 100:.1f}%, "
                     f"update {normalized['update'] * 100:.1f}%, "
-                    f"delete {normalized['delete'] * 100:.1f}%."
+                    f"delete {normalized['delete'] * 100:.1f}%, "
+                    f"findAndModify {normalized.get('find_and_modify', 0) * 100:.1f}%."
                 )
             if triggered == "apply-resilience-controls-btn":
                 if not apply_resilience_clicks:
@@ -2641,6 +2652,7 @@ def create_dashboard(
         Output("mix-insert-input", "value"),
         Output("mix-update-input", "value"),
         Output("mix-delete-input", "value"),
+        Output("mix-fam-input", "value"),
         Output("retry-max-attempts-input", "value"),
         Output("retry-initial-backoff-input", "value"),
         Output("retry-max-backoff-input", "value"),
@@ -2681,6 +2693,7 @@ def create_dashboard(
                     insert=defaults.operation_mix.insert,
                     update=defaults.operation_mix.update,
                     delete=defaults.operation_mix.delete,
+                    find_and_modify=defaults.operation_mix.find_and_modify,
                 )
                 controller.update_retry_policy(
                     max_attempts=defaults.retry.max_attempts,
@@ -2752,6 +2765,7 @@ def create_dashboard(
                 defaults.operation_mix.insert,
                 defaults.operation_mix.update,
                 defaults.operation_mix.delete,
+                defaults.operation_mix.find_and_modify,
                 defaults.retry.max_attempts,
                 defaults.retry.initial_backoff_ms,
                 defaults.retry.max_backoff_ms,
@@ -3075,7 +3089,7 @@ def _compact_number_input(
 
 
 def _build_operation_table(snapshot: MetricsSnapshot) -> html.Table:
-    operations = ("read", "insert", "update", "delete")
+    operations = ("read", "insert", "update", "delete", "find_and_modify")
     total_ops = snapshot.total_ops
     cell_style = {"padding": "8px", "borderBottom": "1px solid #ddd6fe"}
     rows: list[html.Tr] = []

@@ -9,7 +9,7 @@ from mongo_load_tester.workload.selection import NamespaceSelector, OperationSel
 
 def test_operation_selector_single_weight() -> None:
     selector = OperationSelector(
-        operation_mix=OperationMixConfig(read=0, insert=1, update=0, delete=0),
+        operation_mix=OperationMixConfig(read=0, insert=1, update=0, delete=0, find_and_modify=0),
         rng=random.Random(123),
     )
     picks = [selector.choose() for _ in range(200)]
@@ -35,19 +35,19 @@ def test_namespace_selector_builds_full_cartesian_set() -> None:
 
 
 def test_operation_selector_uses_live_mix_provider() -> None:
-    mix = OperationMixConfig(read=1, insert=0, update=0, delete=0)
+    mix = OperationMixConfig(read=1, insert=0, update=0, delete=0, find_and_modify=0)
 
     def provider() -> OperationMixConfig:
         return mix
 
     selector = OperationSelector(
-        operation_mix=OperationMixConfig(read=0, insert=1, update=0, delete=0),
+        operation_mix=OperationMixConfig(read=0, insert=1, update=0, delete=0, find_and_modify=0),
         rng=random.Random(99),
         mix_provider=provider,
     )
     picks_before = [selector.choose() for _ in range(100)]
     assert set(picks_before) == {OperationType.READ}
 
-    mix = OperationMixConfig(read=0, insert=0, update=1, delete=0)
+    mix = OperationMixConfig(read=0, insert=0, update=1, delete=0, find_and_modify=0)
     picks_after = [selector.choose() for _ in range(100)]
     assert set(picks_after) == {OperationType.UPDATE}

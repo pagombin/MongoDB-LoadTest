@@ -45,8 +45,9 @@ schema:
 operation_mix:
   read: 0.20
   insert: 0.70
-  update: 0.08
+  update: 0.06
   delete: 0.02
+  find_and_modify: 0.02
 
 load:
   virtual_users: 1000

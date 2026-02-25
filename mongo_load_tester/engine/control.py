@@ -59,8 +59,12 @@ class LoadTestController:
         insert: float,
         update: float,
         delete: float,
+        find_and_modify: float = 0.0,
     ) -> dict[str, float]:
-        mix = self._runner.update_operation_mix(read=read, insert=insert, update=update, delete=delete)
+        mix = self._runner.update_operation_mix(
+            read=read, insert=insert, update=update, delete=delete,
+            find_and_modify=find_and_modify,
+        )
         return mix.normalized()
 
     def update_pacing(

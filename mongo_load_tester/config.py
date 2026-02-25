@@ -132,33 +132,79 @@ class SchemaFieldConfig(BaseModel):
             seen.add(f.name)
 
 
+class ReadTargetConfig(BaseModel):
+    """Configuration for read operations."""
+    filter_fields: list[str] = Field(default_factory=list, description="Fields to filter on for reads.")
+    projection_fields: list[str] = Field(default_factory=list, description="Fields to include in read results (empty=all).")
+    sort_field: str | None = Field(default=None, description="Field to sort by. Null=no sort.")
+    sort_direction: Literal["asc", "desc"] = "desc"
+    model_config = ConfigDict(extra="forbid")
+
+
+class UpdateOperatorConfig(BaseModel):
+    """Defines which MongoDB update operators to use."""
+    set_fields: list[str] = Field(default_factory=list, description="Fields to $set with generated values.")
+    inc_fields: list[str] = Field(default_factory=list, description="Fields to $inc by a random amount.")
+    unset_fields: list[str] = Field(default_factory=list, description="Fields to $unset (remove).")
+    push_fields: list[str] = Field(default_factory=list, description="Fields to $push a generated value onto (array fields).")
+    current_date_fields: list[str] = Field(default_factory=list, description="Fields to set to current date via $currentDate.")
+    model_config = ConfigDict(extra="forbid")
+
+
+class UpdateTargetConfig(BaseModel):
+    """Configuration for update operations."""
+    filter_fields: list[str] = Field(default_factory=list, description="Fields to filter on for updates.")
+    operators: UpdateOperatorConfig = Field(default_factory=UpdateOperatorConfig)
+    model_config = ConfigDict(extra="forbid")
+
+
+class DeleteTargetConfig(BaseModel):
+    """Configuration for delete operations."""
+    filter_fields: list[str] = Field(default_factory=list, description="Fields to filter on for deletes.")
+    model_config = ConfigDict(extra="forbid")
+
+
+class FindAndModifyTargetConfig(BaseModel):
+    """Configuration for findAndModify operations."""
+    filter_fields: list[str] = Field(default_factory=list, description="Fields to filter on.")
+    operators: UpdateOperatorConfig = Field(default_factory=UpdateOperatorConfig)
+    sort_field: str | None = Field(default=None, description="Field to sort by before modifying.")
+    sort_direction: Literal["asc", "desc"] = "desc"
+    return_updated: bool = Field(default=True, description="Return the modified document (true) or original (false).")
+    upsert: bool = Field(default=False, description="Insert if no match found.")
+    model_config = ConfigDict(extra="forbid")
+
+
 class QueryTargetConfig(BaseModel):
-    """Defines which fields to use for query filters in read/update/delete operations."""
+    """Defines how each operation type finds and modifies documents."""
 
     enabled: bool = Field(
         default=False,
         description="When false, operations use _id-based lookups (default). "
-        "When true, operations filter on the specified fields instead.",
+        "When true, operations use the per-operation configurations below.",
     )
-    read_filter_fields: list[str] = Field(
-        default_factory=list,
-        description="Fields to use in read query filters. The system builds a filter "
-        "by sampling values from recently inserted documents.",
-    )
-    update_filter_fields: list[str] = Field(
-        default_factory=list,
-        description="Fields to filter on when performing updates.",
-    )
-    delete_filter_fields: list[str] = Field(
-        default_factory=list,
-        description="Fields to filter on when performing deletes.",
-    )
+    read: ReadTargetConfig = Field(default_factory=ReadTargetConfig)
+    update: UpdateTargetConfig = Field(default_factory=UpdateTargetConfig)
+    delete: DeleteTargetConfig = Field(default_factory=DeleteTargetConfig)
+    find_and_modify: FindAndModifyTargetConfig = Field(default_factory=FindAndModifyTargetConfig)
     create_indexes: bool = Field(
         default=True,
         description="Automatically create indexes on query target fields during seeding.",
     )
 
     model_config = ConfigDict(extra="forbid")
+
+    @property
+    def read_filter_fields(self) -> list[str]:
+        return self.read.filter_fields
+
+    @property
+    def update_filter_fields(self) -> list[str]:
+        return self.update.filter_fields
+
+    @property
+    def delete_filter_fields(self) -> list[str]:
+        return self.delete.filter_fields
 
 
 class SchemaConfig(BaseModel):
@@ -189,25 +235,27 @@ class OperationMixConfig(BaseModel):
 
     read: float = Field(default=0.2, ge=0)
     insert: float = Field(default=0.7, ge=0)
-    update: float = Field(default=0.08, ge=0)
+    update: float = Field(default=0.06, ge=0)
     delete: float = Field(default=0.02, ge=0)
+    find_and_modify: float = Field(default=0.02, ge=0)
 
     model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="after")
     def ensure_positive_sum(self) -> "OperationMixConfig":
-        total = self.read + self.insert + self.update + self.delete
+        total = self.read + self.insert + self.update + self.delete + self.find_and_modify
         if total <= 0:
             raise ValueError("Operation mix must have at least one positive weight")
         return self
 
     def normalized(self) -> dict[str, float]:
-        total = self.read + self.insert + self.update + self.delete
+        total = self.read + self.insert + self.update + self.delete + self.find_and_modify
         return {
             "read": self.read / total,
             "insert": self.insert / total,
             "update": self.update / total,
             "delete": self.delete / total,
+            "find_and_modify": self.find_and_modify / total,
         }
 
 

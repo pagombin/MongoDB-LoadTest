@@ -347,23 +347,26 @@ class LoadTestRunner:
         insert: float,
         update: float,
         delete: float,
+        find_and_modify: float = 0.0,
     ) -> OperationMixConfig:
-        mix = OperationMixConfig(read=read, insert=insert, update=update, delete=delete)
+        mix = OperationMixConfig(read=read, insert=insert, update=update, delete=delete, find_and_modify=find_and_modify)
         with self._state_lock:
             self._operation_mix = mix
             self._config.operation_mix = mix.model_copy(deep=True)
         normalized = mix.normalized()
         self._logger.info(
-            "Live operation mix updated read=%.3f insert=%.3f update=%.3f delete=%.3f",
+            "Live operation mix updated read=%.3f insert=%.3f update=%.3f delete=%.3f fam=%.3f",
             normalized["read"],
             normalized["insert"],
             normalized["update"],
             normalized["delete"],
+            normalized.get("find_and_modify", 0.0),
         )
         self._record_runtime_change(
             "operation_mix="
             f"{normalized['read'] * 100:.1f}/{normalized['insert'] * 100:.1f}/"
-            f"{normalized['update'] * 100:.1f}/{normalized['delete'] * 100:.1f}"
+            f"{normalized['update'] * 100:.1f}/{normalized['delete'] * 100:.1f}/"
+            f"{normalized.get('find_and_modify', 0) * 100:.1f}"
         )
         return mix
 
@@ -745,9 +748,10 @@ class LoadTestRunner:
         if not qt.enabled or not qt.create_indexes:
             return
         all_fields: set[str] = set()
-        all_fields.update(qt.read_filter_fields)
-        all_fields.update(qt.update_filter_fields)
-        all_fields.update(qt.delete_filter_fields)
+        all_fields.update(qt.read.filter_fields)
+        all_fields.update(qt.update.filter_fields)
+        all_fields.update(qt.delete.filter_fields)
+        all_fields.update(qt.find_and_modify.filter_fields)
         for field_name in sorted(all_fields):
             try:
                 collection.create_index(field_name)

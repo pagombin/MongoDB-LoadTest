@@ -14,8 +14,9 @@ OP_COLORS = {
     "insert": "#22c55e",
     "update": "#f59e0b",
     "delete": "#ef4444",
+    "find_and_modify": "#8b5cf6",
     "total": "#111827",
-    "users": "#8b5cf6",
+    "users": "#a855f7",
 }
 
 _MAX_PAUSE_OVERLAYS = 50
@@ -187,7 +188,7 @@ def build_user_ramp_timeline(snapshot: MetricsSnapshot, x_range: tuple[datetime,
 
 def build_operation_distribution(snapshot: MetricsSnapshot) -> go.Figure:
     counts = defaultdict(int, snapshot.operation_counts)
-    labels = ["read", "insert", "update", "delete"]
+    labels = ["read", "insert", "update", "delete", "find_and_modify"]
     values = [counts[label] for label in labels]
     total = sum(values)
     if total == 0:
@@ -216,7 +217,7 @@ def build_operation_distribution(snapshot: MetricsSnapshot) -> go.Figure:
                 labels=labels,
                 values=values,
                 hole=0.45,
-                marker={"colors": [OP_COLORS["read"], OP_COLORS["insert"], OP_COLORS["update"], OP_COLORS["delete"]]},
+                marker={"colors": [OP_COLORS["read"], OP_COLORS["insert"], OP_COLORS["update"], OP_COLORS["delete"], OP_COLORS["find_and_modify"]]},
             )
         ]
     )
@@ -321,8 +322,11 @@ def build_per_op_throughput_timeline(snapshot: MetricsSnapshot, x_range: tuple[d
 
     figure = go.Figure()
     for op_type, color in [("read", OP_COLORS["read"]), ("insert", OP_COLORS["insert"]),
-                           ("update", OP_COLORS["update"]), ("delete", OP_COLORS["delete"])]:
+                           ("update", OP_COLORS["update"]), ("delete", OP_COLORS["delete"]),
+                           ("find_and_modify", OP_COLORS["find_and_modify"])]:
         counts = [point.op_counts.get(op_type, 0) for point in snapshot.timeline]
+        if not any(c > 0 for c in counts):
+            continue
         figure.add_trace(
             go.Scatter(
                 x=x_values, y=counts, mode="lines", name=f"{op_type}_ops",
@@ -342,7 +346,8 @@ def build_per_op_latency_timeline(snapshot: MetricsSnapshot, x_range: tuple[date
 
     figure = go.Figure()
     for op_type, color in [("read", OP_COLORS["read"]), ("insert", OP_COLORS["insert"]),
-                           ("update", OP_COLORS["update"]), ("delete", OP_COLORS["delete"])]:
+                           ("update", OP_COLORS["update"]), ("delete", OP_COLORS["delete"]),
+                           ("find_and_modify", OP_COLORS["find_and_modify"])]:
         values = [point.op_latency_avg.get(op_type, 0.0) for point in snapshot.timeline]
         if any(v > 0 for v in values):
             figure.add_trace(

@@ -14,10 +14,11 @@ class OperationType(str, Enum):
     INSERT = "insert"
     UPDATE = "update"
     DELETE = "delete"
+    FIND_AND_MODIFY = "find_and_modify"
 
     @property
     def is_write(self) -> bool:
-        return self in {OperationType.INSERT, OperationType.UPDATE, OperationType.DELETE}
+        return self in {OperationType.INSERT, OperationType.UPDATE, OperationType.DELETE, OperationType.FIND_AND_MODIFY}
 
 
 @dataclass(slots=True)
