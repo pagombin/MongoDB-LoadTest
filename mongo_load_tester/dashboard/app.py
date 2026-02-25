@@ -1749,11 +1749,12 @@ def create_dashboard(
             heartbeat = w.get("heartbeat")
             joined = w.get("joined_at")
             hb_age = ""
-            if heartbeat and hasattr(heartbeat, "timestamp"):
-                delta = (now - heartbeat).total_seconds()
+            if heartbeat and isinstance(heartbeat, datetime):
+                hb = heartbeat.replace(tzinfo=UTC) if heartbeat.tzinfo is None else heartbeat
+                delta = (now - hb).total_seconds()
                 hb_age = f"{delta:.0f}s ago" if delta < 120 else "stale"
             join_label = ""
-            if joined and hasattr(joined, "strftime"):
+            if joined and isinstance(joined, datetime):
                 join_label = joined.strftime("%H:%M:%S")
             am = agg_metrics.get(wid, {})
             ops_sec = am.get("ops_per_second", 0)
