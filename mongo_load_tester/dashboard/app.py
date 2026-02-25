@@ -126,20 +126,47 @@ def create_dashboard(
         "staged_static_snapshot": None,
     })
 
+    _agg_cache: dict[str, object] = {"data": None, "ts": 0.0}
+    _AGG_CACHE_TTL = 0.8
+
+    def _get_cached_aggregation():
+        import time as _t
+        now = _t.monotonic()
+        if now - float(_agg_cache["ts"]) < _AGG_CACHE_TTL and _agg_cache["data"] is not None:
+            return _agg_cache["data"]
+        if distributed_aggregator is None:
+            return None
+        try:
+            result = distributed_aggregator.aggregate()
+            _agg_cache["data"] = result
+            _agg_cache["ts"] = now
+            return result
+        except Exception:
+            return _agg_cache.get("data")
+
     distributed_aggregator = None
+    leader_publisher = None
     if metadata_store is not None:
         try:
-            from mongo_load_tester.engine.distributed import MetricsAggregator, DISTRIBUTED_METRICS_COLLECTION
+            from mongo_load_tester.engine.distributed import MetricsAggregator, MetricsPublisher, DISTRIBUTED_METRICS_COLLECTION
             from mongo_load_tester.engine.client import build_client as _build_client
-            _agg_client = _build_client(config.mongo)
-            _agg_collection = _agg_client[config.metadata.database_name][DISTRIBUTED_METRICS_COLLECTION]
+            _dist_client = _build_client(config.mongo)
+            _dist_collection = _dist_client[config.metadata.database_name][DISTRIBUTED_METRICS_COLLECTION]
             distributed_aggregator = MetricsAggregator(
-                collection=_agg_collection,
+                collection=_dist_collection,
                 load_test_id=config.metadata.load_test_id,
                 logger=logger,
             )
+            leader_publisher = MetricsPublisher(
+                metrics_store=metrics_store,
+                collection=_dist_collection,
+                load_test_id=config.metadata.load_test_id,
+                worker_id="leader",
+                logger=logger,
+            )
+            leader_publisher.start()
         except Exception:
-            logger.warning("Failed to initialize distributed metrics aggregator.", exc_info=True)
+            logger.warning("Failed to initialize distributed metrics.", exc_info=True)
 
     def persist_metadata_config(
         reason: str,
@@ -182,6 +209,8 @@ def create_dashboard(
         status = "failed" if runner.last_error else "completed"
         if metadata_store is not None:
             metadata_store.record_run_finished(run_id=str(run_id), status=status, snapshot=snapshot, error=runner.last_error)
+            metadata_store.set_workload_state("COMPLETED" if status == "completed" else "STOPPED", run_id=str(run_id))
+            metadata_store.heartbeat_worker("leader", "idle")
         run_state["last_run_finished_at"] = finished_at
         run_state["active_run_id"] = None
         run_state["run_static_baseline"] = None
@@ -1639,10 +1668,33 @@ def create_dashboard(
                 window_seconds, snapshot.generated_at, runner.started_at,
                 is_running=runner.is_running, finished_at=runner.finished_at,
             )
-            stable_ops_per_sec = _compute_stable_ops_per_sec(snapshot.total_ops, runner.active_elapsed_seconds())
-            error_rate = (snapshot.error_ops / snapshot.total_ops * 100.0) if snapshot.total_ops else 0.0
-            success_rate = (snapshot.success_ops / snapshot.total_ops * 100.0) if snapshot.total_ops else 0.0
-            retry_rate = (snapshot.retried_ops / snapshot.total_ops * 100.0) if snapshot.total_ops else 0.0
+            agg = _get_cached_aggregation()
+            if agg and agg.get("worker_count", 0) > 1:
+                _total = agg["total_ops"]
+                _error = agg["error_ops"]
+                _success = agg["success_ops"]
+                _retried = agg["retried_ops"]
+                stable_ops_per_sec = agg["ops_per_second"]
+                error_rate = (_error / _total * 100.0) if _total else 0.0
+                success_rate = (_success / _total * 100.0) if _total else 0.0
+                retry_rate = (_retried / _total * 100.0) if _total else 0.0
+                kpi_total_ops = _fmt(_total)
+                kpi_p50 = f"{agg['p50_latency_ms']:.2f} ms"
+                kpi_avg = f"{agg['avg_latency_ms']:.2f} ms"
+                kpi_p95 = f"{agg['p95_latency_ms']:.2f} ms"
+                kpi_p99 = f"{agg['p99_latency_ms']:.2f} ms"
+                kpi_active_users = _fmt(agg.get("active_virtual_users", 0))
+            else:
+                stable_ops_per_sec = _compute_stable_ops_per_sec(snapshot.total_ops, runner.active_elapsed_seconds())
+                error_rate = (snapshot.error_ops / snapshot.total_ops * 100.0) if snapshot.total_ops else 0.0
+                success_rate = (snapshot.success_ops / snapshot.total_ops * 100.0) if snapshot.total_ops else 0.0
+                retry_rate = (snapshot.retried_ops / snapshot.total_ops * 100.0) if snapshot.total_ops else 0.0
+                kpi_total_ops = _fmt(snapshot.total_ops)
+                kpi_p50 = f"{snapshot.p50_latency_ms:.2f} ms"
+                kpi_avg = f"{snapshot.avg_latency_ms:.2f} ms"
+                kpi_p95 = f"{snapshot.p95_latency_ms:.2f} ms"
+                kpi_p99 = f"{snapshot.p99_latency_ms:.2f} ms"
+                kpi_active_users = _fmt(snapshot.active_virtual_users_current)
             status_text, status_style = _build_status_ui(runner)
             runtime_meta, progress_value, progress_label = _build_runtime_ui(runner)
             if runner.is_running:
@@ -1680,16 +1732,16 @@ def create_dashboard(
                 progress_label,
                 _window_message(window_seconds, snapshot),
                 duration_meta,
-                _fmt(snapshot.total_ops),
-                f"{stable_ops_per_sec:.2f}",
+                kpi_total_ops,
+                f"{stable_ops_per_sec:,.2f}",
                 f"{error_rate:.2f}%",
                 f"{success_rate:.2f}%",
-                f"{snapshot.p50_latency_ms:.2f} ms",
-                f"{snapshot.avg_latency_ms:.2f} ms",
-                f"{snapshot.p95_latency_ms:.2f} ms",
-                f"{snapshot.p99_latency_ms:.2f} ms",
+                kpi_p50,
+                kpi_avg,
+                kpi_p95,
+                kpi_p99,
                 f"{retry_rate:.2f}%",
-                _fmt(snapshot.active_virtual_users_current),
+                kpi_active_users,
                 build_operations_timeline(filtered_snapshot, x_range=x_range),
                 build_latency_timeline(filtered_snapshot, x_range=x_range),
                 build_user_ramp_timeline(filtered_snapshot, x_range=x_range),
@@ -1723,12 +1775,7 @@ def create_dashboard(
             registered_workers = metadata_store.fetch_workers()
         except Exception:
             registered_workers = []
-        agg = None
-        if distributed_aggregator is not None:
-            try:
-                agg = distributed_aggregator.aggregate()
-            except Exception:
-                pass
+        agg = _get_cached_aggregation()
         if not registered_workers and (agg is None or agg.get("worker_count", 0) == 0):
             return "", {"display": "none"}
         _STATUS_COLORS = {
@@ -2205,6 +2252,7 @@ def create_dashboard(
                     run_state["active_run_id"] = run_id
                     run_state["last_run_finished_at"] = None
                     metadata_store.set_workload_state("STARTED", run_id=run_id)
+                    metadata_store.heartbeat_worker("leader", "running")
                     metadata_store.append_event(
                         event_type="control_action",
                         message="Start requested from dashboard.",
@@ -2219,6 +2267,7 @@ def create_dashboard(
                 controller.stop()
                 if metadata_store is not None:
                     metadata_store.set_workload_state("STOPPED", run_id=str(run_state.get("active_run_id") or ""))
+                    metadata_store.heartbeat_worker("leader", "idle")
                     metadata_store.append_event(
                         event_type="control_action",
                         message="Stop requested from dashboard.",
