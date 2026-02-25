@@ -1717,47 +1717,83 @@ def create_dashboard(
         Input("refresh", "n_intervals"),
     )
     def refresh_distributed_workers(_: int):
-        if distributed_aggregator is None:
+        if metadata_store is None:
             return "", {"display": "none"}
         try:
-            agg = distributed_aggregator.aggregate()
+            registered_workers = metadata_store.fetch_workers()
         except Exception:
+            registered_workers = []
+        agg = None
+        if distributed_aggregator is not None:
+            try:
+                agg = distributed_aggregator.aggregate()
+            except Exception:
+                pass
+        if not registered_workers and (agg is None or agg.get("worker_count", 0) == 0):
             return "", {"display": "none"}
-        if agg is None or agg["worker_count"] == 0:
-            return "", {"display": "none"}
-        workers = agg["workers"]
-        total_ops_sec = agg["ops_per_second"]
+        _STATUS_COLORS = {
+            "running": "#059669", "paused": "#d97706", "idle": "#6b7280",
+            "stopped": "#dc2626", "synced": "#2563eb",
+        }
+        _td = {"padding": "5px 10px", "borderBottom": "1px solid #f0f0f0"}
+        now = datetime.now(UTC)
         worker_rows = []
-        for w in workers:
-            ts = w.get("timestamp")
-            age = ""
-            if ts:
-                delta = (datetime.now(UTC) - ts).total_seconds() if hasattr(ts, "timestamp") else 0
-                age = f"{delta:.0f}s ago" if delta < 120 else "stale"
-            worker_rows.append(
-                html.Tr([
-                    html.Td(w["worker_id"], style={"padding": "4px 8px", "fontWeight": "600"}),
-                    html.Td(f"{w['ops_per_second']:.0f}", style={"padding": "4px 8px"}),
-                    html.Td(f"{w['total_ops']:,}", style={"padding": "4px 8px"}),
-                    html.Td(f"{w['p95_latency_ms']:.1f} ms", style={"padding": "4px 8px"}),
-                    html.Td(age, style={"padding": "4px 8px", "color": "#6b7280"}),
-                ])
-            )
+        agg_metrics = {}
+        if agg:
+            for w in agg.get("workers", []):
+                agg_metrics[w["worker_id"]] = w
+        for w in registered_workers:
+            wid = w.get("worker_id", "?")
+            wtype = w.get("worker_type", "?")
+            status = w.get("status", "?")
+            heartbeat = w.get("heartbeat")
+            joined = w.get("joined_at")
+            hb_age = ""
+            if heartbeat and hasattr(heartbeat, "timestamp"):
+                delta = (now - heartbeat).total_seconds()
+                hb_age = f"{delta:.0f}s ago" if delta < 120 else "stale"
+            join_label = ""
+            if joined and hasattr(joined, "strftime"):
+                join_label = joined.strftime("%H:%M:%S")
+            am = agg_metrics.get(wid, {})
+            ops_sec = am.get("ops_per_second", 0)
+            total_ops = am.get("total_ops", 0)
+            status_color = _STATUS_COLORS.get(status, "#6b7280")
+            type_badge_bg = "#4f46e5" if wtype == "dashboard" else "#6366f1"
+            worker_rows.append(html.Tr([
+                html.Td(wid, style={**_td, "fontWeight": "600"}),
+                html.Td(
+                    html.Span(wtype, style={"background": type_badge_bg, "color": "white", "padding": "1px 6px", "borderRadius": "4px", "fontSize": "10px", "fontWeight": "700"}),
+                    style=_td,
+                ),
+                html.Td(
+                    html.Span(status, style={"color": status_color, "fontWeight": "600"}),
+                    style=_td,
+                ),
+                html.Td(f"{ops_sec:,.0f}" if ops_sec else "—", style=_td),
+                html.Td(f"{total_ops:,}" if total_ops else "—", style=_td),
+                html.Td(hb_age, style={**_td, "color": "#6b7280"}),
+                html.Td(join_label, style={**_td, "color": "#6b7280"}),
+            ]))
+        total_agg_ops_sec = agg["ops_per_second"] if agg else 0
         content = html.Div([
             html.Div([
-                html.Span("Distributed Workers", style={"fontWeight": "700", "fontSize": "14px", "color": "#1e1b4b"}),
+                html.Span("Worker Registry", style={"fontWeight": "700", "fontSize": "14px", "color": "#1e1b4b"}),
                 html.Span(
-                    f"  {agg['worker_count']} worker(s) | {total_ops_sec:,.0f} aggregate ops/sec",
+                    f"  {len(registered_workers)} worker(s)"
+                    + (f" | {total_agg_ops_sec:,.0f} aggregate ops/sec" if total_agg_ops_sec > 0 else ""),
                     style={"fontSize": "12px", "color": "#6b7280", "marginLeft": "10px"},
                 ),
             ]),
             html.Table([
                 html.Thead(html.Tr([
-                    html.Th("Worker", style={"textAlign": "left", "padding": "4px 8px", "fontSize": "11px"}),
-                    html.Th("Ops/sec", style={"textAlign": "left", "padding": "4px 8px", "fontSize": "11px"}),
-                    html.Th("Total ops", style={"textAlign": "left", "padding": "4px 8px", "fontSize": "11px"}),
-                    html.Th("P95 latency", style={"textAlign": "left", "padding": "4px 8px", "fontSize": "11px"}),
-                    html.Th("Last update", style={"textAlign": "left", "padding": "4px 8px", "fontSize": "11px"}),
+                    html.Th("Worker ID", style={"textAlign": "left", "padding": "5px 10px", "fontSize": "11px"}),
+                    html.Th("Type", style={"textAlign": "left", "padding": "5px 10px", "fontSize": "11px"}),
+                    html.Th("Status", style={"textAlign": "left", "padding": "5px 10px", "fontSize": "11px"}),
+                    html.Th("Ops/sec", style={"textAlign": "left", "padding": "5px 10px", "fontSize": "11px"}),
+                    html.Th("Total ops", style={"textAlign": "left", "padding": "5px 10px", "fontSize": "11px"}),
+                    html.Th("Heartbeat", style={"textAlign": "left", "padding": "5px 10px", "fontSize": "11px"}),
+                    html.Th("Joined", style={"textAlign": "left", "padding": "5px 10px", "fontSize": "11px"}),
                 ])),
                 html.Tbody(worker_rows),
             ], style={"width": "100%", "borderCollapse": "collapse", "fontSize": "12px", "marginTop": "8px"}),
@@ -2167,6 +2203,7 @@ def create_dashboard(
                     run_id = metadata_store.record_run_started(config_version=config_version)
                     run_state["active_run_id"] = run_id
                     run_state["last_run_finished_at"] = None
+                    metadata_store.set_workload_state("STARTED", run_id=run_id)
                     metadata_store.append_event(
                         event_type="control_action",
                         message="Start requested from dashboard.",
@@ -2180,23 +2217,25 @@ def create_dashboard(
                     raise PreventUpdate
                 controller.stop()
                 if metadata_store is not None:
+                    metadata_store.set_workload_state("STOPPED", run_id=str(run_state.get("active_run_id") or ""))
                     metadata_store.append_event(
                         event_type="control_action",
                         message="Stop requested from dashboard.",
                         payload={"action": "stop", "run_id": run_state.get("active_run_id")},
                     )
-                return _feedback_info("Stop requested. Workers are finishing in-flight operations.")
+                return _feedback_info("Stop requested. All workers (local and remote) are stopping.")
             if triggered == "pause-test-btn":
                 if not pause_clicks:
                     raise PreventUpdate
                 paused = controller.pause()
                 if paused and metadata_store is not None:
+                    metadata_store.set_workload_state("PAUSED", run_id=str(run_state.get("active_run_id") or ""))
                     metadata_store.append_event(
                         event_type="control_action",
                         message="Pause requested from dashboard.",
                         payload={"action": "pause", "run_id": run_state.get("active_run_id")},
                     )
-                return _feedback_info("Load test paused.") if paused else _feedback_warning(
+                return _feedback_info("Load test paused. All workers (local and remote) are pausing.") if paused else _feedback_warning(
                     "Pause ignored (runner is not active)."
                 )
             if triggered == "resume-test-btn":
@@ -2204,12 +2243,13 @@ def create_dashboard(
                     raise PreventUpdate
                 resumed = controller.resume()
                 if resumed and metadata_store is not None:
+                    metadata_store.set_workload_state("STARTED", run_id=str(run_state.get("active_run_id") or ""))
                     metadata_store.append_event(
                         event_type="control_action",
                         message="Resume requested from dashboard.",
                         payload={"action": "resume", "run_id": run_state.get("active_run_id")},
                     )
-                return _feedback_info("Load test resumed.") if resumed else _feedback_warning(
+                return _feedback_info("Load test resumed. All workers resuming.") if resumed else _feedback_warning(
                     "Resume ignored (runner is not paused)."
                 )
             if triggered == "restart-test-btn":
