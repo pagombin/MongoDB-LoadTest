@@ -43,14 +43,16 @@ schema:
       field_type: "datetime"
 
 operation_mix:
-  read: 0.75
-  insert: 0.15
-  update: 0.08
+  read: 0.20
+  insert: 0.70
+  update: 0.06
   delete: 0.02
+  find_and_modify: 0.02
 
 load:
   virtual_users: 1000
   worker_threads: 200
+  max_worker_threads: 500
   duration_seconds: 900
   ramp_up_seconds: 120
   think_time_ms_min: 1
@@ -87,5 +89,10 @@ retry:
   max_backoff_ms: 2000
   backoff_multiplier: 2.0
   jitter_ratio: 0.2
+
+metadata:
+  database_name: "loader_metadata"
+  load_test_id: "default-load-test"
+  sync_interval_seconds: 30
 
 random_seed: 42

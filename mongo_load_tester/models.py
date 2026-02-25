@@ -14,10 +14,11 @@ class OperationType(str, Enum):
     INSERT = "insert"
     UPDATE = "update"
     DELETE = "delete"
+    FIND_AND_MODIFY = "find_and_modify"
 
     @property
     def is_write(self) -> bool:
-        return self in {OperationType.INSERT, OperationType.UPDATE, OperationType.DELETE}
+        return self in {OperationType.INSERT, OperationType.UPDATE, OperationType.DELETE, OperationType.FIND_AND_MODIFY}
 
 
 @dataclass(slots=True)
@@ -42,12 +43,18 @@ class TimelinePoint:
     total_ops: int
     error_ops: int
     avg_latency_ms: float
-    p95_latency_ms: float
+    p50_latency_ms: float = 0.0
+    p95_latency_ms: float = 0.0
+    p99_latency_ms: float = 0.0
+    retried_ops: int = 0
     active_users: int = 0
+    target_users: int = 0
+    paused: bool = False
     op_counts: dict[str, int] = field(default_factory=dict)
+    op_latency_avg: dict[str, float] = field(default_factory=dict)
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class MetricsSnapshot:
     """Thread-safe immutable view of current metrics."""
 
@@ -68,3 +75,7 @@ class MetricsSnapshot:
     operation_counts: dict[str, int]
     operation_latency_avg_ms: dict[str, float]
     timeline: list[TimelinePoint]
+    operation_latency_p95_ms: dict[str, float] = field(default_factory=dict)
+    operation_latency_p99_ms: dict[str, float] = field(default_factory=dict)
+    latency_histogram: list[tuple[float, int]] = field(default_factory=list)
+    error_categories: dict[str, int] = field(default_factory=dict)

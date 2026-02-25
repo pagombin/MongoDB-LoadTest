@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import random
 from dataclasses import dataclass
+from typing import Callable
 
 from mongo_load_tester.config import NamespaceConfig, OperationMixConfig
 from mongo_load_tester.models import OperationType
@@ -12,24 +13,42 @@ from mongo_load_tester.models import OperationType
 class OperationSelector:
     """Weighted random operation chooser."""
 
-    def __init__(self, operation_mix: OperationMixConfig, rng: random.Random):
-        normalized = operation_mix.normalized()
+    def __init__(
+        self,
+        operation_mix: OperationMixConfig,
+        rng: random.Random,
+        mix_provider: Callable[[], OperationMixConfig] | None = None,
+    ):
         self._rng = rng
+        self._mix_provider = mix_provider
         self._operations: list[OperationType] = [
             OperationType.READ,
             OperationType.INSERT,
             OperationType.UPDATE,
             OperationType.DELETE,
+            OperationType.FIND_AND_MODIFY,
         ]
-        self._weights: list[float] = [
+        self._weights: list[float] = self._build_weights(operation_mix.normalized())
+        self._cached_mix_id: int | None = None
+
+    def choose(self) -> OperationType:
+        if self._mix_provider is not None:
+            mix = self._mix_provider()
+            mix_id = id(mix)
+            if mix_id != self._cached_mix_id:
+                self._weights = self._build_weights(mix.normalized())
+                self._cached_mix_id = mix_id
+        return self._rng.choices(self._operations, weights=self._weights, k=1)[0]
+
+    @staticmethod
+    def _build_weights(normalized: dict[str, float]) -> list[float]:
+        return [
             normalized["read"],
             normalized["insert"],
             normalized["update"],
             normalized["delete"],
+            normalized.get("find_and_modify", 0.0),
         ]
-
-    def choose(self) -> OperationType:
-        return self._rng.choices(self._operations, weights=self._weights, k=1)[0]
 
 
 @dataclass(frozen=True, slots=True)

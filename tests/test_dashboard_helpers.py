@@ -3,11 +3,19 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from mongo_load_tester.dashboard.app import (
+    _compute_stable_ops_per_sec,
     _filter_snapshot_timeline,
     _format_duration,
+    _parse_non_negative_int,
+    _parse_schema_config,
     _remove_incomplete_live_second,
+    _schema_config_to_json,
+    _static_config_diff_labels,
+    _static_config_snapshot,
+    _validate_think_time_values,
     _window_message,
 )
+from mongo_load_tester.config import AppConfig
 from mongo_load_tester.models import MetricsSnapshot, TimelinePoint
 
 
@@ -63,11 +71,13 @@ def test_filter_snapshot_timeline_applies_window() -> None:
 
 
 def test_duration_and_window_labels_are_human_readable() -> None:
+    now = datetime.now(UTC)
+    snapshot = _snapshot_with_points(now)
     assert _format_duration(45) == "45s"
     assert _format_duration(125) == "2m 5s"
     assert _format_duration(3600) == "1h"
-    assert _window_message(0) == "Showing all captured points."
-    assert _window_message(300) == "Showing last 5m of timeline data."
+    assert _window_message(0, snapshot) == "Showing all captured points."
+    assert _window_message(300, snapshot).startswith("Showing last 5m window")
 
 
 def test_remove_incomplete_live_second_filters_latest_partial_point() -> None:
@@ -87,3 +97,56 @@ def test_remove_incomplete_live_second_filters_latest_partial_point() -> None:
     filtered = _remove_incomplete_live_second(snapshot, is_running=True)
 
     assert all(point.second < now.replace(microsecond=0) for point in filtered.timeline)
+
+
+def test_compute_stable_ops_per_sec_uses_active_elapsed() -> None:
+    assert _compute_stable_ops_per_sec(0, 5.0) == 0.0
+    assert _compute_stable_ops_per_sec(100, 0.0) == 0.0
+    assert _compute_stable_ops_per_sec(100, 4.0) == 25.0
+
+
+def test_validate_think_time_values_accepts_valid_range() -> None:
+    assert _validate_think_time_values(0, 25) == (0, 25)
+
+
+def test_validate_think_time_values_rejects_invalid_range() -> None:
+    try:
+        _validate_think_time_values(30, 10)
+    except ValueError as exc:
+        assert "minimum cannot be greater" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for invalid think time range")
+
+
+def test_schema_json_roundtrip_and_validation() -> None:
+    schema = _parse_schema_config(
+        '[{"name":"tenant_id","field_type":"string","length":8},{"name":"amount","field_type":"float"}]'
+    )
+    rendered = _schema_config_to_json(schema)
+    parsed_again = _parse_schema_config(rendered)
+    assert len(parsed_again.fields) == 2
+    assert parsed_again.fields[0].name == "tenant_id"
+
+
+def test_parse_non_negative_int_rejects_negative_values() -> None:
+    try:
+        _parse_non_negative_int(-1, "Initial seed")
+    except ValueError as exc:
+        assert "zero or greater" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for negative integer")
+
+
+def test_static_config_diff_labels_reports_changed_domains() -> None:
+    base = AppConfig()
+    baseline = _static_config_snapshot(base)
+    changed = base.model_copy(deep=True)
+    changed.namespace.databases = 3
+    changed.load.ramp_up_seconds = 120
+    changed.document_schema.fields[0].name = "tenant_code"
+    current = _static_config_snapshot(changed)
+
+    labels = _static_config_diff_labels(current, baseline)
+    assert "databases" in labels
+    assert "ramp-up seconds" in labels
+    assert "schema fields" in labels
