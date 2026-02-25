@@ -2575,6 +2575,62 @@ def create_dashboard(
         return fields, _feedback_info(f"Loaded {len(fields)} field(s) from current schema.")
 
     @callback(
+        Output("schema-builder-fields", "data", allow_duplicate=True),
+        Output("sb-add-feedback", "children", allow_duplicate=True),
+        Output("sb-target-info", "children", allow_duplicate=True),
+        Input("sb-target-selector", "value"),
+        prevent_initial_call=True,
+    )
+    def on_target_changed(target_value):
+        target = target_value or "__all__"
+        if target == "__all__":
+            try:
+                default_schema = controller.current_config().document_schema
+                fields = _schema_to_builder_fields(default_schema.fields)
+                return (
+                    fields,
+                    _feedback_info(f"Loaded default schema ({len(fields)} field(s)). Modify and save to update the default."),
+                    "Editing the default schema applied to all collections without a custom override.",
+                )
+            except Exception:
+                return [], "", "Default schema selected."
+        parts = target.split(".", 1)
+        if len(parts) != 2:
+            return no_update, no_update, no_update
+        db_name, coll_name = parts
+        if runner.schema_registry.has_override(db_name, coll_name):
+            schema = runner.schema_registry.get_schema(db_name, coll_name)
+            fields = _schema_to_builder_fields(schema.fields)
+            info = html.Div([
+                html.Span("CUSTOM", style={
+                    "fontWeight": "800", "fontSize": "10px", "letterSpacing": "0.05em",
+                    "marginRight": "6px", "background": "#4f46e5", "color": "white",
+                    "padding": "1px 6px", "borderRadius": "4px",
+                }),
+                f" {target} has a custom schema with {len(fields)} field(s). Modify and save to update it.",
+            ])
+            return (
+                fields,
+                _feedback_info(f"Loaded custom schema for {target} ({len(fields)} field(s))."),
+                info,
+            )
+        default_schema = controller.current_config().document_schema
+        fields = _schema_to_builder_fields(default_schema.fields)
+        info = html.Div([
+            html.Span("DEFAULT", style={
+                "fontWeight": "800", "fontSize": "10px", "letterSpacing": "0.05em",
+                "marginRight": "6px", "background": "#059669", "color": "white",
+                "padding": "1px 6px", "borderRadius": "4px",
+            }),
+            f" {target} uses the default schema. Add fields and save to create a custom schema for this collection.",
+        ])
+        return (
+            fields,
+            _feedback_info(f"Loaded default schema for {target} ({len(fields)} field(s)). Customize and save to override."),
+            info,
+        )
+
+    @callback(
         Output("duration-seconds-input", "value"),
         Output("target-users-input", "value"),
         Output("worker-threads-input", "value"),
