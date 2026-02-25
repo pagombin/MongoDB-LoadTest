@@ -15,6 +15,43 @@ from mongo_load_tester.engine.metrics import MetricsStore
 
 DISTRIBUTED_METRICS_COLLECTION = "load_test_live_metrics"
 
+_PROJECTION = {
+    "_id": 0,
+    "worker_id": 1,
+    "timestamp": 1,
+    "total_ops": 1,
+    "success_ops": 1,
+    "error_ops": 1,
+    "retried_ops": 1,
+    "ops_per_second": 1,
+    "avg_latency_ms": 1,
+    "p50_latency_ms": 1,
+    "p95_latency_ms": 1,
+    "p99_latency_ms": 1,
+    "active_virtual_users_current": 1,
+    "elapsed_seconds": 1,
+    "operation_counts": 1,
+    "error_categories": 1,
+}
+
+
+def ensure_distributed_indexes(collection: Collection, logger: logging.Logger | None = None) -> None:
+    """Create indexes for distributed metrics queries. Safe to call multiple times."""
+    _logger = logger or logging.getLogger("mongo_load_tester.distributed")
+    try:
+        collection.create_index(
+            [("load_test_id", 1), ("worker_id", 1)],
+            unique=True,
+            name="idx_load_test_worker",
+        )
+        collection.create_index(
+            "load_test_id",
+            name="idx_load_test_id",
+        )
+        _logger.info("Distributed metrics indexes verified.")
+    except Exception:
+        _logger.warning("Failed to create distributed metrics indexes.", exc_info=True)
+
 
 class MetricsPublisher:
     """Periodically publishes local MetricsStore snapshots to a shared MongoDB collection.
@@ -41,6 +78,7 @@ class MetricsPublisher:
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._last_total_ops = 0
+        ensure_distributed_indexes(collection, self._logger)
 
     def start(self) -> None:
         self._stop_event.clear()
@@ -108,10 +146,15 @@ class MetricsAggregator:
         self._collection = collection
         self._load_test_id = load_test_id
         self._logger = logger or logging.getLogger("mongo_load_tester.distributed")
+        ensure_distributed_indexes(collection, self._logger)
 
     def aggregate(self) -> dict[str, Any] | None:
         """Read all worker snapshots and merge into aggregate metrics."""
-        cursor = self._collection.find({"load_test_id": self._load_test_id})
+        cursor = self._collection.find(
+            {"load_test_id": self._load_test_id},
+            projection=_PROJECTION,
+            hint="idx_load_test_id",
+        )
         workers = list(cursor)
         if not workers:
             return None
@@ -168,5 +211,8 @@ class MetricsAggregator:
         }
 
     def clear_worker_metrics(self) -> int:
-        result = self._collection.delete_many({"load_test_id": self._load_test_id})
+        """Remove all worker documents for this load test. Uses the load_test_id index."""
+        result = self._collection.delete_many(
+            {"load_test_id": self._load_test_id},
+        )
         return result.deleted_count
