@@ -49,8 +49,7 @@ class DocumentGenerator:
         if ft == "string":
             if field.choices:
                 return self._rng.choice(field.choices)
-            chars = string.ascii_letters + string.digits
-            return "".join(self._rng.choice(chars) for _ in range(field.length))
+            return self._generate_string(field)
         if ft == "int":
             low = math.floor(field.min_value)
             high = math.floor(field.max_value)
@@ -79,6 +78,25 @@ class DocumentGenerator:
         if ft == "array":
             return self._generate_array(field)
         raise ValueError(f"Unsupported schema field type: {ft}")
+
+    def _generate_string(self, field: SchemaFieldConfig) -> str:
+        chars = string.ascii_letters + string.digits
+        rand_part = "".join(self._rng.choice(chars) for _ in range(field.length))
+        uid = str(uuid.uuid4())
+        comp = field.composite
+        if comp == "prefix_uuid":
+            return f"{field.prefix}{uid}"
+        if comp == "uuid_suffix":
+            return f"{uid}{field.suffix}"
+        if comp == "prefix_uuid_suffix":
+            return f"{field.prefix}{uid}{field.suffix}"
+        if comp == "prefix_random":
+            return f"{field.prefix}{rand_part}"
+        if comp == "random_suffix":
+            return f"{rand_part}{field.suffix}"
+        if field.prefix or field.suffix:
+            return f"{field.prefix}{rand_part}{field.suffix}"
+        return rand_part
 
     def _generate_array(self, field: SchemaFieldConfig) -> list[Any]:
         count = self._rng.randint(field.min_items, field.max_items)

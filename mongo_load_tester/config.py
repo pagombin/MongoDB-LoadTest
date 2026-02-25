@@ -69,6 +69,12 @@ class SchemaFieldConfig(BaseModel):
         "object", "array", "decimal", "null",
     ] = "string"
     length: int = Field(default=16, ge=1)
+    prefix: str = Field(default="", description="Static prefix prepended to generated string values.")
+    suffix: str = Field(default="", description="Static suffix appended to generated string values.")
+    composite: Literal["none", "prefix_uuid", "uuid_suffix", "prefix_uuid_suffix", "prefix_random", "random_suffix"] = Field(
+        default="none",
+        description="Composite string pattern. Combines prefix/suffix with UUID or random characters.",
+    )
     min_value: float = 0
     max_value: float = 10_000
     choices: list[str] | None = None

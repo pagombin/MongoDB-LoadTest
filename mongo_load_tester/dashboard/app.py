@@ -1375,7 +1375,7 @@ def create_dashboard(
                             html.Div(
                                 [
                                     html.Div([
-                                        html.Label("Field name", style={"fontSize": "11px", "fontWeight": "600", "color": "#374151"}),
+                                        html.Label("Field name (no quotes)", style={"fontSize": "11px", "fontWeight": "600", "color": "#374151"}),
                                         dcc.Input(id="sb-field-name", type="text", placeholder="e.g. tenant_id, address.street",
                                                   style={"width": "100%", "padding": "7px 10px", "borderRadius": "6px", "border": "1px solid #d1d5db", "fontSize": "13px", "marginTop": "3px"}),
                                     ], style={"flex": "1"}),
@@ -2337,8 +2337,22 @@ def create_dashboard(
         _label_style = {"fontSize": "11px", "fontWeight": "600", "color": "#374151"}
         if field_type in ("string",):
             return html.Div([
-                html.Label("Length", style=_label_style),
-                dcc.Input(id="sb-rule-length", type="number", value=16, min=1, style=_input_style),
+                html.Div([
+                    html.Div([html.Label("Length", style=_label_style), dcc.Input(id="sb-rule-length", type="number", value=16, min=1, style=_input_style)], style={"flex": "0.5"}),
+                    html.Div([html.Label("Prefix (optional)", style=_label_style), dcc.Input(id="sb-rule-prefix", type="text", placeholder="e.g. ORD-", style=_input_style)], style={"flex": "1"}),
+                    html.Div([html.Label("Suffix (optional)", style=_label_style), dcc.Input(id="sb-rule-suffix", type="text", placeholder="e.g. -US", style=_input_style)], style={"flex": "1"}),
+                ], style={"display": "flex", "gap": "8px"}),
+                html.Div([
+                    html.Label("Composite value (optional)", style=_label_style),
+                    dcc.Dropdown(id="sb-rule-composite", options=[
+                        {"label": "None (random string only)", "value": "none"},
+                        {"label": "UUID (prefix + UUID)", "value": "prefix_uuid"},
+                        {"label": "UUID + suffix", "value": "uuid_suffix"},
+                        {"label": "Prefix + UUID + suffix", "value": "prefix_uuid_suffix"},
+                        {"label": "Prefix + random string", "value": "prefix_random"},
+                        {"label": "Random string + suffix", "value": "random_suffix"},
+                    ], value="none", clearable=False, style={"fontSize": "12px", "marginTop": "3px"}),
+                ], style={"marginTop": "6px"}),
             ])
         if field_type in ("int", "float", "decimal"):
             return html.Div([
@@ -2408,12 +2422,18 @@ def create_dashboard(
     def add_schema_field(n_clicks, field_name, field_type, current_fields, rule_children):
         if not n_clicks:
             raise PreventUpdate
-        name = (field_name or "").strip()
+        name = (field_name or "").strip().strip("'\"")
         if not name:
             return no_update, _feedback_warning("Field name is required."), no_update
+        if "'" in name or '"' in name:
+            return no_update, _feedback_warning("Field names must not contain quotes. Enter the name without quotes (e.g. tenant_id, not 'tenant_id')."), no_update
+        if " " in name:
+            return no_update, _feedback_warning("Field names must not contain spaces. Use underscores (e.g. order_total)."), no_update
+        if not all(c.isalnum() or c in ("_", ".", "-") for c in name):
+            return no_update, _feedback_warning("Field names may only contain letters, digits, underscores, hyphens, and dots (for nesting)."), no_update
         fields = current_fields or []
-        top_level_names = {f["name"] for f in fields if "." not in f.get("name", "")}
-        if name in top_level_names:
+        all_names = {f["name"] for f in fields}
+        if name in all_names:
             return no_update, _feedback_warning(f"Field '{name}' already exists."), no_update
         field: dict = {"name": name, "field_type": field_type}
         _extract_rules_from_children(field, field_type, rule_children)
@@ -2433,8 +2453,20 @@ def create_dashboard(
         for i, f in enumerate(fields):
             ft = f.get("field_type", "string")
             detail_parts = []
-            if ft == "string" and f.get("length"):
-                detail_parts.append(f"len={f['length']}")
+            if ft == "string":
+                parts = []
+                if f.get("prefix"):
+                    parts.append(f'"{f["prefix"]}"')
+                comp = f.get("composite", "none")
+                if comp and comp != "none" and "uuid" in comp:
+                    parts.append("UUID")
+                elif f.get("length"):
+                    parts.append(f"rand({f['length']})")
+                else:
+                    parts.append(f"rand({f.get('length', 16)})")
+                if f.get("suffix"):
+                    parts.append(f'"{f["suffix"]}"')
+                detail_parts.append("+".join(parts) if len(parts) > 1 else parts[0] if parts else f"len={f.get('length', 16)}")
             elif ft in ("int", "float", "decimal"):
                 detail_parts.append(f"{f.get('min_value', 0)}..{f.get('max_value', 10000)}")
             elif ft == "choice":
@@ -3452,6 +3484,15 @@ def _extract_rules_from_children(field: dict, field_type: str, rule_children: ob
     props = _flatten_component_props(rule_children)
     if field_type == "string":
         field["length"] = int(props.get("sb-rule-length", 16) or 16)
+        prefix = str(props.get("sb-rule-prefix", "") or "")
+        suffix = str(props.get("sb-rule-suffix", "") or "")
+        composite = str(props.get("sb-rule-composite", "none") or "none")
+        if prefix:
+            field["prefix"] = prefix
+        if suffix:
+            field["suffix"] = suffix
+        if composite != "none":
+            field["composite"] = composite
     elif field_type in ("int", "float", "decimal"):
         field["min_value"] = float(props.get("sb-rule-min", 0) or 0)
         field["max_value"] = float(props.get("sb-rule-max", 10000) or 10000)
