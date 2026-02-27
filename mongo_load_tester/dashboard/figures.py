@@ -57,7 +57,9 @@ def _apply_timeline_layout(
         showgrid=True, gridcolor="#eef2f7", gridwidth=1,
         zeroline=False, tickfont={"size": 10, "color": "#6b7280"},
         showline=True, linewidth=1, linecolor="#e2e8f0",
+        rangeslider={"visible": False},
     )
+    figure.update_layout(dragmode="zoom")
     figure.update_yaxes(
         rangemode="tozero", showgrid=True, gridcolor="#eef2f7", gridwidth=1,
         tickfont={"size": 10, "color": "#6b7280"},
@@ -341,9 +343,8 @@ def build_per_op_throughput_timeline(snapshot: MetricsSnapshot, x_range: tuple[d
         figure.add_trace(
             go.Scatter(
                 x=x_values, y=counts, mode="lines", name=f"{op_type}_ops",
-                line={"width": 1.7, "color": color, "shape": "spline", "smoothing": 0.5},
+                line={"width": 1.8, "color": color, "shape": "spline", "smoothing": 0.5},
                 hovertemplate=f"{op_type.capitalize()} ops: %{{y}}<extra></extra>",
-                stackgroup="ops",
             )
         )
     _apply_timeline_layout(figure, yaxis_title="Operations / sec", x_range=x_range)

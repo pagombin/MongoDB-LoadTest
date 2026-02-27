@@ -126,20 +126,47 @@ def create_dashboard(
         "staged_static_snapshot": None,
     })
 
+    _agg_cache: dict[str, object] = {"data": None, "ts": 0.0}
+    _AGG_CACHE_TTL = 0.8
+
+    def _get_cached_aggregation():
+        import time as _t
+        now = _t.monotonic()
+        if now - float(_agg_cache["ts"]) < _AGG_CACHE_TTL and _agg_cache["data"] is not None:
+            return _agg_cache["data"]
+        if distributed_aggregator is None:
+            return None
+        try:
+            result = distributed_aggregator.aggregate()
+            _agg_cache["data"] = result
+            _agg_cache["ts"] = now
+            return result
+        except Exception:
+            return _agg_cache.get("data")
+
     distributed_aggregator = None
+    leader_publisher = None
     if metadata_store is not None:
         try:
-            from mongo_load_tester.engine.distributed import MetricsAggregator, DISTRIBUTED_METRICS_COLLECTION
+            from mongo_load_tester.engine.distributed import MetricsAggregator, MetricsPublisher, DISTRIBUTED_METRICS_COLLECTION
             from mongo_load_tester.engine.client import build_client as _build_client
-            _agg_client = _build_client(config.mongo)
-            _agg_collection = _agg_client[config.metadata.database_name][DISTRIBUTED_METRICS_COLLECTION]
+            _dist_client = _build_client(config.mongo)
+            _dist_collection = _dist_client[config.metadata.database_name][DISTRIBUTED_METRICS_COLLECTION]
             distributed_aggregator = MetricsAggregator(
-                collection=_agg_collection,
+                collection=_dist_collection,
                 load_test_id=config.metadata.load_test_id,
                 logger=logger,
             )
+            leader_publisher = MetricsPublisher(
+                metrics_store=metrics_store,
+                collection=_dist_collection,
+                load_test_id=config.metadata.load_test_id,
+                worker_id="leader",
+                logger=logger,
+            )
+            leader_publisher.start()
         except Exception:
-            logger.warning("Failed to initialize distributed metrics aggregator.", exc_info=True)
+            logger.warning("Failed to initialize distributed metrics.", exc_info=True)
 
     def persist_metadata_config(
         reason: str,
@@ -182,6 +209,8 @@ def create_dashboard(
         status = "failed" if runner.last_error else "completed"
         if metadata_store is not None:
             metadata_store.record_run_finished(run_id=str(run_id), status=status, snapshot=snapshot, error=runner.last_error)
+            metadata_store.set_workload_state("COMPLETED" if status == "completed" else "STOPPED", run_id=str(run_id))
+            metadata_store.heartbeat_worker("leader", "idle")
         run_state["last_run_finished_at"] = finished_at
         run_state["active_run_id"] = None
         run_state["run_static_baseline"] = None
@@ -1266,6 +1295,7 @@ def create_dashboard(
                 ],
                 style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "1fr", "gap": "12px"},
             ),
+            html.Div(id="charts-worker-notice", style={"display": "none"}),
             html.Div("Throughput & Users", style=_SECTION_HEADER_STYLE),
             html.Div(
                 [
@@ -1452,6 +1482,16 @@ def create_dashboard(
                     "boxShadow": "inset 0 2px 4px rgba(0,0,0,0.15)",
                 },
             ),
+            dcc.ConfirmDialog(
+                id="confirm-reset-defaults",
+                message=(
+                    "This will reset ALL settings to their config file defaults.\n\n"
+                    "If a load test is currently running, it will be STOPPED and all "
+                    "metrics will be cleared.\n\n"
+                    "Per-collection schema overrides will also be removed.\n\n"
+                    "Do you want to continue?"
+                ),
+            ),
             dcc.Download(id="download-csv"),
             dcc.Download(id="download-png"),
             dcc.Download(id="download-pdf"),
@@ -1635,14 +1675,38 @@ def create_dashboard(
             filter_reference = snapshot.generated_at if runner.is_running else runner.finished_at
             filtered_snapshot = _filter_snapshot_timeline(snapshot, window_seconds, reference_time=filter_reference)
             filtered_snapshot = _remove_incomplete_live_second(filtered_snapshot, runner.is_running)
+            filtered_snapshot = _downsample_timeline(filtered_snapshot)
             x_range = _timeline_x_range(
                 window_seconds, snapshot.generated_at, runner.started_at,
                 is_running=runner.is_running, finished_at=runner.finished_at,
             )
-            stable_ops_per_sec = _compute_stable_ops_per_sec(snapshot.total_ops, runner.active_elapsed_seconds())
-            error_rate = (snapshot.error_ops / snapshot.total_ops * 100.0) if snapshot.total_ops else 0.0
-            success_rate = (snapshot.success_ops / snapshot.total_ops * 100.0) if snapshot.total_ops else 0.0
-            retry_rate = (snapshot.retried_ops / snapshot.total_ops * 100.0) if snapshot.total_ops else 0.0
+            agg = _get_cached_aggregation()
+            if agg and agg.get("worker_count", 0) > 1:
+                _total = agg["total_ops"]
+                _error = agg["error_ops"]
+                _success = agg["success_ops"]
+                _retried = agg["retried_ops"]
+                stable_ops_per_sec = agg["ops_per_second"]
+                error_rate = (_error / _total * 100.0) if _total else 0.0
+                success_rate = (_success / _total * 100.0) if _total else 0.0
+                retry_rate = (_retried / _total * 100.0) if _total else 0.0
+                kpi_total_ops = _fmt(_total)
+                kpi_p50 = f"{agg['p50_latency_ms']:.2f} ms"
+                kpi_avg = f"{agg['avg_latency_ms']:.2f} ms"
+                kpi_p95 = f"{agg['p95_latency_ms']:.2f} ms"
+                kpi_p99 = f"{agg['p99_latency_ms']:.2f} ms"
+                kpi_active_users = _fmt(agg.get("active_virtual_users", 0))
+            else:
+                stable_ops_per_sec = _compute_stable_ops_per_sec(snapshot.total_ops, runner.active_elapsed_seconds())
+                error_rate = (snapshot.error_ops / snapshot.total_ops * 100.0) if snapshot.total_ops else 0.0
+                success_rate = (snapshot.success_ops / snapshot.total_ops * 100.0) if snapshot.total_ops else 0.0
+                retry_rate = (snapshot.retried_ops / snapshot.total_ops * 100.0) if snapshot.total_ops else 0.0
+                kpi_total_ops = _fmt(snapshot.total_ops)
+                kpi_p50 = f"{snapshot.p50_latency_ms:.2f} ms"
+                kpi_avg = f"{snapshot.avg_latency_ms:.2f} ms"
+                kpi_p95 = f"{snapshot.p95_latency_ms:.2f} ms"
+                kpi_p99 = f"{snapshot.p99_latency_ms:.2f} ms"
+                kpi_active_users = _fmt(snapshot.active_virtual_users_current)
             status_text, status_style = _build_status_ui(runner)
             runtime_meta, progress_value, progress_label = _build_runtime_ui(runner)
             if runner.is_running:
@@ -1680,16 +1744,16 @@ def create_dashboard(
                 progress_label,
                 _window_message(window_seconds, snapshot),
                 duration_meta,
-                _fmt(snapshot.total_ops),
-                f"{stable_ops_per_sec:.2f}",
+                kpi_total_ops,
+                f"{stable_ops_per_sec:,.2f}",
                 f"{error_rate:.2f}%",
                 f"{success_rate:.2f}%",
-                f"{snapshot.p50_latency_ms:.2f} ms",
-                f"{snapshot.avg_latency_ms:.2f} ms",
-                f"{snapshot.p95_latency_ms:.2f} ms",
-                f"{snapshot.p99_latency_ms:.2f} ms",
+                kpi_p50,
+                kpi_avg,
+                kpi_p95,
+                kpi_p99,
                 f"{retry_rate:.2f}%",
-                _fmt(snapshot.active_virtual_users_current),
+                kpi_active_users,
                 build_operations_timeline(filtered_snapshot, x_range=x_range),
                 build_latency_timeline(filtered_snapshot, x_range=x_range),
                 build_user_ramp_timeline(filtered_snapshot, x_range=x_range),
@@ -1717,47 +1781,79 @@ def create_dashboard(
         Input("refresh", "n_intervals"),
     )
     def refresh_distributed_workers(_: int):
-        if distributed_aggregator is None:
+        if metadata_store is None:
             return "", {"display": "none"}
         try:
-            agg = distributed_aggregator.aggregate()
+            registered_workers = metadata_store.fetch_workers()
         except Exception:
+            registered_workers = []
+        agg = _get_cached_aggregation()
+        if not registered_workers and (agg is None or agg.get("worker_count", 0) == 0):
             return "", {"display": "none"}
-        if agg is None or agg["worker_count"] == 0:
-            return "", {"display": "none"}
-        workers = agg["workers"]
-        total_ops_sec = agg["ops_per_second"]
+        _STATUS_COLORS = {
+            "running": "#059669", "paused": "#d97706", "idle": "#6b7280",
+            "stopped": "#dc2626", "synced": "#2563eb",
+        }
+        _td = {"padding": "5px 10px", "borderBottom": "1px solid #f0f0f0"}
+        now = datetime.now(UTC)
         worker_rows = []
-        for w in workers:
-            ts = w.get("timestamp")
-            age = ""
-            if ts:
-                delta = (datetime.now(UTC) - ts).total_seconds() if hasattr(ts, "timestamp") else 0
-                age = f"{delta:.0f}s ago" if delta < 120 else "stale"
-            worker_rows.append(
-                html.Tr([
-                    html.Td(w["worker_id"], style={"padding": "4px 8px", "fontWeight": "600"}),
-                    html.Td(f"{w['ops_per_second']:.0f}", style={"padding": "4px 8px"}),
-                    html.Td(f"{w['total_ops']:,}", style={"padding": "4px 8px"}),
-                    html.Td(f"{w['p95_latency_ms']:.1f} ms", style={"padding": "4px 8px"}),
-                    html.Td(age, style={"padding": "4px 8px", "color": "#6b7280"}),
-                ])
-            )
+        agg_metrics = {}
+        if agg:
+            for w in agg.get("workers", []):
+                agg_metrics[w["worker_id"]] = w
+        for w in registered_workers:
+            wid = w.get("worker_id", "?")
+            wtype = w.get("worker_type", "?")
+            status = w.get("status", "?")
+            heartbeat = w.get("heartbeat")
+            joined = w.get("joined_at")
+            hb_age = ""
+            if heartbeat and isinstance(heartbeat, datetime):
+                hb = heartbeat.replace(tzinfo=UTC) if heartbeat.tzinfo is None else heartbeat
+                delta = (now - hb).total_seconds()
+                hb_age = f"{delta:.0f}s ago" if delta < 120 else "stale"
+            join_label = ""
+            if joined and isinstance(joined, datetime):
+                join_label = joined.strftime("%H:%M:%S")
+            am = agg_metrics.get(wid, {})
+            ops_sec = am.get("ops_per_second", 0)
+            total_ops = am.get("total_ops", 0)
+            status_color = _STATUS_COLORS.get(status, "#6b7280")
+            type_badge_bg = "#4f46e5" if wtype == "dashboard" else "#6366f1"
+            worker_rows.append(html.Tr([
+                html.Td(wid, style={**_td, "fontWeight": "600"}),
+                html.Td(
+                    html.Span(wtype, style={"background": type_badge_bg, "color": "white", "padding": "1px 6px", "borderRadius": "4px", "fontSize": "10px", "fontWeight": "700"}),
+                    style=_td,
+                ),
+                html.Td(
+                    html.Span(status, style={"color": status_color, "fontWeight": "600"}),
+                    style=_td,
+                ),
+                html.Td(f"{ops_sec:,.0f}" if ops_sec else "—", style=_td),
+                html.Td(f"{total_ops:,}" if total_ops else "—", style=_td),
+                html.Td(hb_age, style={**_td, "color": "#6b7280"}),
+                html.Td(join_label, style={**_td, "color": "#6b7280"}),
+            ]))
+        total_agg_ops_sec = agg["ops_per_second"] if agg else 0
         content = html.Div([
             html.Div([
-                html.Span("Distributed Workers", style={"fontWeight": "700", "fontSize": "14px", "color": "#1e1b4b"}),
+                html.Span("Worker Registry", style={"fontWeight": "700", "fontSize": "14px", "color": "#1e1b4b"}),
                 html.Span(
-                    f"  {agg['worker_count']} worker(s) | {total_ops_sec:,.0f} aggregate ops/sec",
+                    f"  {len(registered_workers)} worker(s)"
+                    + (f" | {total_agg_ops_sec:,.0f} aggregate ops/sec" if total_agg_ops_sec > 0 else ""),
                     style={"fontSize": "12px", "color": "#6b7280", "marginLeft": "10px"},
                 ),
             ]),
             html.Table([
                 html.Thead(html.Tr([
-                    html.Th("Worker", style={"textAlign": "left", "padding": "4px 8px", "fontSize": "11px"}),
-                    html.Th("Ops/sec", style={"textAlign": "left", "padding": "4px 8px", "fontSize": "11px"}),
-                    html.Th("Total ops", style={"textAlign": "left", "padding": "4px 8px", "fontSize": "11px"}),
-                    html.Th("P95 latency", style={"textAlign": "left", "padding": "4px 8px", "fontSize": "11px"}),
-                    html.Th("Last update", style={"textAlign": "left", "padding": "4px 8px", "fontSize": "11px"}),
+                    html.Th("Worker ID", style={"textAlign": "left", "padding": "5px 10px", "fontSize": "11px"}),
+                    html.Th("Type", style={"textAlign": "left", "padding": "5px 10px", "fontSize": "11px"}),
+                    html.Th("Status", style={"textAlign": "left", "padding": "5px 10px", "fontSize": "11px"}),
+                    html.Th("Ops/sec", style={"textAlign": "left", "padding": "5px 10px", "fontSize": "11px"}),
+                    html.Th("Total ops", style={"textAlign": "left", "padding": "5px 10px", "fontSize": "11px"}),
+                    html.Th("Heartbeat", style={"textAlign": "left", "padding": "5px 10px", "fontSize": "11px"}),
+                    html.Th("Joined", style={"textAlign": "left", "padding": "5px 10px", "fontSize": "11px"}),
                 ])),
                 html.Tbody(worker_rows),
             ], style={"width": "100%", "borderCollapse": "collapse", "fontSize": "12px", "marginTop": "8px"}),
@@ -1769,6 +1865,31 @@ def create_dashboard(
             "border": "1px solid #c4b5fd",
         }
         return content, panel_style
+
+    @callback(
+        Output("charts-worker-notice", "children"),
+        Output("charts-worker-notice", "style"),
+        Input("refresh", "n_intervals"),
+    )
+    def refresh_charts_worker_notice(_: int):
+        agg = _get_cached_aggregation()
+        if agg and agg.get("worker_count", 0) > 1:
+            return (
+                html.Div([
+                    html.Span("Note: ", style={"fontWeight": "700"}),
+                    "Timeline charts below reflect the ",
+                    html.Span("leader's local metrics", style={"fontWeight": "600"}),
+                    " only. KPIs (Total ops, Ops/sec, etc.) and the Worker Registry show ",
+                    html.Span("aggregated data across all workers", style={"fontWeight": "600"}),
+                    ".",
+                ], style={"fontSize": "12px"}),
+                {
+                    "marginTop": "12px", "padding": "10px 14px",
+                    "background": "#ede9fe", "border": "1px solid #c4b5fd",
+                    "borderRadius": "10px", "color": "#5b21b6",
+                },
+            )
+        return "", {"display": "none"}
 
     _SCALING_ALERT_DISPLAY_SECONDS = 8
     _scaling_alert_state: dict[str, object] = {"messages": [], "show_until": 0.0}
@@ -2167,6 +2288,8 @@ def create_dashboard(
                     run_id = metadata_store.record_run_started(config_version=config_version)
                     run_state["active_run_id"] = run_id
                     run_state["last_run_finished_at"] = None
+                    metadata_store.set_workload_state("STARTED", run_id=run_id)
+                    metadata_store.heartbeat_worker("leader", "running")
                     metadata_store.append_event(
                         event_type="control_action",
                         message="Start requested from dashboard.",
@@ -2180,23 +2303,26 @@ def create_dashboard(
                     raise PreventUpdate
                 controller.stop()
                 if metadata_store is not None:
+                    metadata_store.set_workload_state("STOPPED", run_id=str(run_state.get("active_run_id") or ""))
+                    metadata_store.heartbeat_worker("leader", "idle")
                     metadata_store.append_event(
                         event_type="control_action",
                         message="Stop requested from dashboard.",
                         payload={"action": "stop", "run_id": run_state.get("active_run_id")},
                     )
-                return _feedback_info("Stop requested. Workers are finishing in-flight operations.")
+                return _feedback_info("Stop requested. All workers (local and remote) are stopping.")
             if triggered == "pause-test-btn":
                 if not pause_clicks:
                     raise PreventUpdate
                 paused = controller.pause()
                 if paused and metadata_store is not None:
+                    metadata_store.set_workload_state("PAUSED", run_id=str(run_state.get("active_run_id") or ""))
                     metadata_store.append_event(
                         event_type="control_action",
                         message="Pause requested from dashboard.",
                         payload={"action": "pause", "run_id": run_state.get("active_run_id")},
                     )
-                return _feedback_info("Load test paused.") if paused else _feedback_warning(
+                return _feedback_info("Load test paused. All workers (local and remote) are pausing.") if paused else _feedback_warning(
                     "Pause ignored (runner is not active)."
                 )
             if triggered == "resume-test-btn":
@@ -2204,12 +2330,13 @@ def create_dashboard(
                     raise PreventUpdate
                 resumed = controller.resume()
                 if resumed and metadata_store is not None:
+                    metadata_store.set_workload_state("STARTED", run_id=str(run_state.get("active_run_id") or ""))
                     metadata_store.append_event(
                         event_type="control_action",
                         message="Resume requested from dashboard.",
                         payload={"action": "resume", "run_id": run_state.get("active_run_id")},
                     )
-                return _feedback_info("Load test resumed.") if resumed else _feedback_warning(
+                return _feedback_info("Load test resumed. All workers resuming.") if resumed else _feedback_warning(
                     "Resume ignored (runner is not paused)."
                 )
             if triggered == "restart-test-btn":
@@ -2223,6 +2350,8 @@ def create_dashboard(
                     run_id = metadata_store.record_run_started(config_version=config_version)
                     run_state["active_run_id"] = run_id
                     run_state["last_run_finished_at"] = None
+                    metadata_store.set_workload_state("STARTED", run_id=run_id)
+                    metadata_store.heartbeat_worker("leader", "running")
                 if restarted:
                     run_state["run_static_baseline"] = _static_config_snapshot(controller.current_config())
                     run_state["staged_static_snapshot"] = None
@@ -2952,6 +3081,16 @@ def create_dashboard(
         )
 
     @callback(
+        Output("confirm-reset-defaults", "displayed"),
+        Input("reset-defaults-btn", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def show_reset_confirm(n_clicks):
+        if not n_clicks:
+            raise PreventUpdate
+        return True
+
+    @callback(
         Output("duration-seconds-input", "value"),
         Output("target-users-input", "value"),
         Output("worker-threads-input", "value"),
@@ -2980,85 +3119,50 @@ def create_dashboard(
         Output("schema-fields-json-input", "value"),
         Output("control-feedback", "children", allow_duplicate=True),
         Output("static-config-feedback", "children", allow_duplicate=True),
-        Input("reset-defaults-btn", "n_clicks"),
+        Input("confirm-reset-defaults", "submit_n_clicks"),
         prevent_initial_call=True,
     )
-    def reset_all_settings_to_defaults(reset_clicks: int):
-        if not reset_clicks:
+    def reset_all_settings_to_defaults(submit_clicks):
+        if not submit_clicks:
             raise PreventUpdate
         try:
             defaults = default_config()
-            if runner.is_running:
-                # Live-safe controls apply now; static controls are staged for next run.
-                controller.update_duration_seconds(defaults.load.duration_seconds)
-                controller.update_target_virtual_users(defaults.load.virtual_users)
-                controller.update_worker_threads(defaults.load.worker_threads)
-                controller.update_pacing(
-                    think_time_ms_min=defaults.load.think_time_ms_min,
-                    think_time_ms_max=defaults.load.think_time_ms_max,
-                    target_ops_per_user_per_sec=defaults.load.target_ops_per_user_per_sec,
-                )
-                controller.update_operation_mix(
-                    read=defaults.operation_mix.read,
-                    insert=defaults.operation_mix.insert,
-                    update=defaults.operation_mix.update,
-                    delete=defaults.operation_mix.delete,
-                    find_and_modify=defaults.operation_mix.find_and_modify,
-                )
-                controller.update_retry_policy(
-                    max_attempts=defaults.retry.max_attempts,
-                    initial_backoff_ms=defaults.retry.initial_backoff_ms,
-                    max_backoff_ms=defaults.retry.max_backoff_ms,
-                    backoff_multiplier=defaults.retry.backoff_multiplier,
-                    jitter_ratio=defaults.retry.jitter_ratio,
-                )
-                controller.update_runtime_logging(
-                    level_name=defaults.logging.level,
-                    progress_log_interval_seconds=defaults.logging.progress_log_interval_seconds,
-                    log_operation_failures=defaults.logging.log_operation_failures,
-                )
-                staged_config = controller.current_config()
-                staged_config.namespace = defaults.namespace.model_copy(deep=True)
-                staged_config.document_schema = defaults.document_schema.model_copy(deep=True)
-                staged_config.load.initial_seed_per_collection = defaults.load.initial_seed_per_collection
-                staged_config.load.ramp_up_seconds = defaults.load.ramp_up_seconds
-                run_state["staged_static_snapshot"] = _static_config_snapshot(staged_config)
-                persist_metadata_config(
-                    "reset-all-defaults-running",
-                    config_override=staged_config,
-                    mark_synced=False,
-                )
-                message = (
-                    "Live defaults applied now; static defaults are staged for next run and metadata updated."
-                )
-                static_message = (
-                    "Defaults staged for next run while load test is active (namespace/schema/seed/ramp-up)."
-                )
+            was_running = runner.is_running
+            if was_running:
+                controller.stop()
+                controller.join(timeout=10)
+                if metadata_store is not None:
+                    metadata_store.set_workload_state("STOPPED")
+                    metadata_store.heartbeat_worker("leader", "idle")
+                metrics_store.reset()
+                run_state["active_run_id"] = None
+                run_state["last_run_finished_at"] = None
+
+            config_for_reset = controller.current_config()
+            config_for_reset.load.duration_seconds = defaults.load.duration_seconds
+            config_for_reset.load.virtual_users = defaults.load.virtual_users
+            config_for_reset.load.worker_threads = defaults.load.worker_threads
+            config_for_reset.load.think_time_ms_min = defaults.load.think_time_ms_min
+            config_for_reset.load.think_time_ms_max = defaults.load.think_time_ms_max
+            config_for_reset.load.target_ops_per_user_per_sec = defaults.load.target_ops_per_user_per_sec
+            config_for_reset.load.initial_seed_per_collection = defaults.load.initial_seed_per_collection
+            config_for_reset.load.ramp_up_seconds = defaults.load.ramp_up_seconds
+            config_for_reset.operation_mix = defaults.operation_mix.model_copy(deep=True)
+            config_for_reset.retry = defaults.retry.model_copy(deep=True)
+            config_for_reset.logging.level = defaults.logging.level
+            config_for_reset.logging.progress_log_interval_seconds = defaults.logging.progress_log_interval_seconds
+            config_for_reset.logging.log_operation_failures = defaults.logging.log_operation_failures
+            config_for_reset.namespace = defaults.namespace.model_copy(deep=True)
+            config_for_reset.document_schema = defaults.document_schema.model_copy(deep=True)
+            controller.apply_config(config_for_reset, source="dashboard-reset-defaults")
+            run_state["staged_static_snapshot"] = None
+            run_state["startup_static_baseline"] = _static_config_snapshot(config_for_reset)
+            persist_metadata_config("reset-all-defaults")
+            if was_running:
+                message = "Load test stopped. All settings reset to defaults and metrics cleared."
             else:
-                config_for_reset = controller.current_config()
-                config_for_reset.load.duration_seconds = defaults.load.duration_seconds
-                config_for_reset.load.virtual_users = defaults.load.virtual_users
-                config_for_reset.load.worker_threads = defaults.load.worker_threads
-                config_for_reset.load.think_time_ms_min = defaults.load.think_time_ms_min
-                config_for_reset.load.think_time_ms_max = defaults.load.think_time_ms_max
-                config_for_reset.load.target_ops_per_user_per_sec = defaults.load.target_ops_per_user_per_sec
-                config_for_reset.load.initial_seed_per_collection = defaults.load.initial_seed_per_collection
-                config_for_reset.load.ramp_up_seconds = defaults.load.ramp_up_seconds
-                config_for_reset.operation_mix = defaults.operation_mix.model_copy(deep=True)
-                config_for_reset.retry = defaults.retry.model_copy(deep=True)
-                config_for_reset.logging.level = defaults.logging.level
-                config_for_reset.logging.progress_log_interval_seconds = defaults.logging.progress_log_interval_seconds
-                config_for_reset.logging.log_operation_failures = defaults.logging.log_operation_failures
-                config_for_reset.namespace = defaults.namespace.model_copy(deep=True)
-                config_for_reset.document_schema = defaults.document_schema.model_copy(deep=True)
-                controller.apply_config(config_for_reset, source="dashboard-reset-defaults")
-                run_state["staged_static_snapshot"] = None
-                persist_metadata_config("reset-all-defaults")
-                message = "All configurable settings were reset to defaults and metadata has been updated."
-                static_message = (
-                    "Defaults restored. Static namespace/schema/seed/ramp-up values are staged "
-                    "according to current run state."
-                )
+                message = "All settings reset to defaults and metadata updated."
+            static_message = "Defaults restored. Click Start when ready."
             schema_json = _schema_config_to_json(defaults.document_schema)
             return (
                 defaults.load.duration_seconds,
@@ -3538,6 +3642,17 @@ def _filter_snapshot_timeline(
     cutoff = ref - timedelta(seconds=window_seconds)
     filtered = [point for point in snapshot.timeline if point.second >= cutoff]
     return replace(snapshot, timeline=filtered)
+
+
+def _downsample_timeline(snapshot: MetricsSnapshot, max_points: int = 600) -> MetricsSnapshot:
+    """Reduce timeline density for longer timeframes to keep charts responsive."""
+    if len(snapshot.timeline) <= max_points:
+        return snapshot
+    step = max(1, len(snapshot.timeline) // max_points)
+    downsampled = snapshot.timeline[::step]
+    if snapshot.timeline and snapshot.timeline[-1] not in downsampled:
+        downsampled.append(snapshot.timeline[-1])
+    return replace(snapshot, timeline=downsampled)
 
 
 def _filter_snapshot_to_run_start(snapshot: MetricsSnapshot, run_started_at: datetime | None) -> MetricsSnapshot:

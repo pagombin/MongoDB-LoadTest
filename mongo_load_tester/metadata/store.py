@@ -1,4 +1,4 @@
-"""MongoDB-backed metadata store for configuration and run state."""
+"""MongoDB-backed metadata store for configuration, workload state, and worker registry."""
 
 from __future__ import annotations
 
@@ -20,6 +20,18 @@ CONFIGS_COLLECTION = "load_test_configs"
 EVENTS_COLLECTION = "load_test_events"
 RUNS_COLLECTION = "load_test_runs"
 COLLECTION_SCHEMAS_COLLECTION = "collection_schemas"
+WORKLOAD_STATE_COLLECTION = "load_test_workload_state"
+WORKERS_COLLECTION = "load_test_workers"
+
+_SENSITIVE_FIELDS = frozenset({"mongo"})
+
+
+def _sanitize_config_payload(config: AppConfig) -> dict[str, Any]:
+    """Serialize AppConfig for metadata storage, stripping all sensitive fields."""
+    payload = config.model_dump(mode="json", by_alias=True)
+    for field_name in _SENSITIVE_FIELDS:
+        payload.pop(field_name, None)
+    return payload
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,7 +45,7 @@ class ConfigRecord:
 
 
 class MetadataStore:
-    """Persists load-test configuration, events, and runs."""
+    """Persists load-test configuration, events, runs, workload state, and worker registry."""
 
     def __init__(
         self,
@@ -44,8 +56,6 @@ class MetadataStore:
     ):
         self._logger = logger or logging.getLogger("mongo_load_tester.metadata")
         self._load_test_id = load_test_id
-        # Metadata traffic is light; keep a conservative pool so UI callbacks
-        # do not consume many file descriptors on hosts with low ulimit values.
         metadata_client_config = mongo_config.model_copy(deep=True)
         metadata_client_config.app_name = f"{mongo_config.app_name}-metadata"
         metadata_client_config.min_pool_size = 0
@@ -56,6 +66,8 @@ class MetadataStore:
         self._events: Collection = self._database[EVENTS_COLLECTION]
         self._runs: Collection = self._database[RUNS_COLLECTION]
         self._collection_schemas: Collection = self._database[COLLECTION_SCHEMAS_COLLECTION]
+        self._workload_state: Collection = self._database[WORKLOAD_STATE_COLLECTION]
+        self._workers: Collection = self._database[WORKERS_COLLECTION]
         self._ensure_indexes()
 
     @property
@@ -68,12 +80,14 @@ class MetadataStore:
         except Exception:  # pragma: no cover - defensive close
             self._logger.exception("Failed to close metadata client.")
 
+    # ---- CONFIG ----
+
     def get_or_create_config(self, default_config: AppConfig) -> ConfigRecord:
         existing = self.fetch_config()
         if existing is not None:
             return existing
         now = datetime.now(UTC)
-        payload = default_config.model_dump(mode="json", by_alias=True)
+        payload = _sanitize_config_payload(default_config)
         document = {
             "load_test_id": self._load_test_id,
             "version": 1,
@@ -110,7 +124,7 @@ class MetadataStore:
 
     def save_config(self, config: AppConfig, source: str, reason: str) -> ConfigRecord:
         now = datetime.now(UTC)
-        payload = config.model_dump(mode="json", by_alias=True)
+        payload = _sanitize_config_payload(config)
         updated = self._configs.find_one_and_update(
             {"load_test_id": self._load_test_id},
             {
@@ -138,6 +152,8 @@ class MetadataStore:
         )
         return record
 
+    # ---- EVENTS ----
+
     def append_event(
         self,
         event_type: str,
@@ -157,6 +173,8 @@ class MetadataStore:
             }
         )
 
+    # ---- RUNS ----
+
     def record_run_started(self, config_version: int) -> str:
         now = datetime.now(UTC)
         run_id = str(uuid4())
@@ -172,7 +190,7 @@ class MetadataStore:
         )
         self.append_event(
             event_type="run_started",
-            message="Load test run started from dashboard.",
+            message="Load test run started.",
             payload={"run_id": run_id, "config_version": config_version},
         )
         return run_id
@@ -229,7 +247,6 @@ class MetadataStore:
 
     def reconcile_incomplete_runs(self, reason: str = "startup-reconcile") -> int:
         """Mark previously running runs as interrupted."""
-
         now = datetime.now(UTC)
         result = self._runs.update_many(
             {"load_test_id": self._load_test_id, "status": "running"},
@@ -252,10 +269,79 @@ class MetadataStore:
             )
         return count
 
+    # ---- WORKLOAD STATE (leader/follower orchestration) ----
+
+    def set_workload_state(self, state: str, run_id: str | None = None) -> None:
+        """Set the current workload state. Called by the leader (UI worker)."""
+        now = datetime.now(UTC)
+        self._workload_state.update_one(
+            {"load_test_id": self._load_test_id},
+            {
+                "$set": {
+                    "state": state,
+                    "run_id": run_id,
+                    "updated_at": now,
+                },
+                "$setOnInsert": {"load_test_id": self._load_test_id, "created_at": now},
+            },
+            upsert=True,
+        )
+
+    def get_workload_state(self) -> dict[str, Any] | None:
+        """Read the current workload state. Called by followers to decide what to do."""
+        return self._workload_state.find_one(
+            {"load_test_id": self._load_test_id},
+            {"_id": 0, "state": 1, "run_id": 1, "updated_at": 1},
+        )
+
+    # ---- WORKER REGISTRY (heartbeat + visibility) ----
+
+    def register_worker(
+        self, worker_id: str, worker_type: str, status: str = "idle",
+    ) -> None:
+        now = datetime.now(UTC)
+        self._workers.update_one(
+            {"load_test_id": self._load_test_id, "worker_id": worker_id},
+            {
+                "$set": {
+                    "worker_type": worker_type,
+                    "status": status,
+                    "heartbeat": now,
+                    "updated_at": now,
+                },
+                "$setOnInsert": {
+                    "load_test_id": self._load_test_id,
+                    "worker_id": worker_id,
+                    "joined_at": now,
+                },
+            },
+            upsert=True,
+        )
+
+    def heartbeat_worker(self, worker_id: str, status: str) -> None:
+        now = datetime.now(UTC)
+        self._workers.update_one(
+            {"load_test_id": self._load_test_id, "worker_id": worker_id},
+            {"$set": {"status": status, "heartbeat": now, "updated_at": now}},
+        )
+
+    def fetch_workers(self) -> list[dict[str, Any]]:
+        return list(self._workers.find(
+            {"load_test_id": self._load_test_id},
+            {"_id": 0, "worker_id": 1, "worker_type": 1, "status": 1,
+             "heartbeat": 1, "joined_at": 1},
+        ))
+
+    def deregister_worker(self, worker_id: str) -> None:
+        self._workers.delete_one(
+            {"load_test_id": self._load_test_id, "worker_id": worker_id},
+        )
+
+    # ---- PER-COLLECTION SCHEMAS ----
+
     def save_collection_schema(
         self, database: str, collection: str, schema_payload: dict[str, Any],
     ) -> None:
-        """Save or update a per-collection schema override."""
         now = datetime.now(UTC)
         target = f"{database}.{collection}"
         self._collection_schemas.update_one(
@@ -279,12 +365,12 @@ class MetadataStore:
         )
 
     def fetch_collection_schemas(self) -> list[dict[str, Any]]:
-        """Return all per-collection schema overrides for this load test."""
-        cursor = self._collection_schemas.find(
+        return list(self._collection_schemas.find(
             {"load_test_id": self._load_test_id},
             {"_id": 0, "database": 1, "collection": 1, "schema": 1, "updated_at": 1},
-        )
-        return list(cursor)
+        ))
+
+    # ---- INDEXES ----
 
     def _ensure_indexes(self) -> None:
         try:
@@ -294,6 +380,10 @@ class MetadataStore:
             self._runs.create_index("run_id")
             self._collection_schemas.create_index(
                 [("load_test_id", 1), ("target", 1)], unique=True,
+            )
+            self._workload_state.create_index("load_test_id", unique=True)
+            self._workers.create_index(
+                [("load_test_id", 1), ("worker_id", 1)], unique=True,
             )
         except Exception:
             self._logger.warning(
