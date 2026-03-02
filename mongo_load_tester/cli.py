@@ -175,7 +175,7 @@ def _run_leader(
                 host=app_config.dashboard.host,
                 port=app_config.dashboard.port,
                 debug=False,
-                threaded=True,
+                threaded=False,
             )
         except KeyboardInterrupt:
             logger.warning("Interrupted by user.")
