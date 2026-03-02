@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 
-from mongo_load_tester.config import AppConfig
+from mongo_load_tester.config import AppConfig, MongoConnectionConfig
 from mongo_load_tester.engine.metrics import MetricsStore
 from mongo_load_tester.engine.runner import LoadTestRunner, RuntimeChangeEvent
 from mongo_load_tester.observability import InMemoryLogHandler
@@ -20,6 +20,7 @@ class LoadTestController:
         self._logger = logger
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
+        self._runtime_mongo_config: MongoConnectionConfig | None = None
 
     def start(self) -> bool:
         with self._lock:
@@ -129,6 +130,10 @@ class LoadTestController:
         return self._runner.snapshot_config()
 
     def apply_config(self, config: AppConfig, source: str = "metadata-sync") -> None:
+        if source == "startup" and config.mongo.uri != "mongodb://localhost:27017":
+            self._runtime_mongo_config = config.mongo.model_copy(deep=True)
+        if self._runtime_mongo_config is not None:
+            config.mongo = self._runtime_mongo_config.model_copy(deep=True)
         self._runner.apply_config(config, record_change=(source != "startup"))
         self.update_runtime_logging(
             level_name=config.logging.level,
