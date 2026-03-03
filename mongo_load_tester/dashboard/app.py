@@ -1594,6 +1594,7 @@ def create_dashboard(
                                 id="sb-rule-inputs",
                                 style={"marginTop": "10px"},
                             ),
+                            dcc.Store(id="sb-rule-store", data={}),
                             html.Div(
                                 [
                                     html.Button(
@@ -2905,27 +2906,67 @@ def create_dashboard(
         State("sb-field-name", "value"),
         State("sb-field-type", "value"),
         State("schema-builder-fields", "data"),
-        State("sb-rule-inputs", "children"),
+        State("sb-rule-length", "value"),
+        State("sb-rule-prefix", "value"),
+        State("sb-rule-suffix", "value"),
+        State("sb-rule-composite", "value"),
+        State("sb-rule-min", "value"),
+        State("sb-rule-max", "value"),
+        State("sb-rule-choices", "value"),
+        State("sb-rule-faker", "value"),
+        State("sb-rule-date-mode", "value"),
+        State("sb-rule-date-days", "value"),
+        State("sb-rule-array-type", "value"),
+        State("sb-rule-min-items", "value"),
+        State("sb-rule-max-items", "value"),
         prevent_initial_call=True,
     )
-    def add_schema_field(n_clicks, field_name, field_type, current_fields, rule_children):
+    def add_schema_field(
+        n_clicks, field_name, field_type, current_fields,
+        rule_length, rule_prefix, rule_suffix, rule_composite,
+        rule_min, rule_max, rule_choices, rule_faker,
+        rule_date_mode, rule_date_days,
+        rule_array_type, rule_min_items, rule_max_items,
+    ):
         if not n_clicks:
             raise PreventUpdate
         name = (field_name or "").strip().strip("'\"")
         if not name:
             return no_update, _feedback_warning("Field name is required."), no_update
         if "'" in name or '"' in name:
-            return no_update, _feedback_warning("Field names must not contain quotes. Enter the name without quotes (e.g. tenant_id, not 'tenant_id')."), no_update
+            return no_update, _feedback_warning("Field names must not contain quotes."), no_update
         if " " in name:
-            return no_update, _feedback_warning("Field names must not contain spaces. Use underscores (e.g. order_total)."), no_update
+            return no_update, _feedback_warning("Field names must not contain spaces."), no_update
         if not all(c.isalnum() or c in ("_", ".", "-") for c in name):
-            return no_update, _feedback_warning("Field names may only contain letters, digits, underscores, hyphens, and dots (for nesting)."), no_update
+            return no_update, _feedback_warning("Field names may only contain letters, digits, underscores, hyphens, and dots."), no_update
         fields = current_fields or []
-        all_names = {f["name"] for f in fields}
-        if name in all_names:
+        if name in {f["name"] for f in fields}:
             return no_update, _feedback_warning(f"Field '{name}' already exists."), no_update
         field: dict = {"name": name, "field_type": field_type}
-        _extract_rules_from_children(field, field_type, rule_children)
+        ft = field_type
+        if ft == "string":
+            field["length"] = int(rule_length or 16)
+            if rule_prefix:
+                field["prefix"] = str(rule_prefix)
+            if rule_suffix:
+                field["suffix"] = str(rule_suffix)
+            if rule_composite and rule_composite != "none":
+                field["composite"] = str(rule_composite)
+        elif ft in ("int", "float", "decimal"):
+            field["min_value"] = float(rule_min if rule_min is not None else 0)
+            field["max_value"] = float(rule_max if rule_max is not None else 10000)
+        elif ft == "choice":
+            raw = str(rule_choices or "")
+            field["choices"] = [c.strip() for c in raw.split(",") if c.strip()]
+        elif ft == "faker":
+            field["faker_provider"] = str(rule_faker or "name")
+        elif ft in ("datetime", "date_range"):
+            field["date_mode"] = str(rule_date_mode or "now")
+            field["date_range_days"] = int(rule_date_days or 365)
+        elif ft == "array":
+            field["_array_item_type"] = str(rule_array_type or "string")
+            field["min_items"] = int(rule_min_items or 1)
+            field["max_items"] = int(rule_max_items or 5)
         fields.append(field)
         return fields, _feedback_info(f"Added '{name}' ({field_type})"), ""
 
