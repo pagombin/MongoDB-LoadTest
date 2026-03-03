@@ -693,69 +693,88 @@ class LoadTestRunner:
                                 latency_ms=latency / n_insert, success=False, error=str(exc),
                             ))
 
-                for _ in range(n_read):
+                if n_read > 0:
                     start = time.perf_counter()
                     try:
-                        doc_id = self._id_registry.get_random_id(target.database, target.collection, rng)
-                        if doc_id:
-                            collection.find_one({"_id": doc_id})
+                        read_ids = [self._id_registry.get_random_id(target.database, target.collection, rng) for _ in range(n_read)]
+                        valid_ids = [i for i in read_ids if i is not None]
+                        if valid_ids:
+                            list(collection.find({"_id": {"$in": valid_ids}}).limit(len(valid_ids)))
                         else:
-                            collection.find_one({}, {"_id": 1})
+                            list(collection.find({}).limit(min(n_read, 100)))
                         lat = (time.perf_counter() - start) * 1000.0
-                        results_buffer.append(OperationResult(
-                            timestamp=now_ts, operation=OperationType.READ,
-                            database=target.database, collection=target.collection,
-                            latency_ms=lat, success=True,
-                        ))
+                        per_lat = lat / n_read
+                        for _ in range(n_read):
+                            results_buffer.append(OperationResult(
+                                timestamp=now_ts, operation=OperationType.READ,
+                                database=target.database, collection=target.collection,
+                                latency_ms=per_lat, success=True,
+                            ))
                     except Exception as exc:
                         lat = (time.perf_counter() - start) * 1000.0
-                        results_buffer.append(OperationResult(
-                            timestamp=now_ts, operation=OperationType.READ,
-                            database=target.database, collection=target.collection,
-                            latency_ms=lat, success=False, error=str(exc),
-                        ))
+                        for _ in range(n_read):
+                            results_buffer.append(OperationResult(
+                                timestamp=now_ts, operation=OperationType.READ,
+                                database=target.database, collection=target.collection,
+                                latency_ms=lat / n_read, success=False, error=str(exc),
+                            ))
 
-                for _ in range(n_update):
+                if n_update > 0:
+                    from pymongo import UpdateOne
                     start = time.perf_counter()
                     try:
-                        doc_id = self._id_registry.get_random_id(target.database, target.collection, rng)
-                        if doc_id:
-                            collection.update_one({"_id": doc_id}, {"$set": gen.generate_update_fields()})
+                        ops = []
+                        for _ in range(n_update):
+                            doc_id = self._id_registry.get_random_id(target.database, target.collection, rng)
+                            if doc_id:
+                                ops.append(UpdateOne({"_id": doc_id}, {"$set": gen.generate_update_fields()}))
+                        if ops:
+                            collection.bulk_write(ops, ordered=False)
                         lat = (time.perf_counter() - start) * 1000.0
-                        results_buffer.append(OperationResult(
-                            timestamp=now_ts, operation=OperationType.UPDATE,
-                            database=target.database, collection=target.collection,
-                            latency_ms=lat, success=True,
-                        ))
+                        per_lat = lat / n_update
+                        for _ in range(n_update):
+                            results_buffer.append(OperationResult(
+                                timestamp=now_ts, operation=OperationType.UPDATE,
+                                database=target.database, collection=target.collection,
+                                latency_ms=per_lat, success=True,
+                            ))
                     except Exception as exc:
                         lat = (time.perf_counter() - start) * 1000.0
-                        results_buffer.append(OperationResult(
-                            timestamp=now_ts, operation=OperationType.UPDATE,
-                            database=target.database, collection=target.collection,
-                            latency_ms=lat, success=False, error=str(exc),
-                        ))
+                        for _ in range(n_update):
+                            results_buffer.append(OperationResult(
+                                timestamp=now_ts, operation=OperationType.UPDATE,
+                                database=target.database, collection=target.collection,
+                                latency_ms=lat / n_update, success=False, error=str(exc),
+                            ))
 
-                for _ in range(n_delete):
+                if n_delete > 0:
+                    from pymongo import DeleteOne
                     start = time.perf_counter()
                     try:
-                        doc_id = self._id_registry.get_random_id(target.database, target.collection, rng)
-                        if doc_id:
-                            result = collection.delete_one({"_id": doc_id})
-                            if result.deleted_count > 0:
+                        ops = []
+                        for _ in range(n_delete):
+                            doc_id = self._id_registry.get_random_id(target.database, target.collection, rng)
+                            if doc_id:
+                                ops.append(DeleteOne({"_id": doc_id}))
                                 self._id_registry.remove_id(target.database, target.collection, doc_id)
+                        if ops:
+                            collection.bulk_write(ops, ordered=False)
                         lat = (time.perf_counter() - start) * 1000.0
-                        results_buffer.append(OperationResult(
-                            timestamp=now_ts, operation=OperationType.DELETE,
-                            database=target.database, collection=target.collection,
-                            latency_ms=lat, success=True,
-                        ))
+                        per_lat = lat / n_delete
+                        for _ in range(n_delete):
+                            results_buffer.append(OperationResult(
+                                timestamp=now_ts, operation=OperationType.DELETE,
+                                database=target.database, collection=target.collection,
+                                latency_ms=per_lat, success=True,
+                            ))
                     except Exception as exc:
                         lat = (time.perf_counter() - start) * 1000.0
-                        results_buffer.append(OperationResult(
-                            timestamp=now_ts, operation=OperationType.DELETE,
-                            database=target.database, collection=target.collection,
-                            latency_ms=lat, success=False, error=str(exc),
-                        ))
+                        for _ in range(n_delete):
+                            results_buffer.append(OperationResult(
+                                timestamp=now_ts, operation=OperationType.DELETE,
+                                database=target.database, collection=target.collection,
+                                latency_ms=lat / n_delete, success=False, error=str(exc),
+                            ))
 
                 if len(results_buffer) >= _FLUSH_SIZE:
                     self._metrics.record_batch(results_buffer)

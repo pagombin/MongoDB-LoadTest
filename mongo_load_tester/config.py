@@ -326,7 +326,7 @@ class DashboardConfig(BaseModel):
     host: str = "127.0.0.1"
     port: int = Field(default=8050, ge=1, le=65535)
     refresh_interval_ms: int = Field(default=1_000, ge=250)
-    history_window_seconds: int = Field(default=600, ge=60)
+    history_window_seconds: int = Field(default=86400, ge=60)
 
     model_config = ConfigDict(extra="forbid")
 
