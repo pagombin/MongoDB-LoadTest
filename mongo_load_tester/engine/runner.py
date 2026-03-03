@@ -526,16 +526,14 @@ class LoadTestRunner:
                     self._stop_event.set()
                     break
                 if time.monotonic() >= next_progress_log:
-                    snapshot = self._metrics.snapshot()
+                    with self._metrics._lock:
+                        _total = self._metrics._total_ops
+                        _errors = self._metrics._error_ops
+                        _elapsed = max(time.monotonic() - self._metrics._start_monotonic, 1e-9)
                     self._logger.info(
-                        "Progress total_ops=%d success=%d errors=%d ops_per_sec=%.2f p95_ms=%.2f active_users=%d paused=%s",
-                        snapshot.total_ops,
-                        snapshot.success_ops,
-                        snapshot.error_ops,
-                        snapshot.ops_per_second,
-                        snapshot.p95_latency_ms,
-                        snapshot.active_virtual_users_current,
-                        self.is_paused,
+                        "Progress total_ops=%d errors=%d ops_per_sec=%.2f active_users=%d paused=%s",
+                        _total, _errors, _total / _elapsed,
+                        self.active_virtual_users, self.is_paused,
                     )
                     next_progress_log = time.monotonic() + self.progress_log_interval_seconds
                 self._stop_event.wait(timeout=0.2)
