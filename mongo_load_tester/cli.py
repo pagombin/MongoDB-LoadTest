@@ -171,11 +171,20 @@ def _run_leader(
             )
             typer.echo(f"Dashboard available at http://{app_config.dashboard.host}:{app_config.dashboard.port}")
             typer.echo("Load test is READY and not started yet. Configure values in UI and click Start.")
-            dashboard.run(
+            logger.info(
+                "Dashboard serving via waitress at http://%s:%d",
+                app_config.dashboard.host,
+                app_config.dashboard.port,
+            )
+            from waitress import serve as _waitress_serve
+            _waitress_serve(
+                dashboard.server,
                 host=app_config.dashboard.host,
                 port=app_config.dashboard.port,
-                debug=False,
-                threaded=False,
+                threads=4,
+                channel_timeout=120,
+                connection_limit=200,
+                ident="mongo-load-tester",
             )
         except KeyboardInterrupt:
             logger.warning("Interrupted by user.")
@@ -321,8 +330,11 @@ def _execute_follower_workload(
     metadata_store.heartbeat_worker(worker_id, "running")
     state_stop = threading.Event()
 
+    last_synced_version = config_record.version
+
     def _state_sync_loop():
-        """Poll workload state and stop/pause the runner accordingly."""
+        """Poll workload state AND config version, sync both to the runner."""
+        nonlocal last_synced_version
         while not state_stop.is_set():
             try:
                 ws = metadata_store.get_workload_state()
@@ -337,9 +349,16 @@ def _execute_follower_workload(
                     elif current == "STARTED":
                         if runner.is_paused:
                             runner.resume()
+                rec = metadata_store.fetch_config()
+                if rec and rec.version > last_synced_version:
+                    new_cfg = rec.config
+                    new_cfg.mongo = bootstrap_config.mongo
+                    runner.apply_config(new_cfg, record_change=True)
+                    last_synced_version = rec.version
+                    logger.info("Follower %s synced config version %d.", worker_id, rec.version)
             except Exception:
                 pass
-            state_stop.wait(1.0)
+            state_stop.wait(2.0)
 
     sync_thread = threading.Thread(target=_state_sync_loop, daemon=True, name="follower-state-sync")
     sync_thread.start()

@@ -137,7 +137,7 @@ class _PerOpReservoir:
 class MetricsStore:
     """In-memory rolling metrics store safe for multi-threaded writes."""
 
-    def __init__(self, history_window_seconds: int = 600, max_latency_samples: int = 500_000):
+    def __init__(self, history_window_seconds: int = 600, max_latency_samples: int = 10_000):
         self._history_window_seconds = history_window_seconds
         self._max_latency_samples = max_latency_samples
         self._lock = Lock()

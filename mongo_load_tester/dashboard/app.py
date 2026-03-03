@@ -96,7 +96,7 @@ def create_dashboard(
     config_sync_service: ConfigSyncService | None = None,
     initial_config_version: int = 1,
 ) -> Dash:
-    app = Dash(__name__, title="MongoDB Load Tester")
+    app = Dash(__name__, title="MongoDB Load Tester", suppress_callback_exceptions=True)
     logger = logging.getLogger("mongo_load_tester.dashboard")
     class _ThreadSafeDict:
         """Thread-safe dict wrapper for shared dashboard state."""

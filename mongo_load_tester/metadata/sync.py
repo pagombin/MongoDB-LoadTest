@@ -58,16 +58,14 @@ class ConfigSyncService:
             thread.join(timeout=timeout)
 
     def sync_once(self) -> None:
+        if self._controller.is_running:
+            return
         record = self._metadata_store.fetch_config()
         if record is None:
             return
         with self._lock:
             if record.version <= self._last_applied_version:
                 return
-        if self._controller.is_running:
-            # While a run is active, defer metadata-version application so
-            # static configuration updates are staged for next run.
-            return
         self._controller.apply_config(record.config, source="metadata-sync")
         self.mark_applied_version(record.version)
         self._metadata_store.append_event(
