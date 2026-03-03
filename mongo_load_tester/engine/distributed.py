@@ -92,11 +92,21 @@ class MetricsPublisher:
         self._publish_once()
 
     def _loop(self) -> None:
+        _consecutive_failures = 0
         while not self._stop_event.is_set():
             try:
                 self._publish_once()
-            except Exception:
-                self._logger.exception("Failed to publish distributed metrics.")
+                _consecutive_failures = 0
+            except Exception as exc:
+                _consecutive_failures += 1
+                msg = str(exc).split("\n")[0][:200]
+                if _consecutive_failures <= 3:
+                    self._logger.warning("Metrics publish failed: %s", msg)
+                elif _consecutive_failures == 4:
+                    self._logger.warning("Metrics publish failing repeatedly (%s). Suppressing further warnings until recovery.", msg)
+                backoff = min(self._interval * _consecutive_failures, 30.0)
+                self._stop_event.wait(backoff)
+                continue
             self._stop_event.wait(self._interval)
 
     def _publish_once(self) -> None:
