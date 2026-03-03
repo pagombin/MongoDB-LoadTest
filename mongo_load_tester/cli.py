@@ -171,11 +171,20 @@ def _run_leader(
             )
             typer.echo(f"Dashboard available at http://{app_config.dashboard.host}:{app_config.dashboard.port}")
             typer.echo("Load test is READY and not started yet. Configure values in UI and click Start.")
-            dashboard.run(
+            logger.info(
+                "Dashboard serving via waitress at http://%s:%d",
+                app_config.dashboard.host,
+                app_config.dashboard.port,
+            )
+            from waitress import serve as _waitress_serve
+            _waitress_serve(
+                dashboard.server,
                 host=app_config.dashboard.host,
                 port=app_config.dashboard.port,
-                debug=False,
-                threaded=False,
+                threads=4,
+                channel_timeout=120,
+                connection_limit=200,
+                ident="mongo-load-tester",
             )
         except KeyboardInterrupt:
             logger.warning("Interrupted by user.")
