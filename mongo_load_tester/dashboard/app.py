@@ -332,72 +332,111 @@ def create_dashboard(
                                  " loads defaults from your config file. Modify namespace, databases, collections, schema, seeding, and ramp-up. "
                                  "Click ", html.Span("Apply configuration", style={"fontWeight": "600"}), " to save. "
                                  "Use ", html.Span("Reset to defaults", style={"fontWeight": "600", "color": "#dc2626"}),
-                                 " to restore original values (also clears per-collection schemas)."],
+                                 " to restore original values. Reset shows a confirmation dialog and will stop any running test."],
                                 [html.Span("Schema Builder", style={"fontWeight": "600"}),
-                                 " (indigo button) opens a visual editor to add fields with type selection, rules, and preview. "
-                                 "Select a target database/collection from the dropdown — custom schemas are loaded automatically. "
-                                 "Use dot-notation (e.g. ", html.Code("address.city"), ") for embedded documents."],
+                                 " (indigo button) opens a visual editor. Select a target database/collection from the dropdown — "
+                                 "custom schemas load automatically. Field names must not contain quotes or spaces. "
+                                 "String fields support prefix/suffix/UUID composites."],
                                 [html.Span("Operation Targeting", style={"fontWeight": "600"}),
-                                 " (collapsible section) configures how each operation type finds documents. "
-                                 "Define filter fields, projections, sort order for reads; $set/$inc/$unset/$push/$currentDate operators for updates; "
-                                 "findAndModify with atomic find+update, sort, and upsert options."],
+                                 " (collapsible section) configures how read/update/delete/findAndModify find documents. "
+                                 "When ", html.Span("disabled", style={"fontWeight": "600"}),
+                                 " (default), all operations use ", html.Code("_id"), "-based lookups from the ID registry. "
+                                 "When ", html.Span("enabled", style={"fontWeight": "600"}),
+                                 ", operations use custom filter fields, projections, and update operators."],
                                 [html.Span("Live controls", style={"fontWeight": "600"}),
-                                 " (users, workers, think time, operation mix including findAndModify, retry policy, log level) "
-                                 "apply immediately to a running test — no restart needed."],
-                                ["Use ", html.Span("Validate JSON", style={"fontWeight": "600"}),
-                                 " on the schema and targeting panels to check your config before saving."],
+                                 " (users, workers, think time, operation mix, retry policy, log level) "
+                                 "apply immediately to a running test. In distributed mode, followers sync changes within 2 seconds."],
+                            ]),
+                            _guide_section("How operations work", [
+                                [html.Span("Inserts", style={"fontWeight": "600"}),
+                                 " are batched using ", html.Code("insert_many()"),
+                                 ". Documents are generated from the schema, then all inserts for a cycle are sent in ONE round-trip. "
+                                 "Inserted ", html.Code("_id"), " values are stored in the ID registry for subsequent operations."],
+                                [html.Span("Reads", style={"fontWeight": "600"}),
+                                 " use ", html.Code("find({_id: {$in: [...]}})"),
+                                 " to batch all reads into ONE query. IDs are picked from the registry (populated by inserts). "
+                                 "With Operation Targeting enabled, reads use custom filter fields, projections, and sort order instead."],
+                                [html.Span("Updates", style={"fontWeight": "600"}),
+                                 " use ", html.Code("bulk_write([UpdateOne(...)])"),
+                                 " to batch all updates into ONE call. Each update targets a random ", html.Code("_id"),
+                                 " with ", html.Code("$set"), " of generated fields. "
+                                 "With targeting enabled, updates use custom filter fields and operators ($set/$inc/$unset/$push/$currentDate)."],
+                                [html.Span("Deletes", style={"fontWeight": "600"}),
+                                 " use ", html.Code("bulk_write([DeleteOne(...)])"),
+                                 " batched into ONE call. Deleted IDs are removed from the registry. "
+                                 "With targeting enabled, deletes use custom filter fields."],
+                                [html.Span("findAndModify", style={"fontWeight": "600"}),
+                                 " performs atomic find+update via ", html.Code("find_one_and_update()"),
+                                 ". Supports sort (e.g., pick lowest priority), return_updated, and upsert options. "
+                                 "Best configured via the Operation Targeting panel."],
+                                ["The ", html.Span("operation mix", style={"fontWeight": "600"}),
+                                 " (e.g., 80% insert / 20% read) determines how many of each operation type runs per cycle. "
+                                 "Each worker thread simulates N virtual users per cycle — "
+                                 "the mix is applied per-cycle, not per-user."],
                             ]),
                             _guide_section("During a test", [
                                 ["Run Configuration changes are ", html.Span("staged for the next run", style={"fontWeight": "600"}),
-                                 " — the button changes to ", html.Span("Stage for next run", style={"fontWeight": "600", "color": "#b45309"}),
-                                 ". The context banner explains what will happen."],
+                                 " — the button changes to ", html.Span("Stage for next run", style={"fontWeight": "600", "color": "#b45309"}), "."],
                                 [html.Span("Scaling workers down", style={"fontWeight": "600"}),
-                                 " dismisses excess workers immediately (within one op cycle). ",
+                                 " dismisses excess workers immediately. ",
                                  html.Span("Scaling up", style={"fontWeight": "600"}),
-                                 " adds workers gradually (0.5s apart) to avoid thundering-herd connections."],
+                                 " adds workers gradually (0.5s apart)."],
                                 ["Workers are capped at ", html.Span("max_worker_threads", style={"fontWeight": "600"}),
-                                 " (default 500) and cannot exceed virtual users. A red ",
-                                 html.Span("SCALING WARNING", style={"fontWeight": "700", "color": "#dc2626"}),
-                                 " banner appears for 8 seconds when limits are hit or error rates spike after scaling."],
+                                 " (default 500) and cannot exceed virtual users. A red warning banner appears when limits are hit."],
                                 ["Pause/Resume preserves elapsed time. Paused periods appear as amber overlays on charts."],
+                                ["The ", html.Span("Worker Registry", style={"fontWeight": "600"}),
+                                 " panel shows all workers (leader + followers) with status, ops/sec, heartbeat, and join time."],
                             ]),
-                            _guide_section("Schema & operations", [
-                                ["14 field types: string (with prefix/suffix/UUID composites), int, float, decimal, bool, choice, "
-                                 "datetime (now/random_past/random_future/increment), objectid, uuid, faker (25+ providers), "
-                                 "object (embedded docs), array (of any type), null."],
-                                ["Per-collection schemas: assign different schemas to different collections from the Schema Builder dropdown. "
-                                 "Schemas are persisted in ", html.Code("loader_metadata.collection_schemas"), " and loaded on startup."],
-                                ["5 operation types: ", html.Span("read", style={"fontWeight": "600"}), ", ",
-                                 html.Span("insert", style={"fontWeight": "600"}), ", ",
-                                 html.Span("update", style={"fontWeight": "600"}), ", ",
-                                 html.Span("delete", style={"fontWeight": "600"}), ", ",
-                                 html.Span("findAndModify", style={"fontWeight": "600"}),
-                                 " — each with custom filter fields and operators via the Operation Targeting panel."],
-                                ["Duplicate field names at the same schema level are rejected. Nested objects validate recursively."],
+                            _guide_section("Distributed mode (multi-process)", [
+                                ["The ", html.Span("leader", style={"fontWeight": "600"}),
+                                 " (dashboard worker) controls the test lifecycle. ",
+                                 html.Span("Followers", style={"fontWeight": "600"}),
+                                 " (headless workers with ", html.Code("--worker-id"), ") wait for the leader to start."],
+                                ["Followers read config from ", html.Span("metadata", style={"fontWeight": "600"}),
+                                 " (not the config file). Config file is only used for the MongoDB URI."],
+                                ["All state transitions (START/STOP/PAUSE/RESUME) propagate to followers within 1-2 seconds. "
+                                 "Live config changes (operation mix, load shaping, retry) sync to followers within 2 seconds."],
+                                ["The MongoDB URI is ", html.Span("never stored in metadata", style={"fontWeight": "600"}),
+                                 ". It's loaded from the config file at runtime only."],
+                                ["KPIs show ", html.Span("aggregated data", style={"fontWeight": "600"}),
+                                 " across all workers. Charts show the leader's local view. "
+                                 "The Worker Registry shows per-worker throughput."],
+                                ["Late-joining workers detect active tests and join immediately."],
                             ]),
                             _guide_section("Charts & metrics", [
-                                ["Charts and KPIs update live during a test and ", html.Span("freeze when it stops", style={"fontWeight": "600"}),
-                                 " — data persists until the next run."],
+                                ["Charts update live during a test and ", html.Span("freeze when it stops", style={"fontWeight": "600"}),
+                                 " — data persists for 24 hours until the next run."],
                                 ["Hover the ", html.Span("(?)", style={"fontWeight": "700", "color": "#4338ca"}),
                                  " icon next to any chart title for a detailed explanation."],
                                 ["10 KPIs: total ops, ops/sec, error rate, success rate, p50/avg/p95/p99 latency, retry rate, active users."],
-                                ["11 charts: throughput, users ramp, latency percentiles (p50/avg/p95/p99), errors & retries, "
-                                 "per-op throughput, per-op latency, operation mix, error breakdown, latency distribution, "
-                                 "operation breakdown table, smart insights."],
-                                ["Timeline filter applies to all charts simultaneously. Charts show findAndModify as a separate series."],
+                                ["Click and drag on any chart to zoom in. Use the toolbar to reset zoom or pan."],
+                                ["Error categories are classified automatically: timeout, network, primary_stepdown, "
+                                 "server_selection, duplicate_key, write_concern, auth, cursor, other."],
                             ]),
                             _guide_section("Performance tuning", [
-                                ["For maximum throughput: set ", html.Code("think_time = 0"), ", use simple schemas (avoid faker), "
-                                 "disable operation targeting, increase ", html.Code("max_pool_size"), "."],
-                                ["Single process peaks at ~10-15K ops/sec (Python GIL). For 25-40K+, run multiple headless processes: ",
-                                 html.Code("--no-dashboard --load-test-id unique-id"), " per process."],
-                                ["Monitor the error rate after scaling workers. If it exceeds 10%, you'll see a warning banner."],
+                                [html.Span("All operations are batched", style={"fontWeight": "600"}),
+                                 ": insert_many, find $in, bulk_write for updates/deletes. "
+                                 "A cycle with 200 users does ~4 MongoDB round-trips instead of 200."],
+                                ["Set ", html.Code("think_time = 0"), " and ", html.Code("target_ops = unbounded"),
+                                 " for maximum throughput. Use simple schemas (avoid faker)."],
+                                ["Single process: 15-22K ops/sec. With 2-3 follower processes: 40-60K+ ops/sec. "
+                                 "Run: ", html.Code("--no-dashboard --worker-id w1 --load-test-id test"), "."],
+                                ["50-100 worker threads is optimal for a single process. "
+                                 "Too few (10) = underutilized. Too many (500) = GIL contention."],
+                                ["MongoDB errors (DiskUseThresholdExceeded, etc.) are handled gracefully with "
+                                 "exponential backoff and suppressed log spam."],
                             ]),
-                            _guide_section("Exports & metadata", [
-                                ["Export CSV (per-second data), PNG (individual charts), or PDF (full report with summary + charts)."],
-                                ["Each load test is scoped by ", html.Span("load_test_id", style={"fontWeight": "600"}),
-                                 ". All config, runs, events, and per-collection schemas are isolated per ID."],
-                                ["Run summaries include full metrics: p50/p95/p99, ops/sec, elapsed time, per-operation latency, error categories."],
+                            _guide_section("Security & metadata", [
+                                ["The MongoDB ", html.Span("URI is never stored in metadata", style={"fontWeight": "600"}),
+                                 ". It's loaded from the config file and kept in memory only."],
+                                ["All metadata writes use ", html.Code("_sanitize_config_payload()"),
+                                 " which strips the entire ", html.Code("mongo"), " section before persistence."],
+                                ["Collections: ", html.Code("load_test_configs"), ", ", html.Code("load_test_runs"),
+                                 ", ", html.Code("load_test_events"), ", ", html.Code("collection_schemas"),
+                                 ", ", html.Code("load_test_workload_state"), ", ", html.Code("load_test_workers"),
+                                 ", ", html.Code("load_test_live_metrics"), ". All indexed."],
+                                ["Export CSV (per-second), PNG (charts), or PDF (full report). "
+                                 "Each test is scoped by ", html.Code("load_test_id"), "."],
                             ]),
                         ],
                         style={"fontSize": "12.5px", "color": "#374151"},
