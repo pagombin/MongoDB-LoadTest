@@ -1590,11 +1590,46 @@ def create_dashboard(
                                 ],
                                 style={"display": "flex", "gap": "10px"},
                             ),
-                            html.Div(
-                                id="sb-rule-inputs",
-                                style={"marginTop": "10px"},
-                            ),
-                            dcc.Store(id="sb-rule-store", data={}),
+                            html.Div(id="sb-rule-inputs", style={"marginTop": "10px"}, children=[
+                                html.Div(id="sb-rules-string", children=[
+                                    html.Div([
+                                        html.Div([html.Label("Length", style={"fontSize": "11px", "fontWeight": "600"}), dcc.Input(id="sb-rule-length", type="number", value=16, min=1, style={"width": "100%", "padding": "6px", "borderRadius": "6px", "border": "1px solid #d1d5db", "fontSize": "12px"})], style={"flex": "0.5"}),
+                                        html.Div([html.Label("Prefix", style={"fontSize": "11px", "fontWeight": "600"}), dcc.Input(id="sb-rule-prefix", type="text", placeholder="e.g. ORD-", style={"width": "100%", "padding": "6px", "borderRadius": "6px", "border": "1px solid #d1d5db", "fontSize": "12px"})], style={"flex": "1"}),
+                                        html.Div([html.Label("Suffix", style={"fontSize": "11px", "fontWeight": "600"}), dcc.Input(id="sb-rule-suffix", type="text", placeholder="e.g. -US", style={"width": "100%", "padding": "6px", "borderRadius": "6px", "border": "1px solid #d1d5db", "fontSize": "12px"})], style={"flex": "1"}),
+                                    ], style={"display": "flex", "gap": "8px"}),
+                                    html.Div([html.Label("Composite", style={"fontSize": "11px", "fontWeight": "600", "marginTop": "6px"}), dcc.Dropdown(id="sb-rule-composite", options=[{"label": "None", "value": "none"}, {"label": "Prefix+UUID", "value": "prefix_uuid"}, {"label": "UUID+Suffix", "value": "uuid_suffix"}, {"label": "Prefix+UUID+Suffix", "value": "prefix_uuid_suffix"}, {"label": "Prefix+Random", "value": "prefix_random"}, {"label": "Random+Suffix", "value": "random_suffix"}], value="none", clearable=False, style={"fontSize": "12px"})]),
+                                ]),
+                                html.Div(id="sb-rules-number", children=[
+                                    html.Div([
+                                        html.Div([html.Label("Min value", style={"fontSize": "11px", "fontWeight": "600"}), dcc.Input(id="sb-rule-min", type="number", value=0, style={"width": "100%", "padding": "6px", "borderRadius": "6px", "border": "1px solid #d1d5db", "fontSize": "12px"})], style={"flex": "1"}),
+                                        html.Div([html.Label("Max value", style={"fontSize": "11px", "fontWeight": "600"}), dcc.Input(id="sb-rule-max", type="number", value=10000, style={"width": "100%", "padding": "6px", "borderRadius": "6px", "border": "1px solid #d1d5db", "fontSize": "12px"})], style={"flex": "1"}),
+                                    ], style={"display": "flex", "gap": "8px"}),
+                                ], style={"display": "none"}),
+                                html.Div(id="sb-rules-choice", children=[
+                                    html.Label("Choices (comma-separated)", style={"fontSize": "11px", "fontWeight": "600"}),
+                                    dcc.Input(id="sb-rule-choices", type="text", placeholder="new, paid, shipped", style={"width": "100%", "padding": "6px", "borderRadius": "6px", "border": "1px solid #d1d5db", "fontSize": "12px"}),
+                                ], style={"display": "none"}),
+                                html.Div(id="sb-rules-faker", children=[
+                                    html.Label("Faker provider", style={"fontSize": "11px", "fontWeight": "600"}),
+                                    dcc.Dropdown(id="sb-rule-faker", options=[{"label": p, "value": p} for p in FAKER_PROVIDERS], value="name", clearable=False, style={"fontSize": "12px"}),
+                                ], style={"display": "none"}),
+                                html.Div(id="sb-rules-date", children=[
+                                    html.Div([
+                                        html.Div([html.Label("Date mode", style={"fontSize": "11px", "fontWeight": "600"}), dcc.Dropdown(id="sb-rule-date-mode", options=[{"label": m, "value": m} for m in ["now", "random_past", "random_future", "increment"]], value="now", clearable=False, style={"fontSize": "12px"})], style={"flex": "1"}),
+                                        html.Div([html.Label("Range (days)", style={"fontSize": "11px", "fontWeight": "600"}), dcc.Input(id="sb-rule-date-days", type="number", value=365, min=1, style={"width": "100%", "padding": "6px", "borderRadius": "6px", "border": "1px solid #d1d5db", "fontSize": "12px"})], style={"flex": "1"}),
+                                    ], style={"display": "flex", "gap": "8px"}),
+                                ], style={"display": "none"}),
+                                html.Div(id="sb-rules-array", children=[
+                                    html.Div([
+                                        html.Div([html.Label("Element type", style={"fontSize": "11px", "fontWeight": "600"}), dcc.Dropdown(id="sb-rule-array-type", options=[{"label": t, "value": t} for t in FIELD_TYPES if t != "array"], value="string", clearable=False, style={"fontSize": "12px"})], style={"flex": "1"}),
+                                        html.Div([html.Label("Min items", style={"fontSize": "11px", "fontWeight": "600"}), dcc.Input(id="sb-rule-min-items", type="number", value=1, min=0, style={"width": "100%", "padding": "6px", "borderRadius": "6px", "border": "1px solid #d1d5db", "fontSize": "12px"})], style={"flex": "0.5"}),
+                                        html.Div([html.Label("Max items", style={"fontSize": "11px", "fontWeight": "600"}), dcc.Input(id="sb-rule-max-items", type="number", value=5, min=1, style={"width": "100%", "padding": "6px", "borderRadius": "6px", "border": "1px solid #d1d5db", "fontSize": "12px"})], style={"flex": "0.5"}),
+                                    ], style={"display": "flex", "gap": "8px"}),
+                                ], style={"display": "none"}),
+                                html.Div(id="sb-rules-object", children=[
+                                    html.Div("Add sub-fields with dot-notation (e.g. 'address.street').", style={"fontSize": "11px", "color": "#6b7280", "fontStyle": "italic"}),
+                                ], style={"display": "none"}),
+                            ]),
                             html.Div(
                                 [
                                     html.Button(
@@ -2819,85 +2854,27 @@ def create_dashboard(
         return _overlay_hidden, current_fields or [], no_update, no_update
 
     @callback(
-        Output("sb-rule-inputs", "children"),
+        Output("sb-rules-string", "style"),
+        Output("sb-rules-number", "style"),
+        Output("sb-rules-choice", "style"),
+        Output("sb-rules-faker", "style"),
+        Output("sb-rules-date", "style"),
+        Output("sb-rules-array", "style"),
+        Output("sb-rules-object", "style"),
         Input("sb-field-type", "value"),
     )
-    def update_rule_inputs(field_type):
-        _input_style = {"width": "100%", "padding": "6px 10px", "borderRadius": "6px", "border": "1px solid #d1d5db", "fontSize": "12px", "marginTop": "3px"}
-        _label_style = {"fontSize": "11px", "fontWeight": "600", "color": "#374151"}
-        if field_type in ("string",):
-            return html.Div([
-                html.Div([
-                    html.Div([html.Label("Length", style=_label_style), dcc.Input(id="sb-rule-length", type="number", value=16, min=1, style=_input_style)], style={"flex": "0.5"}),
-                    html.Div([html.Label("Prefix (optional)", style=_label_style), dcc.Input(id="sb-rule-prefix", type="text", placeholder="e.g. ORD-", style=_input_style)], style={"flex": "1"}),
-                    html.Div([html.Label("Suffix (optional)", style=_label_style), dcc.Input(id="sb-rule-suffix", type="text", placeholder="e.g. -US", style=_input_style)], style={"flex": "1"}),
-                ], style={"display": "flex", "gap": "8px"}),
-                html.Div([
-                    html.Label("Composite value (optional)", style=_label_style),
-                    dcc.Dropdown(id="sb-rule-composite", options=[
-                        {"label": "None (random string only)", "value": "none"},
-                        {"label": "UUID (prefix + UUID)", "value": "prefix_uuid"},
-                        {"label": "UUID + suffix", "value": "uuid_suffix"},
-                        {"label": "Prefix + UUID + suffix", "value": "prefix_uuid_suffix"},
-                        {"label": "Prefix + random string", "value": "prefix_random"},
-                        {"label": "Random string + suffix", "value": "random_suffix"},
-                    ], value="none", clearable=False, style={"fontSize": "12px", "marginTop": "3px"}),
-                ], style={"marginTop": "6px"}),
-            ])
-        if field_type in ("int", "float", "decimal"):
-            return html.Div([
-                html.Div([
-                    html.Div([html.Label("Min value", style=_label_style), dcc.Input(id="sb-rule-min", type="number", value=0, style=_input_style)], style={"flex": "1"}),
-                    html.Div([html.Label("Max value", style=_label_style), dcc.Input(id="sb-rule-max", type="number", value=10000, style=_input_style)], style={"flex": "1"}),
-                ], style={"display": "flex", "gap": "8px"}),
-            ])
-        if field_type == "choice":
-            return html.Div([
-                html.Label("Choices (comma-separated)", style=_label_style),
-                dcc.Input(id="sb-rule-choices", type="text", placeholder="new, paid, shipped, cancelled", style=_input_style),
-            ])
-        if field_type == "faker":
-            return html.Div([
-                html.Label("Faker provider", style=_label_style),
-                dcc.Dropdown(
-                    id="sb-rule-faker",
-                    options=[{"label": p, "value": p} for p in FAKER_PROVIDERS],
-                    value="name",
-                    clearable=False,
-                    style={"fontSize": "12px", "marginTop": "3px"},
-                ),
-            ])
-        if field_type in ("datetime", "date_range"):
-            return html.Div([
-                html.Div([
-                    html.Div([
-                        html.Label("Date mode", style=_label_style),
-                        dcc.Dropdown(
-                            id="sb-rule-date-mode",
-                            options=[{"label": m, "value": m} for m in ["now", "random_past", "random_future", "increment"]],
-                            value="now", clearable=False, style={"fontSize": "12px", "marginTop": "3px"},
-                        ),
-                    ], style={"flex": "1"}),
-                    html.Div([html.Label("Range (days)", style=_label_style), dcc.Input(id="sb-rule-date-days", type="number", value=365, min=1, style=_input_style)], style={"flex": "1"}),
-                ], style={"display": "flex", "gap": "8px"}),
-            ])
-        if field_type == "array":
-            return html.Div([
-                html.Div([
-                    html.Div([html.Label("Element type", style=_label_style),
-                        dcc.Dropdown(id="sb-rule-array-type", options=[{"label": t, "value": t} for t in FIELD_TYPES if t != "array"], value="string", clearable=False, style={"fontSize": "12px", "marginTop": "3px"})
-                    ], style={"flex": "1"}),
-                    html.Div([html.Label("Min items", style=_label_style), dcc.Input(id="sb-rule-min-items", type="number", value=1, min=0, style=_input_style)], style={"flex": "0.5"}),
-                    html.Div([html.Label("Max items", style=_label_style), dcc.Input(id="sb-rule-max-items", type="number", value=5, min=1, style=_input_style)], style={"flex": "0.5"}),
-                ], style={"display": "flex", "gap": "8px"}),
-            ])
-        if field_type == "object":
-            return html.Div(
-                "Embedded document: add the parent field, then add sub-fields with dot-notation names (e.g. 'address.street', 'address.city').",
-                style={"fontSize": "11px", "color": "#6b7280", "fontStyle": "italic", "padding": "6px 0"},
-            )
-        return html.Div()
-
+    def update_rule_visibility(field_type):
+        hide = {"display": "none"}
+        show = {}
+        return (
+            show if field_type == "string" else hide,
+            show if field_type in ("int", "float", "decimal") else hide,
+            show if field_type == "choice" else hide,
+            show if field_type == "faker" else hide,
+            show if field_type in ("datetime", "date_range") else hide,
+            show if field_type == "array" else hide,
+            show if field_type == "object" else hide,
+        )
     @callback(
         Output("schema-builder-fields", "data", allow_duplicate=True),
         Output("sb-add-feedback", "children"),
