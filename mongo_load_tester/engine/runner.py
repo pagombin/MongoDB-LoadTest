@@ -15,6 +15,7 @@ from pymongo import MongoClient
 from mongo_load_tester.config import AppConfig, OperationMixConfig, RetryConfig, SchemaConfig
 from mongo_load_tester.engine.client import build_client
 from mongo_load_tester.engine.executor import MongoOperationExecutor
+from mongo_load_tester.models import OperationResult, OperationType
 from mongo_load_tester.engine.id_registry import DocumentIdRegistry
 from mongo_load_tester.engine.metrics import MetricsStore
 from mongo_load_tester.engine.retry import RetryController, RetryFailure, RetryPolicy
@@ -640,60 +641,142 @@ class LoadTestRunner:
                 schema_registry=self._schema_registry,
             )
 
-            batch_buffer: list = []
-            _BATCH_SIZE = 50
+            results_buffer: list = []
+            _FLUSH_SIZE = 500
 
-            while not self._stop_event.is_set() and not self._duration_reached() and not assignment.dismissed.is_set():
-                self._wait_if_paused()
-                if self._stop_event.is_set() or self._duration_reached() or assignment.dismissed.is_set():
-                    break
-                active_users_for_worker = self._active_users_for_assignment(assignment)
-                if active_users_for_worker <= 0:
-                    if batch_buffer:
-                        self._metrics.record_batch(batch_buffer)
-                        batch_buffer.clear()
-                    time.sleep(0.05)
+            def _should_stop() -> bool:
+                return self._stop_event.is_set() or assignment.dismissed.is_set()
+
+            while not _should_stop() and not self._duration_reached():
+                if self._pause_event.is_set():
+                    self._stop_event.wait(timeout=0.5)
+                    continue
+                active_users = self._active_users_for_assignment(assignment)
+                if active_users <= 0:
+                    time.sleep(0.02)
                     continue
                 think_min, think_max, cycle_target_seconds, log_operation_failures = self._worker_cycle_settings()
                 cycle_start = time.perf_counter()
-                for _ in range(active_users_for_worker):
-                    self._wait_if_paused()
-                    if self._stop_event.is_set() or self._duration_reached() or assignment.dismissed.is_set():
-                        break
-                    result = executor.execute_once()
-                    batch_buffer.append(result)
-                    if len(batch_buffer) >= _BATCH_SIZE:
-                        self._metrics.record_batch(batch_buffer)
-                        batch_buffer.clear()
-                    if not result.success and log_operation_failures:
-                        worker_logger.error(
-                            "Operation failed op=%s ns=%s.%s attempts=%d latency_ms=%.2f error=%s",
-                            result.operation.value,
-                            result.database,
-                            result.collection,
-                            result.attempts,
-                            result.latency_ms,
-                            result.error,
-                        )
-                    if think_max > 0:
-                        time.sleep(rng.uniform(think_min, think_max))
 
-                if batch_buffer:
-                    self._metrics.record_batch(batch_buffer)
-                    batch_buffer.clear()
+                target = namespace_selector.choose()
+                collection = self._client[target.database][target.collection]
+                gen = generator
+                mix = self._current_operation_mix().normalized()
+                n_insert = max(int(active_users * mix.get("insert", 0)), 0)
+                n_read = max(int(active_users * mix.get("read", 0)), 0)
+                n_update = max(int(active_users * mix.get("update", 0)), 0)
+                n_delete = max(int(active_users * mix.get("delete", 0)), 0)
+                remainder = active_users - n_insert - n_read - n_update - n_delete
+                n_insert += max(remainder, 0)
 
+                now_ts = datetime.now(UTC)
+
+                if n_insert > 0:
+                    docs = [gen.generate_document() for _ in range(n_insert)]
+                    start = time.perf_counter()
+                    try:
+                        insert_result = collection.insert_many(docs, ordered=False)
+                        latency = (time.perf_counter() - start) * 1000.0
+                        per_op_lat = latency / n_insert
+                        for iid in insert_result.inserted_ids:
+                            self._id_registry.add_id(target.database, target.collection, iid)
+                        for _ in range(n_insert):
+                            results_buffer.append(OperationResult(
+                                timestamp=now_ts, operation=OperationType.INSERT,
+                                database=target.database, collection=target.collection,
+                                latency_ms=per_op_lat, success=True,
+                            ))
+                    except Exception as exc:
+                        latency = (time.perf_counter() - start) * 1000.0
+                        for _ in range(n_insert):
+                            results_buffer.append(OperationResult(
+                                timestamp=now_ts, operation=OperationType.INSERT,
+                                database=target.database, collection=target.collection,
+                                latency_ms=latency / n_insert, success=False, error=str(exc),
+                            ))
+
+                for _ in range(n_read):
+                    start = time.perf_counter()
+                    try:
+                        doc_id = self._id_registry.get_random_id(target.database, target.collection, rng)
+                        if doc_id:
+                            collection.find_one({"_id": doc_id})
+                        else:
+                            collection.find_one({}, {"_id": 1})
+                        lat = (time.perf_counter() - start) * 1000.0
+                        results_buffer.append(OperationResult(
+                            timestamp=now_ts, operation=OperationType.READ,
+                            database=target.database, collection=target.collection,
+                            latency_ms=lat, success=True,
+                        ))
+                    except Exception as exc:
+                        lat = (time.perf_counter() - start) * 1000.0
+                        results_buffer.append(OperationResult(
+                            timestamp=now_ts, operation=OperationType.READ,
+                            database=target.database, collection=target.collection,
+                            latency_ms=lat, success=False, error=str(exc),
+                        ))
+
+                for _ in range(n_update):
+                    start = time.perf_counter()
+                    try:
+                        doc_id = self._id_registry.get_random_id(target.database, target.collection, rng)
+                        if doc_id:
+                            collection.update_one({"_id": doc_id}, {"$set": gen.generate_update_fields()})
+                        lat = (time.perf_counter() - start) * 1000.0
+                        results_buffer.append(OperationResult(
+                            timestamp=now_ts, operation=OperationType.UPDATE,
+                            database=target.database, collection=target.collection,
+                            latency_ms=lat, success=True,
+                        ))
+                    except Exception as exc:
+                        lat = (time.perf_counter() - start) * 1000.0
+                        results_buffer.append(OperationResult(
+                            timestamp=now_ts, operation=OperationType.UPDATE,
+                            database=target.database, collection=target.collection,
+                            latency_ms=lat, success=False, error=str(exc),
+                        ))
+
+                for _ in range(n_delete):
+                    start = time.perf_counter()
+                    try:
+                        doc_id = self._id_registry.get_random_id(target.database, target.collection, rng)
+                        if doc_id:
+                            result = collection.delete_one({"_id": doc_id})
+                            if result.deleted_count > 0:
+                                self._id_registry.remove_id(target.database, target.collection, doc_id)
+                        lat = (time.perf_counter() - start) * 1000.0
+                        results_buffer.append(OperationResult(
+                            timestamp=now_ts, operation=OperationType.DELETE,
+                            database=target.database, collection=target.collection,
+                            latency_ms=lat, success=True,
+                        ))
+                    except Exception as exc:
+                        lat = (time.perf_counter() - start) * 1000.0
+                        results_buffer.append(OperationResult(
+                            timestamp=now_ts, operation=OperationType.DELETE,
+                            database=target.database, collection=target.collection,
+                            latency_ms=lat, success=False, error=str(exc),
+                        ))
+
+                if len(results_buffer) >= _FLUSH_SIZE:
+                    self._metrics.record_batch(results_buffer)
+                    results_buffer.clear()
+
+                if think_max > 0:
+                    time.sleep(rng.uniform(think_min, think_max))
                 if cycle_target_seconds > 0:
-                    cycle_elapsed = time.perf_counter() - cycle_start
-                    if cycle_elapsed < cycle_target_seconds:
-                        time.sleep(cycle_target_seconds - cycle_elapsed)
+                    elapsed = time.perf_counter() - cycle_start
+                    if elapsed < cycle_target_seconds:
+                        time.sleep(cycle_target_seconds - elapsed)
         except BaseException as exc:  # pragma: no cover - runtime safety
             self._set_last_error(f"Worker {assignment.worker_id} crashed: {exc}")
             worker_logger.exception("Worker crashed unexpectedly.")
             self._stop_event.set()
         finally:
-            if batch_buffer:
+            if results_buffer:
                 try:
-                    self._metrics.record_batch(batch_buffer)
+                    self._metrics.record_batch(results_buffer)
                 except Exception:
                     pass
             if worker_users_registered:
