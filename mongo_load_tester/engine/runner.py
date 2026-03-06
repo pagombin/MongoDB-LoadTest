@@ -658,6 +658,9 @@ class LoadTestRunner:
 
                 target = namespace_selector.choose()
                 collection = self._client[target.database][target.collection]
+                current_schema = self._config.document_schema
+                if current_schema is not generator._schema:
+                    generator = DocumentGenerator(current_schema, rng)
                 gen = generator
                 mix = self._current_operation_mix().normalized()
                 n_insert = max(int(active_users * mix.get("insert", 0)), 0)

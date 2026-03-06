@@ -37,10 +37,10 @@ from mongo_load_tester.observability import InMemoryLogBuffer
 
 CARD_STYLE = {
     "background": "white",
-    "border": "1px solid #e5e7eb",
-    "borderRadius": "14px",
+    "border": "1px solid #d1d5db",
+    "borderRadius": "12px",
     "padding": "18px",
-    "boxShadow": "0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)",
+    "boxShadow": "0 1px 3px rgba(0,43,92,0.06), 0 1px 2px rgba(0,43,92,0.04)",
 }
 _BTN_BASE = {
     "padding": "9px 16px",
@@ -51,37 +51,37 @@ _BTN_BASE = {
     "letterSpacing": "0.01em",
     "transition": "all 0.15s ease",
 }
-ACTION_BUTTON_STYLE = {**_BTN_BASE, "border": "1px solid #c7d2fe", "background": "#eef2ff", "color": "#3730a3"}
-PAUSE_BUTTON_STYLE = {**_BTN_BASE, "border": "none", "background": "#f59e0b", "color": "white"}
-RESUME_BUTTON_STYLE = {**_BTN_BASE, "border": "none", "background": "#10b981", "color": "white"}
-START_BUTTON_STYLE = {**_BTN_BASE, "border": "none", "background": "#059669", "color": "white"}
-STOP_BUTTON_STYLE = {**_BTN_BASE, "border": "none", "background": "#dc2626", "color": "white"}
-RESTART_BUTTON_STYLE = {**_BTN_BASE, "border": "none", "background": "#2563eb", "color": "white"}
+ACTION_BUTTON_STYLE = {**_BTN_BASE, "border": "1px solid #7b9cc0", "background": "#e8f0f8", "color": "#002B5C"}
+PAUSE_BUTTON_STYLE = {**_BTN_BASE, "border": "none", "background": "#e6a817", "color": "white"}
+RESUME_BUTTON_STYLE = {**_BTN_BASE, "border": "none", "background": "#1a7a4c", "color": "white"}
+START_BUTTON_STYLE = {**_BTN_BASE, "border": "none", "background": "#003B71", "color": "white"}
+STOP_BUTTON_STYLE = {**_BTN_BASE, "border": "none", "background": "#C41230", "color": "white"}
+RESTART_BUTTON_STYLE = {**_BTN_BASE, "border": "none", "background": "#002B5C", "color": "white"}
 STATUS_STYLE_MAP = {
-    "running": {"background": "#dcfce7", "color": "#166534", "border": "1px solid #86efac"},
-    "paused": {"background": "#fef3c7", "color": "#92400e", "border": "1px solid #fcd34d"},
-    "completed": {"background": "#dbeafe", "color": "#1e40af", "border": "1px solid #93c5fd"},
-    "failed": {"background": "#fee2e2", "color": "#991b1b", "border": "1px solid #fca5a5"},
-    "initializing": {"background": "#ede9fe", "color": "#5b21b6", "border": "1px solid #c4b5fd"},
+    "running": {"background": "#e6f4ea", "color": "#14532d", "border": "1px solid #6dbe82"},
+    "paused": {"background": "#fef3c7", "color": "#78350f", "border": "1px solid #f5c842"},
+    "completed": {"background": "#e8f0f8", "color": "#002B5C", "border": "1px solid #7b9cc0"},
+    "failed": {"background": "#fce4e8", "color": "#8b0d24", "border": "1px solid #e4677a"},
+    "initializing": {"background": "#e8f0f8", "color": "#003B71", "border": "1px solid #7b9cc0"},
 }
 KPI_THEMES = [
-    ("#eff6ff", "#bfdbfe"),
-    ("#ecfdf5", "#a7f3d0"),
-    ("#fffbeb", "#fde68a"),
-    ("#fdf2f8", "#fbcfe8"),
-    ("#f5f3ff", "#d8b4fe"),
-    ("#ecfeff", "#a5f3fc"),
-    ("#fef2f2", "#fecaca"),
-    ("#eef2ff", "#c7d2fe"),
+    ("#e8f0f8", "#7b9cc0"),
+    ("#e6f4ea", "#6dbe82"),
+    ("#fef8e6", "#f5c842"),
+    ("#fce4e8", "#e4677a"),
+    ("#edf2f7", "#8fa8c4"),
+    ("#e0f0f0", "#6db5b5"),
+    ("#f8eef0", "#d4909c"),
+    ("#e8ecf8", "#8998c4"),
 ]
 _SECTION_HEADER_STYLE = {
     "fontSize": "16px",
     "fontWeight": "700",
-    "color": "#1e1b4b",
+    "color": "#002B5C",
     "marginTop": "28px",
     "marginBottom": "12px",
     "paddingBottom": "8px",
-    "borderBottom": "2px solid #e0e7ff",
+    "borderBottom": "2px solid #7b9cc0",
     "letterSpacing": "-0.01em",
 }
 
@@ -256,7 +256,7 @@ def create_dashboard(
                             ),
                             html.Div(
                                 "Live OLTP telemetry, resilient control plane, and export-ready reports.",
-                                style={"color": "#c7d2fe", "fontSize": "13px", "marginTop": "2px"},
+                                style={"color": "#a8c4e0", "fontSize": "13px", "marginTop": "2px"},
                             ),
                         ]
                     ),
@@ -309,10 +309,10 @@ def create_dashboard(
                     "justifyContent": "space-between",
                     "alignItems": "center",
                     "gap": "14px",
-                    "background": "linear-gradient(135deg, #312e81 0%, #4c1d95 50%, #6d28d9 100%)",
+                    "background": "linear-gradient(135deg, #002B5C 0%, #003B71 50%, #004a8f 100%)",
                     "borderRadius": "16px",
                     "padding": "20px 24px",
-                    "boxShadow": "0 4px 12px rgba(49,46,129,0.25)",
+                    "boxShadow": "0 4px 12px rgba(0,43,92,0.3)",
                 },
             ),
             html.Div(
@@ -323,7 +323,7 @@ def create_dashboard(
                 [
                     html.Summary(
                         "Operator quick guide",
-                        style={"cursor": "pointer", "fontWeight": "700", "color": "#312e81", "fontSize": "14px"},
+                        style={"cursor": "pointer", "fontWeight": "700", "color": "#002B5C", "fontSize": "14px"},
                     ),
                     html.Div(
                         [
@@ -332,72 +332,111 @@ def create_dashboard(
                                  " loads defaults from your config file. Modify namespace, databases, collections, schema, seeding, and ramp-up. "
                                  "Click ", html.Span("Apply configuration", style={"fontWeight": "600"}), " to save. "
                                  "Use ", html.Span("Reset to defaults", style={"fontWeight": "600", "color": "#dc2626"}),
-                                 " to restore original values (also clears per-collection schemas)."],
+                                 " to restore original values. Reset shows a confirmation dialog and will stop any running test."],
                                 [html.Span("Schema Builder", style={"fontWeight": "600"}),
-                                 " (indigo button) opens a visual editor to add fields with type selection, rules, and preview. "
-                                 "Select a target database/collection from the dropdown — custom schemas are loaded automatically. "
-                                 "Use dot-notation (e.g. ", html.Code("address.city"), ") for embedded documents."],
+                                 " (indigo button) opens a visual editor. Select a target database/collection from the dropdown — "
+                                 "custom schemas load automatically. Field names must not contain quotes or spaces. "
+                                 "String fields support prefix/suffix/UUID composites."],
                                 [html.Span("Operation Targeting", style={"fontWeight": "600"}),
-                                 " (collapsible section) configures how each operation type finds documents. "
-                                 "Define filter fields, projections, sort order for reads; $set/$inc/$unset/$push/$currentDate operators for updates; "
-                                 "findAndModify with atomic find+update, sort, and upsert options."],
+                                 " (collapsible section) configures how read/update/delete/findAndModify find documents. "
+                                 "When ", html.Span("disabled", style={"fontWeight": "600"}),
+                                 " (default), all operations use ", html.Code("_id"), "-based lookups from the ID registry. "
+                                 "When ", html.Span("enabled", style={"fontWeight": "600"}),
+                                 ", operations use custom filter fields, projections, and update operators."],
                                 [html.Span("Live controls", style={"fontWeight": "600"}),
-                                 " (users, workers, think time, operation mix including findAndModify, retry policy, log level) "
-                                 "apply immediately to a running test — no restart needed."],
-                                ["Use ", html.Span("Validate JSON", style={"fontWeight": "600"}),
-                                 " on the schema and targeting panels to check your config before saving."],
+                                 " (users, workers, think time, operation mix, retry policy, log level) "
+                                 "apply immediately to a running test. In distributed mode, followers sync changes within 2 seconds."],
+                            ]),
+                            _guide_section("How operations work", [
+                                [html.Span("Inserts", style={"fontWeight": "600"}),
+                                 " are batched using ", html.Code("insert_many()"),
+                                 ". Documents are generated from the schema, then all inserts for a cycle are sent in ONE round-trip. "
+                                 "Inserted ", html.Code("_id"), " values are stored in the ID registry for subsequent operations."],
+                                [html.Span("Reads", style={"fontWeight": "600"}),
+                                 " use ", html.Code("find({_id: {$in: [...]}})"),
+                                 " to batch all reads into ONE query. IDs are picked from the registry (populated by inserts). "
+                                 "With Operation Targeting enabled, reads use custom filter fields, projections, and sort order instead."],
+                                [html.Span("Updates", style={"fontWeight": "600"}),
+                                 " use ", html.Code("bulk_write([UpdateOne(...)])"),
+                                 " to batch all updates into ONE call. Each update targets a random ", html.Code("_id"),
+                                 " with ", html.Code("$set"), " of generated fields. "
+                                 "With targeting enabled, updates use custom filter fields and operators ($set/$inc/$unset/$push/$currentDate)."],
+                                [html.Span("Deletes", style={"fontWeight": "600"}),
+                                 " use ", html.Code("bulk_write([DeleteOne(...)])"),
+                                 " batched into ONE call. Deleted IDs are removed from the registry. "
+                                 "With targeting enabled, deletes use custom filter fields."],
+                                [html.Span("findAndModify", style={"fontWeight": "600"}),
+                                 " performs atomic find+update via ", html.Code("find_one_and_update()"),
+                                 ". Supports sort (e.g., pick lowest priority), return_updated, and upsert options. "
+                                 "Best configured via the Operation Targeting panel."],
+                                ["The ", html.Span("operation mix", style={"fontWeight": "600"}),
+                                 " (e.g., 80% insert / 20% read) determines how many of each operation type runs per cycle. "
+                                 "Each worker thread simulates N virtual users per cycle — "
+                                 "the mix is applied per-cycle, not per-user."],
                             ]),
                             _guide_section("During a test", [
                                 ["Run Configuration changes are ", html.Span("staged for the next run", style={"fontWeight": "600"}),
-                                 " — the button changes to ", html.Span("Stage for next run", style={"fontWeight": "600", "color": "#b45309"}),
-                                 ". The context banner explains what will happen."],
+                                 " — the button changes to ", html.Span("Stage for next run", style={"fontWeight": "600", "color": "#b45309"}), "."],
                                 [html.Span("Scaling workers down", style={"fontWeight": "600"}),
-                                 " dismisses excess workers immediately (within one op cycle). ",
+                                 " dismisses excess workers immediately. ",
                                  html.Span("Scaling up", style={"fontWeight": "600"}),
-                                 " adds workers gradually (0.5s apart) to avoid thundering-herd connections."],
+                                 " adds workers gradually (0.5s apart)."],
                                 ["Workers are capped at ", html.Span("max_worker_threads", style={"fontWeight": "600"}),
-                                 " (default 500) and cannot exceed virtual users. A red ",
-                                 html.Span("SCALING WARNING", style={"fontWeight": "700", "color": "#dc2626"}),
-                                 " banner appears for 8 seconds when limits are hit or error rates spike after scaling."],
+                                 " (default 500) and cannot exceed virtual users. A red warning banner appears when limits are hit."],
                                 ["Pause/Resume preserves elapsed time. Paused periods appear as amber overlays on charts."],
+                                ["The ", html.Span("Worker Registry", style={"fontWeight": "600"}),
+                                 " panel shows all workers (leader + followers) with status, ops/sec, heartbeat, and join time."],
                             ]),
-                            _guide_section("Schema & operations", [
-                                ["14 field types: string (with prefix/suffix/UUID composites), int, float, decimal, bool, choice, "
-                                 "datetime (now/random_past/random_future/increment), objectid, uuid, faker (25+ providers), "
-                                 "object (embedded docs), array (of any type), null."],
-                                ["Per-collection schemas: assign different schemas to different collections from the Schema Builder dropdown. "
-                                 "Schemas are persisted in ", html.Code("loader_metadata.collection_schemas"), " and loaded on startup."],
-                                ["5 operation types: ", html.Span("read", style={"fontWeight": "600"}), ", ",
-                                 html.Span("insert", style={"fontWeight": "600"}), ", ",
-                                 html.Span("update", style={"fontWeight": "600"}), ", ",
-                                 html.Span("delete", style={"fontWeight": "600"}), ", ",
-                                 html.Span("findAndModify", style={"fontWeight": "600"}),
-                                 " — each with custom filter fields and operators via the Operation Targeting panel."],
-                                ["Duplicate field names at the same schema level are rejected. Nested objects validate recursively."],
+                            _guide_section("Distributed mode (multi-process)", [
+                                ["The ", html.Span("leader", style={"fontWeight": "600"}),
+                                 " (dashboard worker) controls the test lifecycle. ",
+                                 html.Span("Followers", style={"fontWeight": "600"}),
+                                 " (headless workers with ", html.Code("--worker-id"), ") wait for the leader to start."],
+                                ["Followers read config from ", html.Span("metadata", style={"fontWeight": "600"}),
+                                 " (not the config file). Config file is only used for the MongoDB URI."],
+                                ["All state transitions (START/STOP/PAUSE/RESUME) propagate to followers within 1-2 seconds. "
+                                 "Live config changes (operation mix, load shaping, retry) sync to followers within 2 seconds."],
+                                ["The MongoDB URI is ", html.Span("never stored in metadata", style={"fontWeight": "600"}),
+                                 ". It's loaded from the config file at runtime only."],
+                                ["KPIs show ", html.Span("aggregated data", style={"fontWeight": "600"}),
+                                 " across all workers. Charts show the leader's local view. "
+                                 "The Worker Registry shows per-worker throughput."],
+                                ["Late-joining workers detect active tests and join immediately."],
                             ]),
                             _guide_section("Charts & metrics", [
-                                ["Charts and KPIs update live during a test and ", html.Span("freeze when it stops", style={"fontWeight": "600"}),
-                                 " — data persists until the next run."],
-                                ["Hover the ", html.Span("(?)", style={"fontWeight": "700", "color": "#4338ca"}),
+                                ["Charts update live during a test and ", html.Span("freeze when it stops", style={"fontWeight": "600"}),
+                                 " — data persists for 24 hours until the next run."],
+                                ["Hover the ", html.Span("(?)", style={"fontWeight": "700", "color": "#003B71"}),
                                  " icon next to any chart title for a detailed explanation."],
                                 ["10 KPIs: total ops, ops/sec, error rate, success rate, p50/avg/p95/p99 latency, retry rate, active users."],
-                                ["11 charts: throughput, users ramp, latency percentiles (p50/avg/p95/p99), errors & retries, "
-                                 "per-op throughput, per-op latency, operation mix, error breakdown, latency distribution, "
-                                 "operation breakdown table, smart insights."],
-                                ["Timeline filter applies to all charts simultaneously. Charts show findAndModify as a separate series."],
+                                ["Click and drag on any chart to zoom in. Use the toolbar to reset zoom or pan."],
+                                ["Error categories are classified automatically: timeout, network, primary_stepdown, "
+                                 "server_selection, duplicate_key, write_concern, auth, cursor, other."],
                             ]),
                             _guide_section("Performance tuning", [
-                                ["For maximum throughput: set ", html.Code("think_time = 0"), ", use simple schemas (avoid faker), "
-                                 "disable operation targeting, increase ", html.Code("max_pool_size"), "."],
-                                ["Single process peaks at ~10-15K ops/sec (Python GIL). For 25-40K+, run multiple headless processes: ",
-                                 html.Code("--no-dashboard --load-test-id unique-id"), " per process."],
-                                ["Monitor the error rate after scaling workers. If it exceeds 10%, you'll see a warning banner."],
+                                [html.Span("All operations are batched", style={"fontWeight": "600"}),
+                                 ": insert_many, find $in, bulk_write for updates/deletes. "
+                                 "A cycle with 200 users does ~4 MongoDB round-trips instead of 200."],
+                                ["Set ", html.Code("think_time = 0"), " and ", html.Code("target_ops = unbounded"),
+                                 " for maximum throughput. Use simple schemas (avoid faker)."],
+                                ["Single process: 15-22K ops/sec. With 2-3 follower processes: 40-60K+ ops/sec. "
+                                 "Run: ", html.Code("--no-dashboard --worker-id w1 --load-test-id test"), "."],
+                                ["50-100 worker threads is optimal for a single process. "
+                                 "Too few (10) = underutilized. Too many (500) = GIL contention."],
+                                ["MongoDB errors (DiskUseThresholdExceeded, etc.) are handled gracefully with "
+                                 "exponential backoff and suppressed log spam."],
                             ]),
-                            _guide_section("Exports & metadata", [
-                                ["Export CSV (per-second data), PNG (individual charts), or PDF (full report with summary + charts)."],
-                                ["Each load test is scoped by ", html.Span("load_test_id", style={"fontWeight": "600"}),
-                                 ". All config, runs, events, and per-collection schemas are isolated per ID."],
-                                ["Run summaries include full metrics: p50/p95/p99, ops/sec, elapsed time, per-operation latency, error categories."],
+                            _guide_section("Security & metadata", [
+                                ["The MongoDB ", html.Span("URI is never stored in metadata", style={"fontWeight": "600"}),
+                                 ". It's loaded from the config file and kept in memory only."],
+                                ["All metadata writes use ", html.Code("_sanitize_config_payload()"),
+                                 " which strips the entire ", html.Code("mongo"), " section before persistence."],
+                                ["Collections: ", html.Code("load_test_configs"), ", ", html.Code("load_test_runs"),
+                                 ", ", html.Code("load_test_events"), ", ", html.Code("collection_schemas"),
+                                 ", ", html.Code("load_test_workload_state"), ", ", html.Code("load_test_workers"),
+                                 ", ", html.Code("load_test_live_metrics"), ". All indexed."],
+                                ["Export CSV (per-second), PNG (charts), or PDF (full report). "
+                                 "Each test is scoped by ", html.Code("load_test_id"), "."],
                             ]),
                         ],
                         style={"fontSize": "12.5px", "color": "#374151"},
@@ -407,7 +446,7 @@ def create_dashboard(
                     **CARD_STYLE,
                     "marginTop": "12px",
                     "background": "#f8fafc",
-                    "border": "1px solid #c7d2fe",
+                    "border": "1px solid #7b9cc0",
                 },
                 open=False,
             ),
@@ -806,7 +845,7 @@ def create_dashboard(
                                 [
                                     html.Span(
                                         "Run Configuration",
-                                        style={"fontWeight": "700", "fontSize": "15px", "color": "#1e1b4b"},
+                                        style={"fontWeight": "700", "fontSize": "15px", "color": "#002B5C"},
                                     ),
                                     _scope_badge("ready", value_id="static-domain-scope-badge"),
                                 ],
@@ -937,7 +976,7 @@ def create_dashboard(
                                 [
                                     html.Span(
                                         "Document Schema & Query Targeting",
-                                        style={"fontWeight": "700", "fontSize": "15px", "color": "#1e1b4b"},
+                                        style={"fontWeight": "700", "fontSize": "15px", "color": "#002B5C"},
                                     ),
                                     _scope_badge("ready", value_id="schema-domain-scope-badge"),
                                 ],
@@ -964,13 +1003,13 @@ def create_dashboard(
                                         "Schema Builder",
                                         id="open-schema-builder-btn",
                                         n_clicks=0,
-                                        style={**_BTN_BASE, "border": "none", "background": "#4f46e5", "color": "white"},
+                                        style={**_BTN_BASE, "border": "none", "background": "#002B5C", "color": "white"},
                                     ),
                                     html.Button(
                                         "Validate JSON",
                                         id="validate-schema-btn",
                                         n_clicks=0,
-                                        style={**_BTN_BASE, "border": "1px solid #6366f1", "background": "#eef2ff", "color": "#4338ca"},
+                                        style={**_BTN_BASE, "border": "1px solid #003B71", "background": "#e8f0f8", "color": "#003B71"},
                                     ),
                                     html.Button(
                                         "Reset to defaults",
@@ -989,11 +1028,11 @@ def create_dashboard(
                                 [
                                     html.Summary(
                                         "Schema reference & query targeting guide",
-                                        style={"cursor": "pointer", "fontWeight": "600", "color": "#4338ca", "fontSize": "12px"},
+                                        style={"cursor": "pointer", "fontWeight": "600", "color": "#003B71", "fontSize": "12px"},
                                     ),
                                     html.Div(
                                         [
-                                            html.Div("Primitive types", style={"fontWeight": "700", "marginTop": "6px", "color": "#1e1b4b", "fontSize": "12px"}),
+                                            html.Div("Primitive types", style={"fontWeight": "700", "marginTop": "6px", "color": "#002B5C", "fontSize": "12px"}),
                                             _schema_ref_table([
                                                 ("string", "length", '{"name":"id","field_type":"string","length":8}'),
                                                 ("int", "min_value, max_value", '{"name":"qty","field_type":"int","min_value":1,"max_value":100}'),
@@ -1007,7 +1046,7 @@ def create_dashboard(
                                                 ("faker", "faker_provider", '{"name":"email","field_type":"faker","faker_provider":"email"}'),
                                                 ("null", "—", '{"name":"deleted_at","field_type":"null"}'),
                                             ]),
-                                            html.Div("Nested structures", style={"fontWeight": "700", "marginTop": "10px", "color": "#1e1b4b", "fontSize": "12px"}),
+                                            html.Div("Nested structures", style={"fontWeight": "700", "marginTop": "10px", "color": "#002B5C", "fontSize": "12px"}),
                                             _schema_ref_table([
                                                 ("object", "fields[]", "Embedded document with sub-fields"),
                                                 ("array", "items, min_items, max_items", "Array of primitives or embedded documents"),
@@ -1039,19 +1078,19 @@ def create_dashboard(
                                                 ' "min_items": 1, "max_items": 8}',
                                                 style=_PRE_STYLE,
                                             ),
-                                            html.Div("Date modes", style={"fontWeight": "700", "marginTop": "10px", "color": "#1e1b4b", "fontSize": "12px"}),
+                                            html.Div("Date modes", style={"fontWeight": "700", "marginTop": "10px", "color": "#002B5C", "fontSize": "12px"}),
                                             html.Ul([
                                                 html.Li([html.Code("now"), " — current UTC timestamp"]),
                                                 html.Li([html.Code("random_past"), " — random date within ", html.Code("date_range_days"), " days ago"]),
                                                 html.Li([html.Code("random_future"), " — random date within ", html.Code("date_range_days"), " days ahead"]),
                                                 html.Li([html.Code("increment"), " — starts from now, adds ", html.Code("date_increment_seconds"), " per document"]),
                                             ], style={"fontSize": "11px", "paddingLeft": "16px", "marginTop": "2px", "lineHeight": "1.6"}),
-                                            html.Div("Faker providers", style={"fontWeight": "700", "marginTop": "10px", "color": "#1e1b4b", "fontSize": "12px"}),
+                                            html.Div("Faker providers", style={"fontWeight": "700", "marginTop": "10px", "color": "#002B5C", "fontSize": "12px"}),
                                             html.Div(
                                                 ", ".join(FAKER_PROVIDERS),
                                                 style={"fontSize": "10.5px", "color": "#6b7280", "marginTop": "2px", "lineHeight": "1.5"},
                                             ),
-                                            html.Div("Query targeting", style={"fontWeight": "700", "marginTop": "10px", "color": "#1e1b4b", "fontSize": "12px"}),
+                                            html.Div("Query targeting", style={"fontWeight": "700", "marginTop": "10px", "color": "#002B5C", "fontSize": "12px"}),
                                             html.Div([
                                                 "Add a ", html.Code("query_targets"), " object to control which fields are used for read/update/delete filters "
                                                 "instead of _id lookups. Supports dot-notation for nested fields (e.g. ", html.Code('"address.city"'), "). "
@@ -1097,7 +1136,7 @@ def create_dashboard(
                 [
                     html.Summary(
                         [
-                            html.Span("Operation Targeting", style={"fontWeight": "700", "fontSize": "14px", "color": "#1e1b4b"}),
+                            html.Span("Operation Targeting", style={"fontWeight": "700", "fontSize": "14px", "color": "#002B5C"}),
                             html.Span(
                                 " — configure how reads, updates, deletes, and findAndModify find and modify documents",
                                 style={"fontSize": "12px", "color": "#6b7280", "fontWeight": "400"},
@@ -1135,11 +1174,11 @@ def create_dashboard(
                                 [
                                     html.Button(
                                         "Apply targeting", id="apply-op-targeting-btn", n_clicks=0,
-                                        style={**_BTN_BASE, "border": "none", "background": "#4f46e5", "color": "white"},
+                                        style={**_BTN_BASE, "border": "none", "background": "#002B5C", "color": "white"},
                                     ),
                                     html.Button(
                                         "Validate", id="validate-op-targeting-btn", n_clicks=0,
-                                        style={**_BTN_BASE, "border": "1px solid #6366f1", "background": "#eef2ff", "color": "#4338ca"},
+                                        style={**_BTN_BASE, "border": "1px solid #003B71", "background": "#e8f0f8", "color": "#003B71"},
                                     ),
                                     html.Button(
                                         "Reset to defaults", id="reset-op-targeting-btn", n_clicks=0,
@@ -1151,7 +1190,7 @@ def create_dashboard(
                             html.Div(id="op-targeting-feedback", style={"marginTop": "6px", "fontSize": "12px"}),
                             html.Details(
                                 [
-                                    html.Summary("Operation targeting reference", style={"cursor": "pointer", "fontWeight": "600", "color": "#4338ca", "fontSize": "12px"}),
+                                    html.Summary("Operation targeting reference", style={"cursor": "pointer", "fontWeight": "600", "color": "#003B71", "fontSize": "12px"}),
                                     html.Div([
                                         html.Pre(
                                             '{\n'
@@ -1180,7 +1219,7 @@ def create_dashboard(
                                             '}',
                                             style=_PRE_STYLE,
                                         ),
-                                        html.Div("Update operators", style={"fontWeight": "700", "marginTop": "8px", "color": "#1e1b4b", "fontSize": "12px"}),
+                                        html.Div("Update operators", style={"fontWeight": "700", "marginTop": "8px", "color": "#002B5C", "fontSize": "12px"}),
                                         html.Ul([
                                             html.Li([html.Code("set_fields"), " — $set with generated values from your schema"]),
                                             html.Li([html.Code("inc_fields"), " — $inc by random 1-10 (numeric fields)"]),
@@ -1202,13 +1241,13 @@ def create_dashboard(
             ),
             html.Div(
                 [
-                    html.Div(id="live-controls-meta", style={"fontSize": "12px", "color": "#4c1d95"}),
+                    html.Div(id="live-controls-meta", style={"fontSize": "12px", "color": "#003B71"}),
                     html.Ul(
                         id="runtime-change-events",
                         style={"marginTop": "6px", "marginBottom": "0", "paddingLeft": "18px", "fontSize": "12px", "color": "#6b7280"},
                     ),
                 ],
-                style={**CARD_STYLE, "marginTop": "12px", "background": "#f8fafc", "border": "1px solid #c7d2fe"},
+                style={**CARD_STYLE, "marginTop": "12px", "background": "#f8fafc", "border": "1px solid #7b9cc0"},
             ),
             html.Div(
                 [
@@ -1267,7 +1306,7 @@ def create_dashboard(
                         [
                             html.Div(
                                 "Timeline filter (applies to all metric charts)",
-                                style={"fontSize": "12px", "fontWeight": "600", "color": "#4c1d95"},
+                                style={"fontSize": "12px", "fontWeight": "600", "color": "#003B71"},
                             ),
                             dcc.Dropdown(
                                 id="timeline-window",
@@ -1290,7 +1329,7 @@ def create_dashboard(
                                 style={"marginTop": "6px", "fontSize": "12px", "color": "#6b7280"},
                             ),
                         ],
-                        style={**CARD_STYLE, "background": "#f8fafc", "border": "1px solid #c7d2fe"},
+                        style={**CARD_STYLE, "background": "#f8fafc", "border": "1px solid #7b9cc0"},
                     ),
                 ],
                 style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "1fr", "gap": "12px"},
@@ -1504,7 +1543,7 @@ def create_dashboard(
                         [
                             html.Div(
                                 [
-                                    html.Span("Schema Builder", style={"fontWeight": "800", "fontSize": "18px", "color": "#1e1b4b"}),
+                                    html.Span("Schema Builder", style={"fontWeight": "800", "fontSize": "18px", "color": "#002B5C"}),
                                     html.Button(
                                         "X", id="close-schema-builder-btn", n_clicks=0,
                                         style={"background": "none", "border": "none", "fontSize": "20px", "cursor": "pointer", "color": "#6b7280", "fontWeight": "700"},
@@ -1551,10 +1590,46 @@ def create_dashboard(
                                 ],
                                 style={"display": "flex", "gap": "10px"},
                             ),
-                            html.Div(
-                                id="sb-rule-inputs",
-                                style={"marginTop": "10px"},
-                            ),
+                            html.Div(id="sb-rule-inputs", style={"marginTop": "10px"}, children=[
+                                html.Div(id="sb-rules-string", children=[
+                                    html.Div([
+                                        html.Div([html.Label("Length", style={"fontSize": "11px", "fontWeight": "600"}), dcc.Input(id="sb-rule-length", type="number", value=16, min=1, style={"width": "100%", "padding": "6px", "borderRadius": "6px", "border": "1px solid #d1d5db", "fontSize": "12px"})], style={"flex": "0.5"}),
+                                        html.Div([html.Label("Prefix", style={"fontSize": "11px", "fontWeight": "600"}), dcc.Input(id="sb-rule-prefix", type="text", placeholder="e.g. ORD-", style={"width": "100%", "padding": "6px", "borderRadius": "6px", "border": "1px solid #d1d5db", "fontSize": "12px"})], style={"flex": "1"}),
+                                        html.Div([html.Label("Suffix", style={"fontSize": "11px", "fontWeight": "600"}), dcc.Input(id="sb-rule-suffix", type="text", placeholder="e.g. -US", style={"width": "100%", "padding": "6px", "borderRadius": "6px", "border": "1px solid #d1d5db", "fontSize": "12px"})], style={"flex": "1"}),
+                                    ], style={"display": "flex", "gap": "8px"}),
+                                    html.Div([html.Label("Composite", style={"fontSize": "11px", "fontWeight": "600", "marginTop": "6px"}), dcc.Dropdown(id="sb-rule-composite", options=[{"label": "None", "value": "none"}, {"label": "Prefix+UUID", "value": "prefix_uuid"}, {"label": "UUID+Suffix", "value": "uuid_suffix"}, {"label": "Prefix+UUID+Suffix", "value": "prefix_uuid_suffix"}, {"label": "Prefix+Random", "value": "prefix_random"}, {"label": "Random+Suffix", "value": "random_suffix"}], value="none", clearable=False, style={"fontSize": "12px"})]),
+                                ]),
+                                html.Div(id="sb-rules-number", children=[
+                                    html.Div([
+                                        html.Div([html.Label("Min value", style={"fontSize": "11px", "fontWeight": "600"}), dcc.Input(id="sb-rule-min", type="number", value=0, style={"width": "100%", "padding": "6px", "borderRadius": "6px", "border": "1px solid #d1d5db", "fontSize": "12px"})], style={"flex": "1"}),
+                                        html.Div([html.Label("Max value", style={"fontSize": "11px", "fontWeight": "600"}), dcc.Input(id="sb-rule-max", type="number", value=10000, style={"width": "100%", "padding": "6px", "borderRadius": "6px", "border": "1px solid #d1d5db", "fontSize": "12px"})], style={"flex": "1"}),
+                                    ], style={"display": "flex", "gap": "8px"}),
+                                ], style={"display": "none"}),
+                                html.Div(id="sb-rules-choice", children=[
+                                    html.Label("Choices (comma-separated)", style={"fontSize": "11px", "fontWeight": "600"}),
+                                    dcc.Input(id="sb-rule-choices", type="text", placeholder="new, paid, shipped", style={"width": "100%", "padding": "6px", "borderRadius": "6px", "border": "1px solid #d1d5db", "fontSize": "12px"}),
+                                ], style={"display": "none"}),
+                                html.Div(id="sb-rules-faker", children=[
+                                    html.Label("Faker provider", style={"fontSize": "11px", "fontWeight": "600"}),
+                                    dcc.Dropdown(id="sb-rule-faker", options=[{"label": p, "value": p} for p in FAKER_PROVIDERS], value="name", clearable=False, style={"fontSize": "12px"}),
+                                ], style={"display": "none"}),
+                                html.Div(id="sb-rules-date", children=[
+                                    html.Div([
+                                        html.Div([html.Label("Date mode", style={"fontSize": "11px", "fontWeight": "600"}), dcc.Dropdown(id="sb-rule-date-mode", options=[{"label": m, "value": m} for m in ["now", "random_past", "random_future", "increment"]], value="now", clearable=False, style={"fontSize": "12px"})], style={"flex": "1"}),
+                                        html.Div([html.Label("Range (days)", style={"fontSize": "11px", "fontWeight": "600"}), dcc.Input(id="sb-rule-date-days", type="number", value=365, min=1, style={"width": "100%", "padding": "6px", "borderRadius": "6px", "border": "1px solid #d1d5db", "fontSize": "12px"})], style={"flex": "1"}),
+                                    ], style={"display": "flex", "gap": "8px"}),
+                                ], style={"display": "none"}),
+                                html.Div(id="sb-rules-array", children=[
+                                    html.Div([
+                                        html.Div([html.Label("Element type", style={"fontSize": "11px", "fontWeight": "600"}), dcc.Dropdown(id="sb-rule-array-type", options=[{"label": t, "value": t} for t in FIELD_TYPES if t != "array"], value="string", clearable=False, style={"fontSize": "12px"})], style={"flex": "1"}),
+                                        html.Div([html.Label("Min items", style={"fontSize": "11px", "fontWeight": "600"}), dcc.Input(id="sb-rule-min-items", type="number", value=1, min=0, style={"width": "100%", "padding": "6px", "borderRadius": "6px", "border": "1px solid #d1d5db", "fontSize": "12px"})], style={"flex": "0.5"}),
+                                        html.Div([html.Label("Max items", style={"fontSize": "11px", "fontWeight": "600"}), dcc.Input(id="sb-rule-max-items", type="number", value=5, min=1, style={"width": "100%", "padding": "6px", "borderRadius": "6px", "border": "1px solid #d1d5db", "fontSize": "12px"})], style={"flex": "0.5"}),
+                                    ], style={"display": "flex", "gap": "8px"}),
+                                ], style={"display": "none"}),
+                                html.Div(id="sb-rules-object", children=[
+                                    html.Div("Add sub-fields with dot-notation (e.g. 'address.street').", style={"fontSize": "11px", "color": "#6b7280", "fontStyle": "italic"}),
+                                ], style={"display": "none"}),
+                            ]),
                             html.Div(
                                 [
                                     html.Button(
@@ -1568,7 +1643,7 @@ def create_dashboard(
                             html.Hr(style={"margin": "16px 0", "border": "none", "borderTop": "1px solid #e5e7eb"}),
                             html.Div(
                                 [
-                                    html.Span("Fields", style={"fontWeight": "700", "fontSize": "14px", "color": "#1e1b4b"}),
+                                    html.Span("Fields", style={"fontWeight": "700", "fontSize": "14px", "color": "#002B5C"}),
                                     html.Span(id="sb-field-count", style={"fontSize": "12px", "color": "#6b7280", "marginLeft": "8px"}),
                                 ],
                                 style={"display": "flex", "alignItems": "center", "marginBottom": "8px"},
@@ -1582,7 +1657,7 @@ def create_dashboard(
                                 [
                                     html.Button(
                                         "Save & apply to schema", id="sb-save-btn", n_clicks=0,
-                                        style={**_BTN_BASE, "border": "none", "background": "#4f46e5", "color": "white"},
+                                        style={**_BTN_BASE, "border": "none", "background": "#002B5C", "color": "white"},
                                     ),
                                     html.Button(
                                         "Cancel", id="sb-cancel-btn", n_clicks=0,
@@ -1590,7 +1665,7 @@ def create_dashboard(
                                     ),
                                     html.Button(
                                         "Load current schema", id="sb-load-current-btn", n_clicks=0,
-                                        style={**_BTN_BASE, "border": "1px solid #6366f1", "background": "#eef2ff", "color": "#4338ca"},
+                                        style={**_BTN_BASE, "border": "1px solid #003B71", "background": "#e8f0f8", "color": "#003B71"},
                                     ),
                                 ],
                                 style={"display": "flex", "gap": "8px"},
@@ -1621,7 +1696,7 @@ def create_dashboard(
         style={
             "padding": "20px 24px",
             "fontFamily": "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-            "background": "linear-gradient(180deg, #f0f0ff 0%, #f5f3ff 30%, #faf9ff 100%)",
+            "background": "linear-gradient(180deg, #edf2f7 0%, #f0f4f8 30%, #f7f9fb 100%)",
             "minHeight": "100vh",
         },
     )
@@ -1819,7 +1894,7 @@ def create_dashboard(
             ops_sec = am.get("ops_per_second", 0)
             total_ops = am.get("total_ops", 0)
             status_color = _STATUS_COLORS.get(status, "#6b7280")
-            type_badge_bg = "#4f46e5" if wtype == "dashboard" else "#6366f1"
+            type_badge_bg = "#002B5C" if wtype == "dashboard" else "#003B71"
             worker_rows.append(html.Tr([
                 html.Td(wid, style={**_td, "fontWeight": "600"}),
                 html.Td(
@@ -1838,7 +1913,7 @@ def create_dashboard(
         total_agg_ops_sec = agg["ops_per_second"] if agg else 0
         content = html.Div([
             html.Div([
-                html.Span("Worker Registry", style={"fontWeight": "700", "fontSize": "14px", "color": "#1e1b4b"}),
+                html.Span("Worker Registry", style={"fontWeight": "700", "fontSize": "14px", "color": "#002B5C"}),
                 html.Span(
                     f"  {len(registered_workers)} worker(s)"
                     + (f" | {total_agg_ops_sec:,.0f} aggregate ops/sec" if total_agg_ops_sec > 0 else ""),
@@ -1861,8 +1936,8 @@ def create_dashboard(
         panel_style = {
             **CARD_STYLE,
             "marginTop": "12px",
-            "background": "linear-gradient(90deg, #ede9fe, #eef2ff)",
-            "border": "1px solid #c4b5fd",
+            "background": "linear-gradient(90deg, #e8f0f8, #e8f0f8)",
+            "border": "1px solid #7b9cc0",
         }
         return content, panel_style
 
@@ -1885,8 +1960,8 @@ def create_dashboard(
                 ], style={"fontSize": "12px"}),
                 {
                     "marginTop": "12px", "padding": "10px 14px",
-                    "background": "#ede9fe", "border": "1px solid #c4b5fd",
-                    "borderRadius": "10px", "color": "#5b21b6",
+                    "background": "#e8f0f8", "border": "1px solid #7b9cc0",
+                    "borderRadius": "10px", "color": "#003B71",
                 },
             )
         return "", {"display": "none"}
@@ -2779,85 +2854,27 @@ def create_dashboard(
         return _overlay_hidden, current_fields or [], no_update, no_update
 
     @callback(
-        Output("sb-rule-inputs", "children"),
+        Output("sb-rules-string", "style"),
+        Output("sb-rules-number", "style"),
+        Output("sb-rules-choice", "style"),
+        Output("sb-rules-faker", "style"),
+        Output("sb-rules-date", "style"),
+        Output("sb-rules-array", "style"),
+        Output("sb-rules-object", "style"),
         Input("sb-field-type", "value"),
     )
-    def update_rule_inputs(field_type):
-        _input_style = {"width": "100%", "padding": "6px 10px", "borderRadius": "6px", "border": "1px solid #d1d5db", "fontSize": "12px", "marginTop": "3px"}
-        _label_style = {"fontSize": "11px", "fontWeight": "600", "color": "#374151"}
-        if field_type in ("string",):
-            return html.Div([
-                html.Div([
-                    html.Div([html.Label("Length", style=_label_style), dcc.Input(id="sb-rule-length", type="number", value=16, min=1, style=_input_style)], style={"flex": "0.5"}),
-                    html.Div([html.Label("Prefix (optional)", style=_label_style), dcc.Input(id="sb-rule-prefix", type="text", placeholder="e.g. ORD-", style=_input_style)], style={"flex": "1"}),
-                    html.Div([html.Label("Suffix (optional)", style=_label_style), dcc.Input(id="sb-rule-suffix", type="text", placeholder="e.g. -US", style=_input_style)], style={"flex": "1"}),
-                ], style={"display": "flex", "gap": "8px"}),
-                html.Div([
-                    html.Label("Composite value (optional)", style=_label_style),
-                    dcc.Dropdown(id="sb-rule-composite", options=[
-                        {"label": "None (random string only)", "value": "none"},
-                        {"label": "UUID (prefix + UUID)", "value": "prefix_uuid"},
-                        {"label": "UUID + suffix", "value": "uuid_suffix"},
-                        {"label": "Prefix + UUID + suffix", "value": "prefix_uuid_suffix"},
-                        {"label": "Prefix + random string", "value": "prefix_random"},
-                        {"label": "Random string + suffix", "value": "random_suffix"},
-                    ], value="none", clearable=False, style={"fontSize": "12px", "marginTop": "3px"}),
-                ], style={"marginTop": "6px"}),
-            ])
-        if field_type in ("int", "float", "decimal"):
-            return html.Div([
-                html.Div([
-                    html.Div([html.Label("Min value", style=_label_style), dcc.Input(id="sb-rule-min", type="number", value=0, style=_input_style)], style={"flex": "1"}),
-                    html.Div([html.Label("Max value", style=_label_style), dcc.Input(id="sb-rule-max", type="number", value=10000, style=_input_style)], style={"flex": "1"}),
-                ], style={"display": "flex", "gap": "8px"}),
-            ])
-        if field_type == "choice":
-            return html.Div([
-                html.Label("Choices (comma-separated)", style=_label_style),
-                dcc.Input(id="sb-rule-choices", type="text", placeholder="new, paid, shipped, cancelled", style=_input_style),
-            ])
-        if field_type == "faker":
-            return html.Div([
-                html.Label("Faker provider", style=_label_style),
-                dcc.Dropdown(
-                    id="sb-rule-faker",
-                    options=[{"label": p, "value": p} for p in FAKER_PROVIDERS],
-                    value="name",
-                    clearable=False,
-                    style={"fontSize": "12px", "marginTop": "3px"},
-                ),
-            ])
-        if field_type in ("datetime", "date_range"):
-            return html.Div([
-                html.Div([
-                    html.Div([
-                        html.Label("Date mode", style=_label_style),
-                        dcc.Dropdown(
-                            id="sb-rule-date-mode",
-                            options=[{"label": m, "value": m} for m in ["now", "random_past", "random_future", "increment"]],
-                            value="now", clearable=False, style={"fontSize": "12px", "marginTop": "3px"},
-                        ),
-                    ], style={"flex": "1"}),
-                    html.Div([html.Label("Range (days)", style=_label_style), dcc.Input(id="sb-rule-date-days", type="number", value=365, min=1, style=_input_style)], style={"flex": "1"}),
-                ], style={"display": "flex", "gap": "8px"}),
-            ])
-        if field_type == "array":
-            return html.Div([
-                html.Div([
-                    html.Div([html.Label("Element type", style=_label_style),
-                        dcc.Dropdown(id="sb-rule-array-type", options=[{"label": t, "value": t} for t in FIELD_TYPES if t != "array"], value="string", clearable=False, style={"fontSize": "12px", "marginTop": "3px"})
-                    ], style={"flex": "1"}),
-                    html.Div([html.Label("Min items", style=_label_style), dcc.Input(id="sb-rule-min-items", type="number", value=1, min=0, style=_input_style)], style={"flex": "0.5"}),
-                    html.Div([html.Label("Max items", style=_label_style), dcc.Input(id="sb-rule-max-items", type="number", value=5, min=1, style=_input_style)], style={"flex": "0.5"}),
-                ], style={"display": "flex", "gap": "8px"}),
-            ])
-        if field_type == "object":
-            return html.Div(
-                "Embedded document: add the parent field, then add sub-fields with dot-notation names (e.g. 'address.street', 'address.city').",
-                style={"fontSize": "11px", "color": "#6b7280", "fontStyle": "italic", "padding": "6px 0"},
-            )
-        return html.Div()
-
+    def update_rule_visibility(field_type):
+        hide = {"display": "none"}
+        show = {}
+        return (
+            show if field_type == "string" else hide,
+            show if field_type in ("int", "float", "decimal") else hide,
+            show if field_type == "choice" else hide,
+            show if field_type == "faker" else hide,
+            show if field_type in ("datetime", "date_range") else hide,
+            show if field_type == "array" else hide,
+            show if field_type == "object" else hide,
+        )
     @callback(
         Output("schema-builder-fields", "data", allow_duplicate=True),
         Output("sb-add-feedback", "children"),
@@ -2866,27 +2883,67 @@ def create_dashboard(
         State("sb-field-name", "value"),
         State("sb-field-type", "value"),
         State("schema-builder-fields", "data"),
-        State("sb-rule-inputs", "children"),
+        State("sb-rule-length", "value"),
+        State("sb-rule-prefix", "value"),
+        State("sb-rule-suffix", "value"),
+        State("sb-rule-composite", "value"),
+        State("sb-rule-min", "value"),
+        State("sb-rule-max", "value"),
+        State("sb-rule-choices", "value"),
+        State("sb-rule-faker", "value"),
+        State("sb-rule-date-mode", "value"),
+        State("sb-rule-date-days", "value"),
+        State("sb-rule-array-type", "value"),
+        State("sb-rule-min-items", "value"),
+        State("sb-rule-max-items", "value"),
         prevent_initial_call=True,
     )
-    def add_schema_field(n_clicks, field_name, field_type, current_fields, rule_children):
+    def add_schema_field(
+        n_clicks, field_name, field_type, current_fields,
+        rule_length, rule_prefix, rule_suffix, rule_composite,
+        rule_min, rule_max, rule_choices, rule_faker,
+        rule_date_mode, rule_date_days,
+        rule_array_type, rule_min_items, rule_max_items,
+    ):
         if not n_clicks:
             raise PreventUpdate
         name = (field_name or "").strip().strip("'\"")
         if not name:
             return no_update, _feedback_warning("Field name is required."), no_update
         if "'" in name or '"' in name:
-            return no_update, _feedback_warning("Field names must not contain quotes. Enter the name without quotes (e.g. tenant_id, not 'tenant_id')."), no_update
+            return no_update, _feedback_warning("Field names must not contain quotes."), no_update
         if " " in name:
-            return no_update, _feedback_warning("Field names must not contain spaces. Use underscores (e.g. order_total)."), no_update
+            return no_update, _feedback_warning("Field names must not contain spaces."), no_update
         if not all(c.isalnum() or c in ("_", ".", "-") for c in name):
-            return no_update, _feedback_warning("Field names may only contain letters, digits, underscores, hyphens, and dots (for nesting)."), no_update
+            return no_update, _feedback_warning("Field names may only contain letters, digits, underscores, hyphens, and dots."), no_update
         fields = current_fields or []
-        all_names = {f["name"] for f in fields}
-        if name in all_names:
+        if name in {f["name"] for f in fields}:
             return no_update, _feedback_warning(f"Field '{name}' already exists."), no_update
         field: dict = {"name": name, "field_type": field_type}
-        _extract_rules_from_children(field, field_type, rule_children)
+        ft = field_type
+        if ft == "string":
+            field["length"] = int(rule_length or 16)
+            if rule_prefix:
+                field["prefix"] = str(rule_prefix)
+            if rule_suffix:
+                field["suffix"] = str(rule_suffix)
+            if rule_composite and rule_composite != "none":
+                field["composite"] = str(rule_composite)
+        elif ft in ("int", "float", "decimal"):
+            field["min_value"] = float(rule_min if rule_min is not None else 0)
+            field["max_value"] = float(rule_max if rule_max is not None else 10000)
+        elif ft == "choice":
+            raw = str(rule_choices or "")
+            field["choices"] = [c.strip() for c in raw.split(",") if c.strip()]
+        elif ft == "faker":
+            field["faker_provider"] = str(rule_faker or "name")
+        elif ft in ("datetime", "date_range"):
+            field["date_mode"] = str(rule_date_mode or "now")
+            field["date_range_days"] = int(rule_date_days or 365)
+        elif ft == "array":
+            field["_array_item_type"] = str(rule_array_type or "string")
+            field["min_items"] = int(rule_min_items or 1)
+            field["max_items"] = int(rule_max_items or 5)
         fields.append(field)
         return fields, _feedback_info(f"Added '{name}' ({field_type})"), ""
 
@@ -2932,8 +2989,8 @@ def create_dashboard(
             rows.append(html.Div(
                 [
                     html.Div([
-                        html.Span(f["name"], style={"fontWeight": "600", "color": "#1e1b4b", "fontSize": "13px"}),
-                        html.Span(f" {ft}", style={"color": "#6366f1", "fontSize": "11px", "marginLeft": "6px"}),
+                        html.Span(f["name"], style={"fontWeight": "600", "color": "#002B5C", "fontSize": "13px"}),
+                        html.Span(f" {ft}", style={"color": "#003B71", "fontSize": "11px", "marginLeft": "6px"}),
                         html.Span(f" {detail}", style={"color": "#9ca3af", "fontSize": "11px", "marginLeft": "4px"}) if detail else None,
                     ], style={"display": "flex", "alignItems": "center", "flex": "1"}),
                     html.Button(
@@ -3054,7 +3111,7 @@ def create_dashboard(
             info = html.Div([
                 html.Span("CUSTOM", style={
                     "fontWeight": "800", "fontSize": "10px", "letterSpacing": "0.05em",
-                    "marginRight": "6px", "background": "#4f46e5", "color": "white",
+                    "marginRight": "6px", "background": "#002B5C", "color": "white",
                     "padding": "1px 6px", "borderRadius": "4px",
                 }),
                 f" {target} has a custom schema with {len(fields)} field(s). Modify and save to update it.",
@@ -3310,9 +3367,9 @@ def _metric_card(label: str, value_id: str, theme: tuple[str, str], tooltip: str
                     "fontSize": "11px",
                     "padding": "2px 6px",
                     "marginLeft": "6px",
-                    "border": "1px solid #a5b4fc",
+                    "border": "1px solid #7b9cc0",
                     "borderRadius": "999px",
-                    "color": "#4338ca",
+                    "color": "#003B71",
                     "cursor": "help",
                     "fontWeight": "600",
                 },
@@ -3367,7 +3424,7 @@ def _schema_ref_table(rows: list[tuple[str, str, str]]) -> html.Table:
 
 def _guide_section(title: str, items: list) -> html.Div:
     return html.Div([
-        html.Div(title, style={"fontWeight": "700", "marginTop": "12px", "marginBottom": "4px", "color": "#1e1b4b"}),
+        html.Div(title, style={"fontWeight": "700", "marginTop": "12px", "marginBottom": "4px", "color": "#002B5C"}),
         html.Ul(
             [html.Li(item) for item in items],
             style={"marginTop": "4px", "marginBottom": "0", "paddingLeft": "18px", "lineHeight": "1.8"},
@@ -3378,7 +3435,7 @@ def _guide_section(title: str, items: list) -> html.Div:
 def _chart_title(label: str, tooltip: str) -> html.Div:
     return html.Div(
         [
-            html.Span(label, style={"fontWeight": "600", "color": "#312e81"}),
+            html.Span(label, style={"fontWeight": "600", "color": "#002B5C"}),
             html.Span(
                 "?",
                 title=tooltip,
@@ -3386,8 +3443,8 @@ def _chart_title(label: str, tooltip: str) -> html.Div:
                     "fontSize": "10px",
                     "padding": "0px 5px",
                     "borderRadius": "999px",
-                    "border": "1px solid #a5b4fc",
-                    "color": "#4338ca",
+                    "border": "1px solid #7b9cc0",
+                    "color": "#003B71",
                     "fontWeight": "700",
                     "cursor": "help",
                     "lineHeight": "16px",
@@ -3411,8 +3468,8 @@ def _label_with_help(label: str, tooltip: str, color: str = "#4b5563", margin_to
                     "fontSize": "10px",
                     "padding": "1px 5px",
                     "borderRadius": "999px",
-                    "border": "1px solid #a5b4fc",
-                    "color": "#4338ca",
+                    "border": "1px solid #7b9cc0",
+                    "color": "#003B71",
                     "fontWeight": "700",
                     "cursor": "help",
                 },
@@ -3440,7 +3497,7 @@ def _scope_badge_style(scope_type: str) -> dict[str, str]:
         "fontWeight": "700",
     }
     if scope_type == "next_run":
-        return {**base, "background": "#ede9fe", "color": "#5b21b6", "border": "1px solid #c4b5fd"}
+        return {**base, "background": "#e8f0f8", "color": "#003B71", "border": "1px solid #7b9cc0"}
     if scope_type == "user_config":
         return {**base, "background": "#e0f2fe", "color": "#0c4a6e", "border": "1px solid #7dd3fc"}
     return {**base, "background": "#dcfce7", "color": "#166534", "border": "1px solid #86efac"}
