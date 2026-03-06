@@ -37,10 +37,10 @@ from mongo_load_tester.observability import InMemoryLogBuffer
 
 CARD_STYLE = {
     "background": "white",
-    "border": "1px solid #e5e7eb",
-    "borderRadius": "14px",
+    "border": "1px solid #d1d5db",
+    "borderRadius": "12px",
     "padding": "18px",
-    "boxShadow": "0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)",
+    "boxShadow": "0 1px 3px rgba(0,43,92,0.06), 0 1px 2px rgba(0,43,92,0.04)",
 }
 _BTN_BASE = {
     "padding": "9px 16px",
@@ -51,37 +51,37 @@ _BTN_BASE = {
     "letterSpacing": "0.01em",
     "transition": "all 0.15s ease",
 }
-ACTION_BUTTON_STYLE = {**_BTN_BASE, "border": "1px solid #c7d2fe", "background": "#eef2ff", "color": "#3730a3"}
-PAUSE_BUTTON_STYLE = {**_BTN_BASE, "border": "none", "background": "#f59e0b", "color": "white"}
-RESUME_BUTTON_STYLE = {**_BTN_BASE, "border": "none", "background": "#10b981", "color": "white"}
-START_BUTTON_STYLE = {**_BTN_BASE, "border": "none", "background": "#059669", "color": "white"}
-STOP_BUTTON_STYLE = {**_BTN_BASE, "border": "none", "background": "#dc2626", "color": "white"}
-RESTART_BUTTON_STYLE = {**_BTN_BASE, "border": "none", "background": "#2563eb", "color": "white"}
+ACTION_BUTTON_STYLE = {**_BTN_BASE, "border": "1px solid #7b9cc0", "background": "#e8f0f8", "color": "#002B5C"}
+PAUSE_BUTTON_STYLE = {**_BTN_BASE, "border": "none", "background": "#e6a817", "color": "white"}
+RESUME_BUTTON_STYLE = {**_BTN_BASE, "border": "none", "background": "#1a7a4c", "color": "white"}
+START_BUTTON_STYLE = {**_BTN_BASE, "border": "none", "background": "#003B71", "color": "white"}
+STOP_BUTTON_STYLE = {**_BTN_BASE, "border": "none", "background": "#C41230", "color": "white"}
+RESTART_BUTTON_STYLE = {**_BTN_BASE, "border": "none", "background": "#002B5C", "color": "white"}
 STATUS_STYLE_MAP = {
-    "running": {"background": "#dcfce7", "color": "#166534", "border": "1px solid #86efac"},
-    "paused": {"background": "#fef3c7", "color": "#92400e", "border": "1px solid #fcd34d"},
-    "completed": {"background": "#dbeafe", "color": "#1e40af", "border": "1px solid #93c5fd"},
-    "failed": {"background": "#fee2e2", "color": "#991b1b", "border": "1px solid #fca5a5"},
-    "initializing": {"background": "#ede9fe", "color": "#5b21b6", "border": "1px solid #c4b5fd"},
+    "running": {"background": "#e6f4ea", "color": "#14532d", "border": "1px solid #6dbe82"},
+    "paused": {"background": "#fef3c7", "color": "#78350f", "border": "1px solid #f5c842"},
+    "completed": {"background": "#e8f0f8", "color": "#002B5C", "border": "1px solid #7b9cc0"},
+    "failed": {"background": "#fce4e8", "color": "#8b0d24", "border": "1px solid #e4677a"},
+    "initializing": {"background": "#e8f0f8", "color": "#003B71", "border": "1px solid #7b9cc0"},
 }
 KPI_THEMES = [
-    ("#eff6ff", "#bfdbfe"),
-    ("#ecfdf5", "#a7f3d0"),
-    ("#fffbeb", "#fde68a"),
-    ("#fdf2f8", "#fbcfe8"),
-    ("#f5f3ff", "#d8b4fe"),
-    ("#ecfeff", "#a5f3fc"),
-    ("#fef2f2", "#fecaca"),
-    ("#eef2ff", "#c7d2fe"),
+    ("#e8f0f8", "#7b9cc0"),
+    ("#e6f4ea", "#6dbe82"),
+    ("#fef8e6", "#f5c842"),
+    ("#fce4e8", "#e4677a"),
+    ("#edf2f7", "#8fa8c4"),
+    ("#e0f0f0", "#6db5b5"),
+    ("#f8eef0", "#d4909c"),
+    ("#e8ecf8", "#8998c4"),
 ]
 _SECTION_HEADER_STYLE = {
     "fontSize": "16px",
     "fontWeight": "700",
-    "color": "#1e1b4b",
+    "color": "#002B5C",
     "marginTop": "28px",
     "marginBottom": "12px",
     "paddingBottom": "8px",
-    "borderBottom": "2px solid #e0e7ff",
+    "borderBottom": "2px solid #7b9cc0",
     "letterSpacing": "-0.01em",
 }
 
@@ -256,7 +256,7 @@ def create_dashboard(
                             ),
                             html.Div(
                                 "Live OLTP telemetry, resilient control plane, and export-ready reports.",
-                                style={"color": "#c7d2fe", "fontSize": "13px", "marginTop": "2px"},
+                                style={"color": "#a8c4e0", "fontSize": "13px", "marginTop": "2px"},
                             ),
                         ]
                     ),
@@ -309,10 +309,10 @@ def create_dashboard(
                     "justifyContent": "space-between",
                     "alignItems": "center",
                     "gap": "14px",
-                    "background": "linear-gradient(135deg, #312e81 0%, #4c1d95 50%, #6d28d9 100%)",
+                    "background": "linear-gradient(135deg, #002B5C 0%, #003B71 50%, #004a8f 100%)",
                     "borderRadius": "16px",
                     "padding": "20px 24px",
-                    "boxShadow": "0 4px 12px rgba(49,46,129,0.25)",
+                    "boxShadow": "0 4px 12px rgba(0,43,92,0.3)",
                 },
             ),
             html.Div(
@@ -323,7 +323,7 @@ def create_dashboard(
                 [
                     html.Summary(
                         "Operator quick guide",
-                        style={"cursor": "pointer", "fontWeight": "700", "color": "#312e81", "fontSize": "14px"},
+                        style={"cursor": "pointer", "fontWeight": "700", "color": "#002B5C", "fontSize": "14px"},
                     ),
                     html.Div(
                         [
@@ -406,7 +406,7 @@ def create_dashboard(
                             _guide_section("Charts & metrics", [
                                 ["Charts update live during a test and ", html.Span("freeze when it stops", style={"fontWeight": "600"}),
                                  " — data persists for 24 hours until the next run."],
-                                ["Hover the ", html.Span("(?)", style={"fontWeight": "700", "color": "#4338ca"}),
+                                ["Hover the ", html.Span("(?)", style={"fontWeight": "700", "color": "#003B71"}),
                                  " icon next to any chart title for a detailed explanation."],
                                 ["10 KPIs: total ops, ops/sec, error rate, success rate, p50/avg/p95/p99 latency, retry rate, active users."],
                                 ["Click and drag on any chart to zoom in. Use the toolbar to reset zoom or pan."],
@@ -446,7 +446,7 @@ def create_dashboard(
                     **CARD_STYLE,
                     "marginTop": "12px",
                     "background": "#f8fafc",
-                    "border": "1px solid #c7d2fe",
+                    "border": "1px solid #7b9cc0",
                 },
                 open=False,
             ),
@@ -845,7 +845,7 @@ def create_dashboard(
                                 [
                                     html.Span(
                                         "Run Configuration",
-                                        style={"fontWeight": "700", "fontSize": "15px", "color": "#1e1b4b"},
+                                        style={"fontWeight": "700", "fontSize": "15px", "color": "#002B5C"},
                                     ),
                                     _scope_badge("ready", value_id="static-domain-scope-badge"),
                                 ],
@@ -976,7 +976,7 @@ def create_dashboard(
                                 [
                                     html.Span(
                                         "Document Schema & Query Targeting",
-                                        style={"fontWeight": "700", "fontSize": "15px", "color": "#1e1b4b"},
+                                        style={"fontWeight": "700", "fontSize": "15px", "color": "#002B5C"},
                                     ),
                                     _scope_badge("ready", value_id="schema-domain-scope-badge"),
                                 ],
@@ -1003,13 +1003,13 @@ def create_dashboard(
                                         "Schema Builder",
                                         id="open-schema-builder-btn",
                                         n_clicks=0,
-                                        style={**_BTN_BASE, "border": "none", "background": "#4f46e5", "color": "white"},
+                                        style={**_BTN_BASE, "border": "none", "background": "#002B5C", "color": "white"},
                                     ),
                                     html.Button(
                                         "Validate JSON",
                                         id="validate-schema-btn",
                                         n_clicks=0,
-                                        style={**_BTN_BASE, "border": "1px solid #6366f1", "background": "#eef2ff", "color": "#4338ca"},
+                                        style={**_BTN_BASE, "border": "1px solid #003B71", "background": "#e8f0f8", "color": "#003B71"},
                                     ),
                                     html.Button(
                                         "Reset to defaults",
@@ -1028,11 +1028,11 @@ def create_dashboard(
                                 [
                                     html.Summary(
                                         "Schema reference & query targeting guide",
-                                        style={"cursor": "pointer", "fontWeight": "600", "color": "#4338ca", "fontSize": "12px"},
+                                        style={"cursor": "pointer", "fontWeight": "600", "color": "#003B71", "fontSize": "12px"},
                                     ),
                                     html.Div(
                                         [
-                                            html.Div("Primitive types", style={"fontWeight": "700", "marginTop": "6px", "color": "#1e1b4b", "fontSize": "12px"}),
+                                            html.Div("Primitive types", style={"fontWeight": "700", "marginTop": "6px", "color": "#002B5C", "fontSize": "12px"}),
                                             _schema_ref_table([
                                                 ("string", "length", '{"name":"id","field_type":"string","length":8}'),
                                                 ("int", "min_value, max_value", '{"name":"qty","field_type":"int","min_value":1,"max_value":100}'),
@@ -1046,7 +1046,7 @@ def create_dashboard(
                                                 ("faker", "faker_provider", '{"name":"email","field_type":"faker","faker_provider":"email"}'),
                                                 ("null", "—", '{"name":"deleted_at","field_type":"null"}'),
                                             ]),
-                                            html.Div("Nested structures", style={"fontWeight": "700", "marginTop": "10px", "color": "#1e1b4b", "fontSize": "12px"}),
+                                            html.Div("Nested structures", style={"fontWeight": "700", "marginTop": "10px", "color": "#002B5C", "fontSize": "12px"}),
                                             _schema_ref_table([
                                                 ("object", "fields[]", "Embedded document with sub-fields"),
                                                 ("array", "items, min_items, max_items", "Array of primitives or embedded documents"),
@@ -1078,19 +1078,19 @@ def create_dashboard(
                                                 ' "min_items": 1, "max_items": 8}',
                                                 style=_PRE_STYLE,
                                             ),
-                                            html.Div("Date modes", style={"fontWeight": "700", "marginTop": "10px", "color": "#1e1b4b", "fontSize": "12px"}),
+                                            html.Div("Date modes", style={"fontWeight": "700", "marginTop": "10px", "color": "#002B5C", "fontSize": "12px"}),
                                             html.Ul([
                                                 html.Li([html.Code("now"), " — current UTC timestamp"]),
                                                 html.Li([html.Code("random_past"), " — random date within ", html.Code("date_range_days"), " days ago"]),
                                                 html.Li([html.Code("random_future"), " — random date within ", html.Code("date_range_days"), " days ahead"]),
                                                 html.Li([html.Code("increment"), " — starts from now, adds ", html.Code("date_increment_seconds"), " per document"]),
                                             ], style={"fontSize": "11px", "paddingLeft": "16px", "marginTop": "2px", "lineHeight": "1.6"}),
-                                            html.Div("Faker providers", style={"fontWeight": "700", "marginTop": "10px", "color": "#1e1b4b", "fontSize": "12px"}),
+                                            html.Div("Faker providers", style={"fontWeight": "700", "marginTop": "10px", "color": "#002B5C", "fontSize": "12px"}),
                                             html.Div(
                                                 ", ".join(FAKER_PROVIDERS),
                                                 style={"fontSize": "10.5px", "color": "#6b7280", "marginTop": "2px", "lineHeight": "1.5"},
                                             ),
-                                            html.Div("Query targeting", style={"fontWeight": "700", "marginTop": "10px", "color": "#1e1b4b", "fontSize": "12px"}),
+                                            html.Div("Query targeting", style={"fontWeight": "700", "marginTop": "10px", "color": "#002B5C", "fontSize": "12px"}),
                                             html.Div([
                                                 "Add a ", html.Code("query_targets"), " object to control which fields are used for read/update/delete filters "
                                                 "instead of _id lookups. Supports dot-notation for nested fields (e.g. ", html.Code('"address.city"'), "). "
@@ -1136,7 +1136,7 @@ def create_dashboard(
                 [
                     html.Summary(
                         [
-                            html.Span("Operation Targeting", style={"fontWeight": "700", "fontSize": "14px", "color": "#1e1b4b"}),
+                            html.Span("Operation Targeting", style={"fontWeight": "700", "fontSize": "14px", "color": "#002B5C"}),
                             html.Span(
                                 " — configure how reads, updates, deletes, and findAndModify find and modify documents",
                                 style={"fontSize": "12px", "color": "#6b7280", "fontWeight": "400"},
@@ -1174,11 +1174,11 @@ def create_dashboard(
                                 [
                                     html.Button(
                                         "Apply targeting", id="apply-op-targeting-btn", n_clicks=0,
-                                        style={**_BTN_BASE, "border": "none", "background": "#4f46e5", "color": "white"},
+                                        style={**_BTN_BASE, "border": "none", "background": "#002B5C", "color": "white"},
                                     ),
                                     html.Button(
                                         "Validate", id="validate-op-targeting-btn", n_clicks=0,
-                                        style={**_BTN_BASE, "border": "1px solid #6366f1", "background": "#eef2ff", "color": "#4338ca"},
+                                        style={**_BTN_BASE, "border": "1px solid #003B71", "background": "#e8f0f8", "color": "#003B71"},
                                     ),
                                     html.Button(
                                         "Reset to defaults", id="reset-op-targeting-btn", n_clicks=0,
@@ -1190,7 +1190,7 @@ def create_dashboard(
                             html.Div(id="op-targeting-feedback", style={"marginTop": "6px", "fontSize": "12px"}),
                             html.Details(
                                 [
-                                    html.Summary("Operation targeting reference", style={"cursor": "pointer", "fontWeight": "600", "color": "#4338ca", "fontSize": "12px"}),
+                                    html.Summary("Operation targeting reference", style={"cursor": "pointer", "fontWeight": "600", "color": "#003B71", "fontSize": "12px"}),
                                     html.Div([
                                         html.Pre(
                                             '{\n'
@@ -1219,7 +1219,7 @@ def create_dashboard(
                                             '}',
                                             style=_PRE_STYLE,
                                         ),
-                                        html.Div("Update operators", style={"fontWeight": "700", "marginTop": "8px", "color": "#1e1b4b", "fontSize": "12px"}),
+                                        html.Div("Update operators", style={"fontWeight": "700", "marginTop": "8px", "color": "#002B5C", "fontSize": "12px"}),
                                         html.Ul([
                                             html.Li([html.Code("set_fields"), " — $set with generated values from your schema"]),
                                             html.Li([html.Code("inc_fields"), " — $inc by random 1-10 (numeric fields)"]),
@@ -1241,13 +1241,13 @@ def create_dashboard(
             ),
             html.Div(
                 [
-                    html.Div(id="live-controls-meta", style={"fontSize": "12px", "color": "#4c1d95"}),
+                    html.Div(id="live-controls-meta", style={"fontSize": "12px", "color": "#003B71"}),
                     html.Ul(
                         id="runtime-change-events",
                         style={"marginTop": "6px", "marginBottom": "0", "paddingLeft": "18px", "fontSize": "12px", "color": "#6b7280"},
                     ),
                 ],
-                style={**CARD_STYLE, "marginTop": "12px", "background": "#f8fafc", "border": "1px solid #c7d2fe"},
+                style={**CARD_STYLE, "marginTop": "12px", "background": "#f8fafc", "border": "1px solid #7b9cc0"},
             ),
             html.Div(
                 [
@@ -1306,7 +1306,7 @@ def create_dashboard(
                         [
                             html.Div(
                                 "Timeline filter (applies to all metric charts)",
-                                style={"fontSize": "12px", "fontWeight": "600", "color": "#4c1d95"},
+                                style={"fontSize": "12px", "fontWeight": "600", "color": "#003B71"},
                             ),
                             dcc.Dropdown(
                                 id="timeline-window",
@@ -1329,7 +1329,7 @@ def create_dashboard(
                                 style={"marginTop": "6px", "fontSize": "12px", "color": "#6b7280"},
                             ),
                         ],
-                        style={**CARD_STYLE, "background": "#f8fafc", "border": "1px solid #c7d2fe"},
+                        style={**CARD_STYLE, "background": "#f8fafc", "border": "1px solid #7b9cc0"},
                     ),
                 ],
                 style={"marginTop": "12px", "display": "grid", "gridTemplateColumns": "1fr", "gap": "12px"},
@@ -1543,7 +1543,7 @@ def create_dashboard(
                         [
                             html.Div(
                                 [
-                                    html.Span("Schema Builder", style={"fontWeight": "800", "fontSize": "18px", "color": "#1e1b4b"}),
+                                    html.Span("Schema Builder", style={"fontWeight": "800", "fontSize": "18px", "color": "#002B5C"}),
                                     html.Button(
                                         "X", id="close-schema-builder-btn", n_clicks=0,
                                         style={"background": "none", "border": "none", "fontSize": "20px", "cursor": "pointer", "color": "#6b7280", "fontWeight": "700"},
@@ -1643,7 +1643,7 @@ def create_dashboard(
                             html.Hr(style={"margin": "16px 0", "border": "none", "borderTop": "1px solid #e5e7eb"}),
                             html.Div(
                                 [
-                                    html.Span("Fields", style={"fontWeight": "700", "fontSize": "14px", "color": "#1e1b4b"}),
+                                    html.Span("Fields", style={"fontWeight": "700", "fontSize": "14px", "color": "#002B5C"}),
                                     html.Span(id="sb-field-count", style={"fontSize": "12px", "color": "#6b7280", "marginLeft": "8px"}),
                                 ],
                                 style={"display": "flex", "alignItems": "center", "marginBottom": "8px"},
@@ -1657,7 +1657,7 @@ def create_dashboard(
                                 [
                                     html.Button(
                                         "Save & apply to schema", id="sb-save-btn", n_clicks=0,
-                                        style={**_BTN_BASE, "border": "none", "background": "#4f46e5", "color": "white"},
+                                        style={**_BTN_BASE, "border": "none", "background": "#002B5C", "color": "white"},
                                     ),
                                     html.Button(
                                         "Cancel", id="sb-cancel-btn", n_clicks=0,
@@ -1665,7 +1665,7 @@ def create_dashboard(
                                     ),
                                     html.Button(
                                         "Load current schema", id="sb-load-current-btn", n_clicks=0,
-                                        style={**_BTN_BASE, "border": "1px solid #6366f1", "background": "#eef2ff", "color": "#4338ca"},
+                                        style={**_BTN_BASE, "border": "1px solid #003B71", "background": "#e8f0f8", "color": "#003B71"},
                                     ),
                                 ],
                                 style={"display": "flex", "gap": "8px"},
@@ -1696,7 +1696,7 @@ def create_dashboard(
         style={
             "padding": "20px 24px",
             "fontFamily": "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
-            "background": "linear-gradient(180deg, #f0f0ff 0%, #f5f3ff 30%, #faf9ff 100%)",
+            "background": "linear-gradient(180deg, #edf2f7 0%, #f0f4f8 30%, #f7f9fb 100%)",
             "minHeight": "100vh",
         },
     )
@@ -1894,7 +1894,7 @@ def create_dashboard(
             ops_sec = am.get("ops_per_second", 0)
             total_ops = am.get("total_ops", 0)
             status_color = _STATUS_COLORS.get(status, "#6b7280")
-            type_badge_bg = "#4f46e5" if wtype == "dashboard" else "#6366f1"
+            type_badge_bg = "#002B5C" if wtype == "dashboard" else "#003B71"
             worker_rows.append(html.Tr([
                 html.Td(wid, style={**_td, "fontWeight": "600"}),
                 html.Td(
@@ -1913,7 +1913,7 @@ def create_dashboard(
         total_agg_ops_sec = agg["ops_per_second"] if agg else 0
         content = html.Div([
             html.Div([
-                html.Span("Worker Registry", style={"fontWeight": "700", "fontSize": "14px", "color": "#1e1b4b"}),
+                html.Span("Worker Registry", style={"fontWeight": "700", "fontSize": "14px", "color": "#002B5C"}),
                 html.Span(
                     f"  {len(registered_workers)} worker(s)"
                     + (f" | {total_agg_ops_sec:,.0f} aggregate ops/sec" if total_agg_ops_sec > 0 else ""),
@@ -1936,8 +1936,8 @@ def create_dashboard(
         panel_style = {
             **CARD_STYLE,
             "marginTop": "12px",
-            "background": "linear-gradient(90deg, #ede9fe, #eef2ff)",
-            "border": "1px solid #c4b5fd",
+            "background": "linear-gradient(90deg, #e8f0f8, #e8f0f8)",
+            "border": "1px solid #7b9cc0",
         }
         return content, panel_style
 
@@ -1960,8 +1960,8 @@ def create_dashboard(
                 ], style={"fontSize": "12px"}),
                 {
                     "marginTop": "12px", "padding": "10px 14px",
-                    "background": "#ede9fe", "border": "1px solid #c4b5fd",
-                    "borderRadius": "10px", "color": "#5b21b6",
+                    "background": "#e8f0f8", "border": "1px solid #7b9cc0",
+                    "borderRadius": "10px", "color": "#003B71",
                 },
             )
         return "", {"display": "none"}
@@ -2989,8 +2989,8 @@ def create_dashboard(
             rows.append(html.Div(
                 [
                     html.Div([
-                        html.Span(f["name"], style={"fontWeight": "600", "color": "#1e1b4b", "fontSize": "13px"}),
-                        html.Span(f" {ft}", style={"color": "#6366f1", "fontSize": "11px", "marginLeft": "6px"}),
+                        html.Span(f["name"], style={"fontWeight": "600", "color": "#002B5C", "fontSize": "13px"}),
+                        html.Span(f" {ft}", style={"color": "#003B71", "fontSize": "11px", "marginLeft": "6px"}),
                         html.Span(f" {detail}", style={"color": "#9ca3af", "fontSize": "11px", "marginLeft": "4px"}) if detail else None,
                     ], style={"display": "flex", "alignItems": "center", "flex": "1"}),
                     html.Button(
@@ -3111,7 +3111,7 @@ def create_dashboard(
             info = html.Div([
                 html.Span("CUSTOM", style={
                     "fontWeight": "800", "fontSize": "10px", "letterSpacing": "0.05em",
-                    "marginRight": "6px", "background": "#4f46e5", "color": "white",
+                    "marginRight": "6px", "background": "#002B5C", "color": "white",
                     "padding": "1px 6px", "borderRadius": "4px",
                 }),
                 f" {target} has a custom schema with {len(fields)} field(s). Modify and save to update it.",
@@ -3367,9 +3367,9 @@ def _metric_card(label: str, value_id: str, theme: tuple[str, str], tooltip: str
                     "fontSize": "11px",
                     "padding": "2px 6px",
                     "marginLeft": "6px",
-                    "border": "1px solid #a5b4fc",
+                    "border": "1px solid #7b9cc0",
                     "borderRadius": "999px",
-                    "color": "#4338ca",
+                    "color": "#003B71",
                     "cursor": "help",
                     "fontWeight": "600",
                 },
@@ -3424,7 +3424,7 @@ def _schema_ref_table(rows: list[tuple[str, str, str]]) -> html.Table:
 
 def _guide_section(title: str, items: list) -> html.Div:
     return html.Div([
-        html.Div(title, style={"fontWeight": "700", "marginTop": "12px", "marginBottom": "4px", "color": "#1e1b4b"}),
+        html.Div(title, style={"fontWeight": "700", "marginTop": "12px", "marginBottom": "4px", "color": "#002B5C"}),
         html.Ul(
             [html.Li(item) for item in items],
             style={"marginTop": "4px", "marginBottom": "0", "paddingLeft": "18px", "lineHeight": "1.8"},
@@ -3435,7 +3435,7 @@ def _guide_section(title: str, items: list) -> html.Div:
 def _chart_title(label: str, tooltip: str) -> html.Div:
     return html.Div(
         [
-            html.Span(label, style={"fontWeight": "600", "color": "#312e81"}),
+            html.Span(label, style={"fontWeight": "600", "color": "#002B5C"}),
             html.Span(
                 "?",
                 title=tooltip,
@@ -3443,8 +3443,8 @@ def _chart_title(label: str, tooltip: str) -> html.Div:
                     "fontSize": "10px",
                     "padding": "0px 5px",
                     "borderRadius": "999px",
-                    "border": "1px solid #a5b4fc",
-                    "color": "#4338ca",
+                    "border": "1px solid #7b9cc0",
+                    "color": "#003B71",
                     "fontWeight": "700",
                     "cursor": "help",
                     "lineHeight": "16px",
@@ -3468,8 +3468,8 @@ def _label_with_help(label: str, tooltip: str, color: str = "#4b5563", margin_to
                     "fontSize": "10px",
                     "padding": "1px 5px",
                     "borderRadius": "999px",
-                    "border": "1px solid #a5b4fc",
-                    "color": "#4338ca",
+                    "border": "1px solid #7b9cc0",
+                    "color": "#003B71",
                     "fontWeight": "700",
                     "cursor": "help",
                 },
@@ -3497,7 +3497,7 @@ def _scope_badge_style(scope_type: str) -> dict[str, str]:
         "fontWeight": "700",
     }
     if scope_type == "next_run":
-        return {**base, "background": "#ede9fe", "color": "#5b21b6", "border": "1px solid #c4b5fd"}
+        return {**base, "background": "#e8f0f8", "color": "#003B71", "border": "1px solid #7b9cc0"}
     if scope_type == "user_config":
         return {**base, "background": "#e0f2fe", "color": "#0c4a6e", "border": "1px solid #7dd3fc"}
     return {**base, "background": "#dcfce7", "color": "#166534", "border": "1px solid #86efac"}

@@ -10,13 +10,13 @@ import plotly.graph_objects as go
 from mongo_load_tester.models import MetricsSnapshot
 
 OP_COLORS = {
-    "read": "#3b82f6",
-    "insert": "#22c55e",
-    "update": "#f59e0b",
-    "delete": "#ef4444",
-    "find_and_modify": "#8b5cf6",
-    "total": "#111827",
-    "users": "#a855f7",
+    "read": "#003B71",
+    "insert": "#1a7a4c",
+    "update": "#e6a817",
+    "delete": "#C41230",
+    "find_and_modify": "#6b5ce7",
+    "total": "#002B5C",
+    "users": "#004a8f",
 }
 
 _MAX_PAUSE_OVERLAYS = 50
@@ -50,7 +50,7 @@ def _apply_timeline_layout(
         hovermode="x unified",
         hoverlabel={"bgcolor": "white", "bordercolor": "#d1d5db", "font_size": 12},
         margin={"l": 50, "r": 24, "t": 36, "b": bottom_margin},
-        plot_bgcolor="#fafbff",
+        plot_bgcolor="#f7f9fb",
         paper_bgcolor="white",
     )
     figure.update_xaxes(
@@ -132,21 +132,21 @@ def build_latency_timeline(snapshot: MetricsSnapshot, x_range: tuple[datetime, d
     figure.add_trace(
         go.Scatter(
             x=x_values, y=p99_values, mode="lines", name="p99",
-            line={"width": 1.2, "color": "#9333ea", "dash": "dot", "shape": "spline", "smoothing": 0.45},
+            line={"width": 1.2, "color": "#6b5ce7", "dash": "dot", "shape": "spline", "smoothing": 0.45},
             hovertemplate="P99: %{y:.2f} ms<extra></extra>",
         )
     )
     figure.add_trace(
         go.Scatter(
             x=x_values, y=p95_values, mode="lines", name="p95",
-            line={"width": 1.7, "color": "#ec4899", "shape": "spline", "smoothing": 0.45},
+            line={"width": 1.7, "color": "#C41230", "shape": "spline", "smoothing": 0.45},
             hovertemplate="P95: %{y:.2f} ms<extra></extra>",
         )
     )
     figure.add_trace(
         go.Scatter(
             x=x_values, y=avg_values, mode="lines", name="avg",
-            line={"width": 1.9, "color": "#2563eb", "shape": "spline", "smoothing": 0.45},
+            line={"width": 1.9, "color": "#003B71", "shape": "spline", "smoothing": 0.45},
             fill="tozeroy", fillcolor="rgba(37, 99, 235, 0.1)",
             hovertemplate="Avg: %{y:.2f} ms<extra></extra>",
         )
@@ -154,7 +154,7 @@ def build_latency_timeline(snapshot: MetricsSnapshot, x_range: tuple[datetime, d
     figure.add_trace(
         go.Scatter(
             x=x_values, y=p50_values, mode="lines", name="p50 (median)",
-            line={"width": 1.3, "color": "#059669", "dash": "dash", "shape": "spline", "smoothing": 0.45},
+            line={"width": 1.3, "color": "#1a7a4c", "dash": "dash", "shape": "spline", "smoothing": 0.45},
             hovertemplate="P50: %{y:.2f} ms<extra></extra>",
         )
     )
@@ -455,7 +455,7 @@ def build_error_breakdown(snapshot: MetricsSnapshot) -> go.Figure:
     _CATEGORY_COLORS = {
         "timeout": "#f59e0b", "network": "#ef4444", "primary_stepdown": "#dc2626",
         "server_selection": "#f97316", "duplicate_key": "#8b5cf6",
-        "cursor": "#06b6d4", "write_concern": "#ec4899", "auth": "#6366f1",
+        "cursor": "#4a90b8", "write_concern": "#C41230", "auth": "#003B71",
         "other": "#6b7280", "unknown": "#9ca3af",
     }
     labels = list(categories.keys())
