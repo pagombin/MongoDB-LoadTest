@@ -167,7 +167,9 @@ def supervise(loaded: Loaded, config_args: list[str], detach_first: bool) -> int
     try:
         while not stopping:
             _rotate(console_log, cfg.logging.max_size_mb * 1024 * 1024)
-            cmd = [sys.executable, *_interpreter_flags(), "-m", "ballast", "serve", "--ready-file", str(pids.ready), *config_args]
+            launcher = os.environ.get("BALLAST_LAUNCHER")
+            entry = ["-I", launcher] if launcher and os.path.isfile(launcher) else [*_interpreter_flags(), "-m", "ballast"]
+            cmd = [sys.executable, *entry, "serve", "--ready-file", str(pids.ready), *config_args]
             env = dict(os.environ, BALLAST_HOME=str(loaded.home), BALLAST_SUPERVISED="1")
             env.pop("BALLAST_FOREGROUND", None)
             with open(console_log, "ab") as out:

@@ -23,12 +23,15 @@ usage: ballastctl <command> [options]
   gen-cert            make a new self-signed certificate and reload it
   autostart enable    start after reboot (systemd user unit, else crontab)
   autostart disable   undo autostart
+  doctor [--uri URI]  check this host and say how to fix what is missing
+  backup [FILE]       copy the run database while running
+  restore FILE        replace the run database from a backup (while stopped)
 
 Options shared by every command: --config FILE, --set section.key=value
 USAGE
 }
 case ${1:-} in
-  start|stop|restart|status|logs|health|mark|gen-cert|autostart|version|config) exec "$bin_dir/ballast" "$@" ;;
+  start|stop|restart|status|logs|health|mark|gen-cert|autostart|version|config|doctor|backup|restore) exec "$bin_dir/ballast" "$@" ;;
   -h|--help|help|"") usage; [ -n "${1:-}" ] && exit 0; exit 2 ;;
   *) echo "ballastctl: unknown command '$1'" >&2; usage >&2; exit 2 ;;
 esac

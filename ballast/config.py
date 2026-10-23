@@ -20,7 +20,7 @@ from pydantic.fields import FieldInfo
 from ballast import miniyaml, product
 
 SECRET_KEYS = {"access_token", "password"}
-RESERVED_ENV = {"home", "config", "supervised", "foreground"}
+RESERVED_ENV = {"home", "config", "supervised", "foreground", "site", "launcher"}
 PERMISSION_WARNINGS: list[str] = []
 
 

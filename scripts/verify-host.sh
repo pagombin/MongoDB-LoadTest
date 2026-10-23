@@ -21,6 +21,11 @@ fail=0
 ok() { pass=$((pass + 1)); printf 'PASS  %s\n' "$1"; }
 bad() { fail=$((fail + 1)); printf 'FAIL  %s\n' "$1"; [ $# -gt 1 ] && printf '      %s\n' "$2"; }
 py="$home/runtime/python/bin/python3"
+if [ ! -x "$py" ] && [ -f "$home/runtime/python.env" ]; then
+  BALLAST_PYTHON=""
+  . "$home/runtime/python.env"
+  py=$BALLAST_PYTHON
+fi
 json() { "$py" -I -c "import json,sys; d=json.load(sys.stdin); print($1)"; }
 
 echo "Ballast host check in $home"
