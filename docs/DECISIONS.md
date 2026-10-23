@@ -122,6 +122,33 @@ Each entry: the question, the options considered, the choice, why, and how hard 
 - Question: brief 10.1.1 says no writing outside the extracted directory, but 10.3 asks for a systemd user unit or crontab entry, which by nature live outside it.
 - Choice: only `ballastctl autostart enable` writes outside the install directory (`~/.config/systemd/user/ballast-<hash>.service` or the user crontab), and `autostart disable` removes it. Nothing else does.
 
+## D-022 Referrer-Policy is same-origin, not no-referrer
+
+- Question: brief 11.7 asks for a `Referrer-Policy` header without naming a value.
+- Evidence: with `no-referrer`, browsers send `Origin: null` on HTML form posts, so the access-gate form was rejected by the same-origin check (found in the fresh-host test, `docs/VERIFICATION.md` section 7).
+- Choice: `same-origin`. No referrer is ever sent to another site; the gate also accepts `Origin: null` only when `Sec-Fetch-Site: same-origin`.
+- Reverse: easy.
+
+## D-023 Download cache in the branch history — **Review first**
+
+- What happened: commit "Add packaging, CI, docs, e2e browser test and after screenshots" accidentally included `.cache/` (Python builds and wheels, about 250 MB). The next commit removed it and ignored the directory. The brief forbids rewriting history, so the blobs stay in this branch's history.
+- Recommendation: merge the pull request with **squash**, so the default branch never contains them. If the branch is merged without squashing, the repository grows by about 250 MB.
+- Reverse: only by rewriting history, which needs your approval.
+
+## D-024 Default load model and profiles
+
+- Choice: new installs get three profiles: "OLTP steady 1k" (open model, the default in New run), "Write heavy 2k" (open), and "Closed loop 32 workers". New run picks the first open-model profile, because scale testing needs a fixed rate (`docs/SCALE-TESTING.md`).
+- Reverse: easy.
+
+## D-025 Test environment substitutions
+
+- The brief asks for integration tests against a three-member replica set "started locally (Docker Compose or downloaded mongod binaries)". `fastdl.mongodb.org` was blocked here (HTTP 403 from the egress proxy), so the sets run from the official `mongo:7.0` and `mongo:8.0` Docker images with `scripts/dev-replset.sh`. CI uses the same script.
+- The simulated droplet image adds `curl` and `cron` from `.deb` files downloaded on the build host, because package installs inside `docker build` had no network path here (`scripts/droplet-sim/README.md`).
+
+## D-026 Generator processes per run
+
+- Choice: default 1 generator process; profiles can set up to 64. One process sustained 1,000 ops/s at about 27% of one core in the browser test (`docs/design/after/03-live.png`, "Generator CPU"). Client-bound detection tells you when to add more.
+
 ## Blocked
 
 (none yet)
