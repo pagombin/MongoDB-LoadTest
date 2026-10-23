@@ -21,7 +21,9 @@ CTX.verify_mode = ssl.CERT_NONE
 
 def api(base: str, method: str, path: str, body: dict | None = None) -> dict:
     data = json.dumps(body).encode() if body is not None else None
-    req = urllib.request.Request(base + path, data=data, method=method, headers={"Content-Type": "application/json", "X-Ballast-Request": "1"})
+    req = urllib.request.Request(
+        base + path, data=data, method=method, headers={"Content-Type": "application/json", "X-Ballast-Request": "1"}
+    )
     with urllib.request.urlopen(req, context=CTX, timeout=30) as resp:  # noqa: S310
         return json.loads(resp.read())
 
@@ -55,10 +57,13 @@ def main() -> None:
     p.add_argument("--out", required=True)
     a = p.parse_args()
     target = api(a.base, "POST", "/api/targets", {"name": f"soak-{int(time.time())}", "uri": a.uri, "tls": "off"})
-    profile = {"name": "soak", "load": {"model": "open", "rate": a.rate, "concurrency": 128, "processes": 2},
-               "operations": {"find": 50, "update": 30, "insert": 15, "range": 5},
-               "schedule": {"warmup_seconds": 30, "steady_seconds": a.seconds},
-               "dataset": {"database": "ballast_soak", "collections": 4, "load": {"documents": 50000}}}
+    profile = {
+        "name": "soak",
+        "load": {"model": "open", "rate": a.rate, "concurrency": 128, "processes": 2},
+        "operations": {"find": 50, "update": 30, "insert": 15, "range": 5},
+        "schedule": {"warmup_seconds": 30, "steady_seconds": a.seconds},
+        "dataset": {"database": "ballast_soak", "collections": 4, "load": {"documents": 50000}},
+    }
     run = api(a.base, "POST", "/api/runs", {"name": "soak", "target_id": target["id"], "profile": profile, "acknowledge_foreign": True})
     print("run", run["id"], flush=True)
     with open(a.out, "w", newline="") as f:

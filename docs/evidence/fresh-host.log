@@ -1,0 +1,155 @@
+
+### Network with no route to the internet, joined by the replica set
+$ docker network create --internal ballast-offline
+Error response from daemon: network with name ballast-offline already exists
+(exit 1)
+Error response from daemon: endpoint with name rs1 already exists in network ballast-offline
+Error response from daemon: endpoint with name rs2 already exists in network ballast-offline
+Error response from daemon: endpoint with name rs3 already exists in network ballast-offline
+$ docker run -d --name droplet --hostname droplet --network ballast-offline ballast-droplet-sim
+be905d0dc98dfdf0035676fc63ac4518dea69a1673c2e8ed2ebeb7d5f6c8ab23
+(exit 0)
+droplet address: 172.19.0.5
+
+### The host has no internet access and no sudo
+$ [bench@droplet] curl -sS -m 5 -o /dev/null https://pypi.org/ || echo 'no internet: as expected'
+curl: (6) Could not resolve host: pypi.org
+no internet: as expected
+(exit 0)
+$ [bench@droplet] command -v sudo || echo 'no sudo: as expected'
+no sudo: as expected
+(exit 0)
+$ [bench@droplet] id
+uid=1001(bench) gid=1001(bench) groups=1001(bench)
+(exit 0)
+
+### Copy the bundle in with scp-like copy, extract as the normal user
+$ docker cp dist/ballast-1.0.0-linux-amd64.tar.gz droplet:/home/bench/ && docker exec droplet chown bench:bench /home/bench/ballast-1.0.0-linux-amd64.tar.gz
+(exit 0)
+$ [bench@droplet] tar -xzf ballast-1.0.0-linux-amd64.tar.gz && ls ballast-1.0.0
+LICENSE
+README.md
+THIRD_PARTY_NOTICES
+VERSION
+bin
+certs
+config
+data
+docs
+logs
+run
+runtime
+sbom.cdx.json
+(exit 0)
+
+### Configure: all interfaces, certificate paths outside the default, access token
+$ [bench@droplet] mkdir -p mycerts && head -c 24 /dev/urandom | base64 > ballast-1.0.0/config/token && chmod 600 ballast-1.0.0/config/token
+(exit 0)
+$ [bench@droplet] cd ballast-1.0.0 && bin/ballast config validate && bin/ballast config print | grep -E 'listen|cert_file|key_file|access_token_file'
+configuration is valid (/home/bench/ballast-1.0.0/config/ballast.yaml)
+server.listen = "0.0.0.0:8443"  # file
+server.access_token_file = "config/token"  # file
+tls.cert_file = "/home/bench/mycerts/ballast.crt"  # file
+tls.key_file = "/home/bench/mycerts/ballast.key"  # file
+tls.redirect_http_listen = "0.0.0.0:8080"  # file
+(exit 0)
+
+### Host check script, including a workload against the replica set and a kill -9
+$ [bench@droplet] cd ballast-1.0.0 && bin/verify-host.sh --uri 'mongodb://rs1:27011,rs2:27012,rs3:27013/?replicaSet=rs0'
+Ballast host check in /home/bench/ballast-1.0.0
+PASS  running as a normal user (bench)
+PASS  bin/ballast runs: Ballast 1.0.0 (commit 47dfa4b, built 2026-10-23T02:42:13Z, PyMongo 4.19.0, Python 3.12.12)
+PASS  configuration is valid
+PASS  data/ is writable
+PASS  logs/ is writable
+PASS  run/ is writable
+PASS  certs/ is writable
+started: https://127.0.0.1:8443 (server pid 133, supervisor pid 132)
+certificate SHA-256: 3B:8E:CA:93:9B:DC:2D:7A:C0:50:0E:F5:E2:0A:EC:26:22:D3:D1:26:62:C8:94:BA:E7:EF:14:DF:BC:1E:F3:87
+PASS  ballastctl start
+PASS  ballastctl status exits 0 while running
+PASS  a second start does not start a second copy
+PASS  ballastctl health exits 0
+PASS  HTTPS page served with CSP via curl (https://127.0.0.1:8443)
+PASS  listening on port 8443
+PASS  access gate rejects requests without the token
+PASS  target saved
+PASS  connection test: ok 8.0.34
+PASS  run started (669f003eaf10)
+PASS  ballastctl mark
+PASS  run completed
+PASS  offline HTML report exported (261032 bytes)
+PASS  supervisor restarted the server after kill -9 (pid 133 -> 268)
+stopped (sent SIGTERM to pid 132, exited cleanly)
+PASS  ballastctl stop
+PASS  status exits 3 when stopped
+
+23 passed, 0 failed
+(exit 0)
+
+### Start again and reach it over HTTPS from outside the box
+$ [bench@droplet] cd ballast-1.0.0 && bin/ballastctl start
+started: https://127.0.0.1:8443 (server pid 305, supervisor pid 304)
+certificate SHA-256: 3B:8E:CA:93:9B:DC:2D:7A:C0:50:0E:F5:E2:0A:EC:26:22:D3:D1:26:62:C8:94:BA:E7:EF:14:DF:BC:1E:F3:87
+(exit 0)
+$ curl -sS --cacert /dev/null -k -o /dev/null -w 'https %{http_code} from host\n' https://172.19.0.5:8443/api/health
+https 200 from host
+(exit 0)
+$ curl -sS -o /dev/null -w 'http redirect %{http_code} -> %{redirect_url}\n' http://172.19.0.5:8080/
+http redirect 308 -> https://172.19.0.5:8443/
+(exit 0)
+$ curl -sS --cacert /tmp/droplet-ballast.crt -o /dev/null -w 'verified TLS %{http_code}\n' https://172.19.0.5:8443/api/health
+verified TLS 200
+(exit 0)
+$ openssl s_client -connect 172.19.0.5:8443 -tls1_2 -CAfile /tmp/droplet-ballast.crt </dev/null 2>&1 | grep -E '^ *Protocol|Verify return code' | head -2
+    Protocol  : TLSv1.2
+    Verify return code: 0 (ok)
+(exit 0)
+
+### Headless browser from outside the box, through the access gate
+$ BASE=https://172.19.0.5:8443/ TOKEN='7vQmTKfehPjRo9QfW7kbZBi2fXDSdM03' node /home/user/MongoDB-LoadTest/scripts/gate-check.mjs
+redirected to /auth
+wrong token shows: That token is not correct.
+runs page loaded; cookie httpOnly true secure true sameSite Strict
+runs listed: 1
+(exit 0)
+
+### A run interrupted by a crash keeps its data
+run 1c936299b80b started
+$ [bench@droplet] kill -9 $(cat ballast-1.0.0/run/ballast.pid); sleep 6; cd ballast-1.0.0 && bin/ballastctl health
+healthy: version 1.0.0, up 4 s
+(exit 0)
+$ [bench@droplet] curl -sS --cacert mycerts/ballast.crt -H 'Authorization: Bearer 7vQmTKfehPjRo9QfW7kbZBi2fXDSdM03' https://127.0.0.1:8443/api/runs/1c936299b80b | ballast-1.0.0/runtime/python/bin/python3 -c 'import json,sys; d=json.load(sys.stdin); print("status:", d["status"], "| measured seconds kept:", d["analysis"]["summary"]["measured_seconds"], "| ops kept:", d["analysis"]["summary"]["ok"], "|", d["error"]["detail"])'
+status: interrupted | measured seconds kept: 13 | ops kept: 2601 | The application stopped while this run was active. Data recorded up to that point is kept.
+(exit 0)
+
+### Autostart without root, then restart the whole box
+$ [bench@droplet] cd ballast-1.0.0 && bin/ballastctl autostart enable && crontab -l
+Added an @reboot entry to your crontab:
+  @reboot /home/bench/ballast-1.0.0/bin/ballastctl start
+cron runs it at boot; it needs cron to be running on this host (check with: pgrep cron).
+@reboot /home/bench/ballast-1.0.0/bin/ballastctl start >/dev/null 2>&1 # ballast-autostart /home/bench/ballast-1.0.0
+(exit 0)
+$ docker restart droplet
+droplet
+(exit 0)
+$ [bench@droplet] cd ballast-1.0.0 && bin/ballastctl status; bin/ballastctl health
+state: running
+url: https://127.0.0.1:8443
+server pid: 21
+supervisor pid: 20
+restarts: 0
+autostart: crontab @reboot entry
+healthy: version 1.0.0, up 24 s
+(exit 0)
+$ [bench@droplet] cd ballast-1.0.0 && tail -3 logs/supervisor.log
+{"ts": "2026-10-23T02:43:59.436Z", "level": "info", "logger": "ballast.supervisor", "msg": "server started (pid 358)"}
+{"ts": "2026-10-23T02:44:15.708Z", "level": "info", "logger": "ballast.supervisor", "msg": "supervisor started (pid 20)"}
+{"ts": "2026-10-23T02:44:15.718Z", "level": "info", "logger": "ballast.supervisor", "msg": "server started (pid 21)"}
+(exit 0)
+
+### Clean up
+$ [bench@droplet] cd ballast-1.0.0 && bin/ballastctl autostart disable && bin/ballastctl stop
+Removed the @reboot crontab entry.
+stopped (sent SIGTERM to pid 20, exited cleanly)
+(exit 0)

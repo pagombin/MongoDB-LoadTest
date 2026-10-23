@@ -232,8 +232,11 @@ class App:
     def check_same_origin(self, request: web.Request) -> None:
         if request.path == "/auth":
             origin = request.headers.get("Origin")
-            if origin and not self.origin_matches(request, origin):
-                raise ApiError(403, "Cross-site request blocked")
+            site = request.headers.get("Sec-Fetch-Site")
+            if origin == "null" and site == "same-origin":
+                return
+            if (origin and not self.origin_matches(request, origin)) or (site and site not in ("same-origin", "none")):
+                raise ApiError(403, "Cross-site request blocked", "The token form must be submitted from this server's own page.", "")
             return
         if request.headers.get(CSRF_HEADER) != "1":
             raise ApiError(
@@ -264,7 +267,7 @@ class App:
         h = response.headers
         h.setdefault("Content-Security-Policy", CSP)
         h["X-Content-Type-Options"] = "nosniff"
-        h["Referrer-Policy"] = "no-referrer"
+        h["Referrer-Policy"] = "same-origin"
         h["X-Frame-Options"] = "DENY"
         h["Cross-Origin-Opener-Policy"] = "same-origin"
         h["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
@@ -830,6 +833,12 @@ class App:
         interrupted = self.store.interrupt_unfinished()
         if interrupted:
             log.warning("marked %d run(s) interrupted after restart: %s", len(interrupted), ", ".join(interrupted))
+        for run_id in interrupted:
+            try:
+                result = self.runs.analyze(run_id)
+                self.store.update_run(run_id, summary=result["summary"], analysis=result)
+            except Exception:
+                log.exception("could not analyse interrupted run %s", run_id)
         for preset in self.loaded.target_presets():
             existing = self.store.get_target_by_name(preset["name"])
             self.store.save_target(preset, existing["id"] if existing else None)

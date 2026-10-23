@@ -43,8 +43,10 @@ count=$(ls "$home/run"/supervisor.pid 2>/dev/null | wc -l)
 if "$bin/ballastctl" status >/dev/null 2>&1; then ok "ballastctl status exits 0 while running"; else bad "ballastctl status exits 0 while running"; fi
 [ "$count" -eq 1 ] && ok "a second start does not start a second copy" || bad "a second start does not start a second copy"
 if "$bin/ballastctl" health >/dev/null 2>&1; then ok "ballastctl health exits 0"; else bad "ballastctl health exits 0"; fi
+certfile=$("$bin/ballast" config print --json | json "d['tls']['cert_file']")
+case $certfile in /*) ;; *) certfile="$home/$certfile" ;; esac
 curl_tls=""
-[ "$scheme" = "https" ] && curl_tls="--cacert $home/certs/server.crt"
+[ "$scheme" = "https" ] && curl_tls="--cacert $certfile"
 if command -v curl >/dev/null 2>&1; then
   # shellcheck disable=SC2086
   headers=$(curl -sS $curl_tls -D - -o /dev/null "$url/" 2>&1)
@@ -55,10 +57,20 @@ fi
 if command -v ss >/dev/null 2>&1; then
   if ss -ltn 2>/dev/null | grep -q ":$port "; then ok "listening on port $port"; else bad "listening on port $port"; fi
 fi
+tokfile=$("$bin/ballast" config print --json | json "d['server']['access_token_file']")
+auth=""
+if [ -n "$tokfile" ]; then
+  case $tokfile in /*) ;; *) tokfile="$home/$tokfile" ;; esac
+  auth="Authorization: Bearer $(head -n 1 "$tokfile")"
+fi
+if [ -n "$auth" ]; then
+  code=$(curl -sS $curl_tls -o /dev/null -w '%{http_code}' "$url/api/runs")
+  [ "$code" = "401" ] && ok "access gate rejects requests without the token" || bad "access gate rejects requests without the token" "HTTP $code"
+fi
 if [ -n "$uri" ]; then
   api() {
     # shellcheck disable=SC2086
-    curl -sS $curl_tls -H 'Content-Type: application/json' -H 'X-Ballast-Request: 1' "$@"
+    curl -sS $curl_tls -H 'Content-Type: application/json' -H 'X-Ballast-Request: 1' ${auth:+-H "$auth"} "$@"
   }
   tid=$(api -X POST "$url/api/targets" -d "{\"name\":\"verify-$$\",\"uri\":\"$uri\"}" | json "d.get('id','')")
   if [ -n "$tid" ]; then ok "target saved"; else bad "target saved"; fi

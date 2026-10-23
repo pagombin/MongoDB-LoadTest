@@ -33,7 +33,7 @@ async def test_security_headers_on_pages_and_api(client):
         assert "default-src 'self'" in csp and "frame-ancestors 'none'" in csp and "script-src 'self'" in csp
         assert "unsafe-inline" not in csp and "unsafe-eval" not in csp
         assert r.headers["X-Content-Type-Options"] == "nosniff"
-        assert r.headers["Referrer-Policy"] == "no-referrer"
+        assert r.headers["Referrer-Policy"] == "same-origin"
         assert "aiohttp" not in r.headers.get("Server", "")
     assert "Strict-Transport-Security" not in r.headers
 
@@ -102,6 +102,16 @@ async def test_access_gate(tmp_path):
         r = await c.get("/api/runs", headers={"Authorization": "Bearer gate-token-123"})
         assert r.status == 200
         r = await c.post("/auth", data={"token": "wrong"}, allow_redirects=False)
+        assert r.status == 401
+        r = await c.post("/auth", data={"token": "gate-token-123"}, headers={"Origin": "https://evil.example"}, allow_redirects=False)
+        assert r.status == 403
+        r = await c.post(
+            "/auth", data={"token": "gate-token-123"}, headers={"Origin": "null", "Sec-Fetch-Site": "cross-site"}, allow_redirects=False
+        )
+        assert r.status == 403
+        r = await c.post(
+            "/auth", data={"token": "wrong"}, headers={"Origin": "null", "Sec-Fetch-Site": "same-origin"}, allow_redirects=False
+        )
         assert r.status == 401
         r = await c.post("/auth", data={"token": "gate-token-123"}, allow_redirects=False)
         assert r.status == 303
