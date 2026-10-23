@@ -15,7 +15,8 @@ Branch `claude/lucid-goodall-0s1ayr`. No pull request has been opened. Evidence 
 | Guardrails, SLO, `ballast run` for CI, webhooks, `/metrics`, tags and notes, rerun, Markdown, backup and restore | [cad7be8](https://github.com/pagombin/MongoDB-LoadTest/commit/cad7be8) |
 | UI for all of the above, progress bar, command palette, compare deltas | [661f4dc](https://github.com/pagombin/MongoDB-LoadTest/commit/661f4dc) |
 | Long-run memory fix found by the soak (over 1 GB → 160 MB for a 2-hour run) | [2f42758](https://github.com/pagombin/MongoDB-LoadTest/commit/2f42758) |
-| Soak results, docs, bundles for 4 platforms | [f37c875](https://github.com/pagombin/MongoDB-LoadTest/commit/f37c875) and the final commit |
+| Soak results, docs, bundles for 4 platforms | [f37c875](https://github.com/pagombin/MongoDB-LoadTest/commit/f37c875), [27a593e](https://github.com/pagombin/MongoDB-LoadTest/commit/27a593e) |
+| Atlas analytics and read-only nodes: routing, per-member figures, lag, route gaps; fixes the connection-string read preference being overridden | [f1e8570](https://github.com/pagombin/MongoDB-LoadTest/commit/f1e8570), [c462e02](https://github.com/pagombin/MongoDB-LoadTest/commit/c462e02) |
 
 Results on the final code:
 - **Unit tests:** 202 pass. 93 of them also pass on Python 3.10 with only the core packages installed.
@@ -34,7 +35,8 @@ Screenshots of every page: `docs/design/after/` (21 images). The old app: `docs/
 - The systemd user unit for autostart was not exercised (no systemd in the container). The crontab method was.
 - The installer's pure-Python retry for aiohttp was not exercised, because every test host had wheels.
 - Desktop notifications were checked by hand only. Sampling without `clusterMonitor` was checked with a stub only.
-- Not tested against sharded clusters or Atlas.
+- Not tested against sharded clusters or a real Atlas cluster. Analytics and read-only node support was tested on a local replica set tagged the way Atlas tags them.
+- Two 7.0 integration tests failed once each and passed every rerun (`docs/VERIFICATION.md` section 2); the cause is not established.
 - The soak ran on the bundle from before the memory fix. The fix was measured on a copy of the soak's database, not with a second 2-hour soak.
 
 ## Review first
@@ -43,6 +45,7 @@ Screenshots of every page: `docs/design/after/` (21 images). The old app: `docs/
 - **D-003**: the old dashboard is kept, off by default, as `ballast legacy`.
 - **D-006**: how marker labels pair into impact windows ("... started" with "... finished").
 - **D-023**: one commit accidentally added about 250 MB of downloads, removed in the next commit. **Merge with squash** so the default branch never contains them.
+- **D-033**: with read routing, each route gets its own schedule and in-flight slots, so a stalled analytics node cannot make primary traffic look slow.
 - **D-027**: self-signed certificates are now generated in pure Python, so `cryptography` is no longer needed. Tested against `ssl`, `cryptography`, `openssl` and Chromium, but not externally reviewed.
 
 ## Blocked

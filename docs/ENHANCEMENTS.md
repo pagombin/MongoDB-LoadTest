@@ -48,6 +48,24 @@ Thirty-one changes made after the first rebuild. About a third make Ballast inst
 | 30 | Ctrl+K command palette for pages and runs | 661f4dc | Browser test; accessibility scan with the palette open; `docs/design/after/17-command-palette.png` |
 | 31 | System page lists installed components with the command to add each | 661f4dc | Browser test; `docs/design/after/10-system.png` |
 
+## Atlas analytics and read-only nodes
+
+Added after the list above, for measuring Atlas analytics and read-only nodes during scale operations. Commits f1e8570 and c462e02; how to use it is in `docs/SCALE-TESTING.md`.
+
+| Change | Checked by |
+|---|---|
+| Fix: the profile always sent `readPreference=primary`, so Atlas analytics or read-only connection strings failed to start or were silently overridden (D-034) | Reproduced (exit 3, 0 operations), then a run with the same string read only from the analytics node |
+| Read preference tag sets, read routing per operation, presets in New run, built-in profiles | Unit tests; browser test `tests/e2e/atlas.mjs` |
+| Analytics query operation | Integration tests |
+| Per member: reads, writes, failures, service time; per-member chart and tables | Integration and browser tests |
+| Member node types, tags, replication lag and time unreachable, with no extra privileges | Integration test blocks replication on the read-only node and sees the lag |
+| A read gap per route; failures by operation and member changes per window | Integration test restarts the analytics node: about 11 s gap on the analytics route only |
+| One schedule and slot pool per route (D-033) | Found by the browser test: primary reads showed 8 s p99 caused by waiting analytics queries; now 18 ms |
+| Preflight lists the members each route reaches and warns when none match | Unit test; browser test |
+| A test cluster tagged like Atlas: `scripts/dev-replset-atlas.sh` | Used by all of the above |
+
+Not tested against a real Atlas cluster.
+
 The list I first proposed had two items that already existed (runs search and filters, and multi-select compare). I replaced them with 26 (tag filter and filters in the address) and 22 (sizing notes).
 
 The two-hour soak, run alongside this work, found that analysing or exporting a long run loaded everything into memory (1 GB for two hours) and that short p99 spikes became hundreds of "detected disruptions". Both are fixed in 2f42758; see `docs/VERIFICATION.md` section 5.

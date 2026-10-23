@@ -9,8 +9,8 @@ Environment: Linux x86-64, 4 CPUs, 15.7 GB RAM; Docker 29.9.1; MongoDB 8.0.34 an
 | Check (brief section) | Result | Evidence |
 |---|---|---|
 | Unit tests (12.1) | 198 passed, also with `-W error` | `docs/evidence/unit-tests.txt` |
-| Integration on MongoDB 8.0, including failover (12.2) | 5 passed | `docs/evidence/integration-mongo-8.0.txt` |
-| Integration on MongoDB 7.0 (12.2, 16.4) | 5 passed | `docs/evidence/integration-mongo-7.0.txt` |
+| Integration on MongoDB 8.0, including failover (12.2) | 10 passed (failover, write stall, secrets, leaks, headless, Atlas nodes) | `docs/evidence/integration-mongo-8.0.txt` |
+| Integration on MongoDB 7.0 (12.2, 16.4) | 9 of 10 in the last full run; see the note in section 2. The three Atlas node tests use their own 8.0 replica set in both runs | `docs/evidence/integration-mongo-7.0.txt` |
 | Leak checks (12.3) | passed on both versions | `tests/integration/test_leaks.py` in the two files above |
 | Soak, 2 hours (12.4) | see section 5 | `docs/evidence/soak.csv`, `docs/evidence/soak.svg` |
 | Browser end-to-end (12.5) | 20 of 20 checks passed | `docs/evidence/e2e-browser.txt` |
@@ -75,6 +75,8 @@ Observed behavior worth knowing (from these runs, not assumptions):
 - In this local Docker replica set an election after `rs.stepDown()` completes in well under 100 ms. With retryable writes on, a stepdown often shows no failures at all; the test turns retryable writes and reads off to make failures visible.
 - During the write stall on 8.0, blocked updates held all 100 pooled connections, so reads waited for connections too (read gap 3.7 s in the browser run). On 7.0 the pool did not exhaust (checkout wait 18 ms). Ballast reports both as measured.
 - Two-process failover first failed on 8.0 because the replica set script gave member 0 priority 2, so it retook the primary about 20 s after the stepdown and the run ended mid-disruption. The script now uses equal priorities (commit message "make integration tests independent of replica set priorities").
+
+**Intermittent results on MongoDB 7.0.** In the last full 7.0 run, `test_write_stall_measures_gap_latency_and_recovery` failed one assertion: the workload had not returned to within 25% of baseline p99 for 5 seconds before the run ended. It passed both reruns. Earlier the same day, `test_failover_is_recorded_classified_and_measured[2]` once saw no failed operation during a stepdown and passed 4 of 4 reruns. Neither test uses the read routing added that day. The cause has not been established; both check timing-sensitive outcomes on a 4-CPU host shared with other replica sets. The tests are unchanged.
 
 ## 3. Browser end-to-end
 
