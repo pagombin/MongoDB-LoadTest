@@ -1,0 +1,18 @@
+ok   runs page shows empty state
+ok   create target and test connection
+ok   profiles page lists built-in profiles
+ok   new run wizard to review
+ok   start run opens live view
+ok   add markers with keyboard shortcut
+ok   runs page shows active run band
+ok   pause and resume with keyboard
+ok   stop run shows report
+ok   export html report works offline
+ok   csv and json exports
+ok   compare page
+ok   settings and system pages
+ok   dark theme and compact density
+ok   keyboard: shortcuts dialog and navigation
+ok   no console errors
+ok   no external network requests
+all passed

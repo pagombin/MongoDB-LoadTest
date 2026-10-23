@@ -12,7 +12,7 @@ export async function render(root) {
   ]));
   const listHost = h("div");
   const editHost = h("div");
-  root.appendChild(h("div", { class: "split" }, [listHost, editHost]));
+  root.appendChild(h("div", { class: "split editor-wide" }, [listHost, editHost]));
   let profiles = [];
   let editing = null;
 
@@ -53,11 +53,9 @@ export async function render(root) {
       return;
     }
     const table = sortableTable([
-      { key: "name", label: "Name", value: (p) => p.name.toLowerCase(), render: (p) => [h("button", { type: "button", class: "btn quiet small", style: null, text: p.name, onclick: () => edit(p) }), h("div", { class: "xs muted", text: p.body.description || "" })], cls: "wrap" },
-      { key: "model", label: "Load", value: (p) => p.body.load.model, render: (p) => (p.body.load.model === "open" ? `open, ${F.num(p.body.load.rate, 0)} ops/s` : `closed, ${F.int(p.body.load.concurrency)} workers`) },
-      { key: "mix", label: "Mix", render: (p) => h("span", { class: "small", text: opsLabel(p.body) }), cls: "wrap" },
-      { key: "updated", label: "Updated", value: (p) => p.updated_at, render: (p) => F.dateTime(p.updated_at) },
-      { key: "act", label: "", render: (p) => h("div", { class: "row" }, [
+      { key: "name", label: "Name", value: (p) => p.name.toLowerCase(), render: (p) => [h("button", { type: "button", class: "btn quiet small", style: null, text: p.name, onclick: () => edit(p) }), h("div", { class: "xs muted", text: p.body.description || "" }), h("div", { class: "xs muted", text: `${opsLabel(p.body)}; updated ${F.dateTime(p.updated_at)}` })], cls: "wrap" },
+      { key: "model", label: "Load", value: (p) => p.body.load.model, render: (p) => (p.body.load.model === "open" ? `${F.num(p.body.load.rate, 0)} ops/s` : `${F.int(p.body.load.concurrency)} workers`) },
+      { key: "act", label: "", render: (p) => h("div", { class: "row-actions" }, [
         button("Duplicate", async () => { try { const c = await api.post(`api/profiles/${p.id}/duplicate`); toast(`Profile duplicated: ${c.name}`); await load(); edit(c); } catch (err) { toast(err.title, "fail"); } }, "small"),
         button("Export", () => download(`api/profiles/${p.id}/export`), "small"),
       ]) },

@@ -45,7 +45,7 @@ fi
 rm -rf "$root/runtime/python.new"
 mkdir -p "$root/runtime/python.new"
 tar -xzf "$cache/$name" -C "$root/runtime/python.new" --strip-components=1
-"$root/runtime/python.new/bin/python3" -m pip install -q --disable-pip-version-check --no-warn-script-location -r "$root/requirements/runtime.lock"
+PIP_ROOT_USER_ACTION=ignore "$root/runtime/python.new/bin/python3" -m pip install -q --disable-pip-version-check --no-warn-script-location -r "$root/requirements/runtime.lock"
 site=$("$root/runtime/python.new/bin/python3" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')
 echo "$root" > "$site/ballast-source.pth"
 rm -rf "$root/runtime/python"

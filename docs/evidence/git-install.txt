@@ -1,0 +1,13 @@
+$ git clone <repo> ballast && cd ballast && make build
+downloading cpython-3.12.12+20251014-x86_64-unknown-linux-gnu-install_only.tar.gz
+WARNING: Running pip as the 'root' user can result in broken permissions and conflicting behaviour with the system package manager, possibly rendering your system unusable. It is recommended to use a virtual environment instead: https://pip.pypa.io/warnings/venv. Use the --root-user-action option if you know what you are doing and want to suppress this warning.
+runtime ready: Python 3.12.12 at runtime/python
+(exit 0)
+$ bin/ballast version
+Ballast 1.0.0 (commit b8b41bd, built source checkout, PyMongo 4.19.0, Python 3.12.12)
+$ bin/ballastctl start --listen 127.0.0.1:9643
+started: https://127.0.0.1:9643 (server pid 11103, supervisor pid 11102)
+certificate SHA-256: EC:F3:25:5D:7C:E9:2E:7D:F7:46:46:8C:58:2C:84:5C:41:15:41:F4:97:31:6F:73:81:AF:75:99:57:79:C2:4F
+healthy: version 1.0.0, up 0 s
+stopped (sent SIGTERM to pid 11102, exited cleanly)
+(git status above: empty means build left the checkout clean)

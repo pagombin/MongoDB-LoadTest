@@ -314,3 +314,7 @@ table.data td.hot { color: var(--fail); font-weight: 500; }
 table.impact-table td { white-space: normal; padding-top: 6px; padding-bottom: 6px; }
 table.impact-table th { white-space: normal; line-height: 16px; }
 span.hot { color: var(--fail); font-weight: 500; }
+table.kv td { overflow-wrap: anywhere; }
+.figures { margin-bottom: 12px; }
+.split.editor-wide { grid-template-columns: minmax(0, 2fr) minmax(420px, 3fr); }
+.row-actions { display: flex; flex-direction: column; gap: 4px; align-items: stretch; padding: 6px 0; }
