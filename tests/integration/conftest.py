@@ -4,7 +4,9 @@ import subprocess
 import pytest
 
 URI = os.environ.get("BALLAST_TEST_URI", "mongodb://rs1:27011,rs2:27012,rs3:27013/?replicaSet=rs0")
-MEMBERS = [(m.split(":")[0], int(m.split(":")[1])) for m in os.environ.get("BALLAST_TEST_MEMBERS", "rs1:27011,rs2:27012,rs3:27013").split(",")]
+MEMBERS = [
+    (m.split(":")[0], int(m.split(":")[1])) for m in os.environ.get("BALLAST_TEST_MEMBERS", "rs1:27011,rs2:27012,rs3:27013").split(",")
+]
 
 
 def stepdown(container_port_pairs=None):

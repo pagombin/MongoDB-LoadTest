@@ -46,15 +46,18 @@ async def run_with_failover(tmp_path: Path, uri: str, processes: int):
     manager.add_marker(run_id, "stepdown finished", source="api")
     while manager.active is not None:
         await asyncio.sleep(0.5)
-    MongoClient(uri).drop_database(db)
-    return store, store.get_run(run_id), stepped
+    with MongoClient(uri) as client:
+        client.drop_database(db)
+    run = store.get_run(run_id)
+    events = store.events(run_id)
+    store.close()
+    return events, run, stepped
 
 
 @pytest.mark.parametrize("processes", [1, 2])
 async def test_failover_is_recorded_classified_and_measured(tmp_path, uri, processes):
-    store, run, stepped = await run_with_failover(tmp_path, uri, processes)
+    events, run, stepped = await run_with_failover(tmp_path, uri, processes)
     assert run["status"] == "completed", run["error"]
-    events = store.events(run["id"])
     kinds = {e["kind"] for e in events}
     assert "primary_lost" in kinds or "primary_changed" in kinds
     assert any(e["kind"] == "server_state" and e["data"]["address"].startswith(stepped) for e in events)
@@ -128,13 +131,15 @@ async def test_write_stall_measures_gap_latency_and_recovery(tmp_path, uri):
     manager.add_marker(row["id"], "stall finished")
     while manager.active is not None:
         await asyncio.sleep(0.5)
-    MongoClient(uri).drop_database(db)
+    with MongoClient(uri) as client:
+        client.drop_database(db)
     run = store.get_run(row["id"])
     assert run["status"] == "completed", run["error"]
     w = [i for i in run["analysis"]["impacts"] if i["source"] == "markers"][0]
     assert w["longest_write_gap"]["ms"] >= 2500
     stall_seconds = [r for r in store.seconds(row["id"]) if w["start_ms"] // 1000 <= r.t <= w["end_ms"] // 1000]
     assert sum(r.pool_wait.total for r in stall_seconds) > 0, "connection checkout waits are measured"
+    store.close()
     assert w["during"]["max_us"] >= 2_500_000, "open model reports the stall as latency"
     assert w["before"]["p99_us"] < 500_000
     assert w["recovered"] is True and w["recovery_seconds"] is not None

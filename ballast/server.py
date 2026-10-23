@@ -827,7 +827,11 @@ class App:
         r.add_static("/", WEB_DIR, show_index=False, append_version=False)
         app.on_startup.append(self.on_startup)
         app.on_shutdown.append(self.on_shutdown)
+        app.on_cleanup.append(self.on_cleanup)
         return app
+
+    async def on_cleanup(self, app) -> None:
+        self.store.close()
 
     async def on_startup(self, app) -> None:
         interrupted = self.store.interrupt_unfinished()
@@ -1083,7 +1087,6 @@ def serve(loaded: Loaded, ready_file: Path | None = None) -> int:
         if redirect_runner:
             await redirect_runner.cleanup()
         await runner.cleanup()
-        app.store.close()
         if ready_file and ready_file.exists():
             ready_file.unlink()
         if pid_file.exists() and pid_file.read_text().strip() == str(os.getpid()):

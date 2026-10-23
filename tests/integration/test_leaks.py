@@ -24,11 +24,15 @@ def open_fds() -> int:
 
 
 async def one_run(manager: RunManager, target: dict, db: str) -> None:
-    profile = Profile.model_validate({
-        "name": "leak", "load": {"model": "open", "rate": 300, "concurrency": 32, "processes": 2},
-        "schedule": {"warmup_seconds": 1, "steady_seconds": 6}, "dataset": {"database": db, "load": {"documents": 300}},
-        "sampling": {"enabled": True, "interval_seconds": 1},
-    })
+    profile = Profile.model_validate(
+        {
+            "name": "leak",
+            "load": {"model": "open", "rate": 300, "concurrency": 32, "processes": 2},
+            "schedule": {"warmup_seconds": 1, "steady_seconds": 6},
+            "dataset": {"database": db, "load": {"documents": 300}},
+            "sampling": {"enabled": True, "interval_seconds": 1},
+        }
+    )
     await manager.start(name="leak", target=target, profile=profile, acknowledge_foreign=True)
     while manager.active is not None:
         await asyncio.sleep(0.2)
@@ -66,4 +70,5 @@ async def test_repeated_runs_do_not_leak(tmp_path: Path, uri):
     leaks = [w for w in caught if issubclass(w.category, ResourceWarning)]
     assert not leaks, [str(w.message) for w in leaks]
     runs = store.list_runs()
+    store.close()
     assert len(runs) == 4 and all(r["status"] == "completed" for r in runs)
