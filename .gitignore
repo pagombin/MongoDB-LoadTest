@@ -15,3 +15,4 @@ artifacts/
 /config/ballast.yaml
 node_modules/
 /test-results/
+/.cache/
