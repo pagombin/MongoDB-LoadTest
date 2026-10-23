@@ -28,6 +28,7 @@ class OperationMix(Strict):
     delete: float = Field(default=0, ge=0)
     aggregate: float = Field(default=0, ge=0)
     find_and_modify: float = Field(default=0, ge=0)
+    analytics: float = Field(default=0, ge=0, description="Aggregation that scans keys.analytics_docs documents and groups them.")
 
     @model_validator(mode="after")
     def _positive(self) -> OperationMix:
@@ -73,6 +74,7 @@ class KeySpec(Strict):
     distribution: Literal["uniform", "zipfian", "sequential"] = "uniform"
     zipf_theta: float = Field(default=0.99, gt=0, lt=5)
     range_size: int = Field(default=20, ge=1, le=10_000)
+    analytics_docs: int = Field(default=5_000, ge=1, le=10_000_000, description="Documents scanned by each analytics query.")
 
 
 class IndexSpec(Strict):
@@ -118,6 +120,44 @@ class DatasetSpec(Strict):
         return [f"{self.collection_prefix}_{i + 1}" for i in range(self.collections)]
 
 
+ReadMode = Literal["primary", "primaryPreferred", "secondary", "secondaryPreferred", "nearest"]
+ATLAS_NODE_TYPES = ("ELECTABLE", "READ_ONLY", "ANALYTICS")
+
+
+def _check_tags(mode: str | None, tags: list[dict[str, str]] | None) -> None:
+    if tags and mode in (None, "primary"):
+        raise ValueError("tag sets need a read preference other than primary, for example secondary")
+    for tag_set in tags or []:
+        for key, value in tag_set.items():
+            if not key or ":" in key or "," in key or ":" in value or "," in value:
+                raise ValueError(f"tag {key!r}: {value!r} may not be empty or contain ':' or ','")
+
+
+def tag_strings(tags: list[dict[str, str]]) -> list[str]:
+    """Tag sets as PyMongo's readPreferenceTags option strings; an empty set means any member."""
+    return [",".join(f"{k}:{v}" for k, v in tag_set.items()) for tag_set in tags]
+
+
+class ReadRoute(Strict):
+    """Where one kind of read goes. Tag sets are tried in order; an empty set matches any eligible member."""
+
+    mode: ReadMode = "secondary"
+    tags: list[dict[str, str]] = Field(default_factory=list, max_length=10)
+    max_staleness_seconds: int | None = Field(default=None, ge=90)
+    label: str = Field(default="", max_length=40, description="Name used for this route's read gap; defaults to the nodeType tag.")
+
+    @model_validator(mode="after")
+    def _valid(self) -> ReadRoute:
+        _check_tags(self.mode, self.tags)
+        return self
+
+    def name(self) -> str:
+        if self.label:
+            return self.label
+        types = [t["nodeType"] for t in self.tags if t.get("nodeType")]
+        return types[0] if types else self.mode
+
+
 class WriteConcern(Strict):
     w: int | Literal["majority"] = "majority"
     j: bool | None = None
@@ -127,8 +167,12 @@ class WriteConcern(Strict):
 class DriverSettings(Strict):
     write_concern: WriteConcern = Field(default_factory=WriteConcern)
     read_concern: Literal["local", "available", "majority", "linearizable", "snapshot"] | None = None
-    read_preference: Literal["primary", "primaryPreferred", "secondary", "secondaryPreferred", "nearest"] = "primary"
+    read_preference: ReadMode | None = Field(
+        default=None, description="Empty uses the connection string's readPreference (and readPreferenceTags), else primary."
+    )
+    read_preference_tags: list[dict[str, str]] | None = Field(default=None, max_length=10)
     max_staleness_seconds: int | None = Field(default=None, ge=90)
+    track_members: bool = Field(default=True, description="Count operations and service time per member (command monitoring).")
     retry_writes: bool = True
     retry_reads: bool = True
     max_pool_size: int = Field(default=100, ge=1, le=10_000)
@@ -143,13 +187,13 @@ class DriverSettings(Strict):
     def _pools(self) -> DriverSettings:
         if self.min_pool_size > self.max_pool_size:
             raise ValueError("min_pool_size must be <= max_pool_size")
+        _check_tags(self.read_preference, self.read_preference_tags)
         return self
 
     def client_options(self) -> dict:
         wc = self.write_concern
         options: dict = {
             "w": wc.w,
-            "readPreference": self.read_preference,
             "retryWrites": self.retry_writes,
             "retryReads": self.retry_reads,
             "maxPoolSize": self.max_pool_size,
@@ -164,6 +208,10 @@ class DriverSettings(Strict):
             options["wTimeoutMS"] = wc.wtimeout_ms
         if self.read_concern:
             options["readConcernLevel"] = self.read_concern
+        if self.read_preference is not None:
+            options["readPreference"] = self.read_preference
+            if self.read_preference_tags:
+                options["readPreferenceTags"] = tag_strings(self.read_preference_tags)
         if self.max_staleness_seconds is not None:
             options["maxStalenessSeconds"] = self.max_staleness_seconds
         if self.socket_timeout_ms:
@@ -254,6 +302,9 @@ class Profile(Strict):
     retry: RetrySpec = Field(default_factory=RetrySpec)
     sampling: SamplingSpec = Field(default_factory=SamplingSpec)
     analysis: AnalysisOverrides = Field(default_factory=AnalysisOverrides)
+    read_routing: dict[Literal["find", "range", "aggregate", "analytics"], ReadRoute] = Field(
+        default_factory=dict, description="Per-operation read preference, for example aggregations to analytics nodes."
+    )
     guardrails: Guardrails = Field(default_factory=Guardrails)
     slo: SLOSpec = Field(default_factory=SLOSpec)
     seed: int = Field(default=42, ge=0, lt=2**32)

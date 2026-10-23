@@ -17,10 +17,46 @@ from pymongo import errors as pe
 log = logging.getLogger("ballast.monitor")
 
 UNAUTHORIZED_CODES = {13, 18, 8000}
+MEMBERS_INTERVAL = 5.0
 
 
 def _addr(address) -> str:
     return f"{address[0]}:{address[1]}" if address else ""
+
+
+def node_type(sd) -> str | None:
+    """Atlas tags members with nodeType ELECTABLE, READ_ONLY or ANALYTICS."""
+    return (sd.tags or {}).get("nodeType") if sd is not None else None
+
+
+def _epoch(value) -> float:
+    return value.timestamp() if hasattr(value, "timestamp") else float(value)
+
+
+def members_snapshot(description) -> list[dict]:
+    """Member types, tags and estimated replication lag from the driver's own heartbeats. Needs no privileges.
+
+    Lag uses the driver's staleness inputs: (S.lastUpdate - S.lastWrite) - (P.lastUpdate - P.lastWrite),
+    so it is accurate to about one heartbeat (500 ms on the monitor's client)."""
+    servers = description.server_descriptions()
+    primary = next((sd for sd in servers.values() if sd.server_type_name == "RSPrimary"), None)
+    out = []
+    for address, sd in sorted(servers.items()):
+        lag = None
+        if primary is not None and sd.server_type_name == "RSSecondary" and sd.last_write_date and primary.last_write_date:
+            lag = (sd.last_update_time - _epoch(sd.last_write_date)) - (primary.last_update_time - _epoch(primary.last_write_date))
+            lag = round(max(0.0, lag), 3)
+        out.append(
+            {
+                "address": _addr(address),
+                "type": sd.server_type_name,
+                "node_type": node_type(sd),
+                "tags": dict(sd.tags or {}),
+                "rtt_ms": round(sd.round_trip_time * 1000, 2) if sd.round_trip_time is not None else None,
+                "lag_seconds": lag,
+            }
+        )
+    return out
 
 
 def primary_of(description) -> str | None:
@@ -60,9 +96,19 @@ class _TopologyEvents(monitoring.TopologyListener, monitoring.ServerListener, mo
                     self.last_primary = after
             if previous.topology_type_name != new.topology_type_name and previous.topology_type_name != "Unknown":
                 self.emit("topology_changed", {"from": previous.topology_type_name, "to": new.topology_type_name})
+            before_set = {_addr(a) for a in previous.server_descriptions()}
+            after_set = {_addr(a) for a in new.server_descriptions()}
+            if previous.topology_type_name != "Unknown":
+                for address in sorted(after_set - before_set):
+                    self.emit("member_added", {"address": address})
+                for address in sorted(before_set - after_set):
+                    self.emit("member_removed", {"address": address})
         else:
             if previous.server_type_name != new.server_type_name:
                 data = {"address": _addr(event.server_address), "from": previous.server_type_name, "to": new.server_type_name}
+                kind = node_type(new) or node_type(previous)
+                if kind:
+                    data["node_type"] = kind
                 if new.error is not None:
                     data["error"] = str(new.error).split("\n")[0][:200]
                 self.emit("server_state", data)
@@ -100,6 +146,7 @@ class ClusterMonitor:
         self.redact = redact or (lambda s: s)
         self.client: AsyncMongoClient | None = None
         self.task: asyncio.Task | None = None
+        self.members_task: asyncio.Task | None = None
         self.unavailable: set[str] = set()
         self.loop: asyncio.AbstractEventLoop | None = None
         self.closing = False
@@ -120,11 +167,26 @@ class ClusterMonitor:
         options.update(heartbeatFrequencyMS=500, serverSelectionTimeoutMS=2000, maxPoolSize=2, minPoolSize=0, appname="ballast-monitor")
         self.client = AsyncMongoClient(self.uri, event_listeners=[_TopologyEvents(self._emit)], **options)
         await self.client.aconnect()
+        self.members_task = asyncio.create_task(self._members_loop())
         if self.sampling:
             self.task = asyncio.create_task(self._sample_loop())
 
+    async def _members_loop(self) -> None:
+        while True:
+            await asyncio.sleep(MEMBERS_INTERVAL)
+            try:
+                assert self.client is not None
+                self.on_sample(int(time.time() * 1000), "members", {"members": members_snapshot(self.client.topology_description)})
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                log.exception("member snapshot failed")
+
     async def stop(self) -> None:
         self.closing = True
+        if self.members_task is not None:
+            self.members_task.cancel()
+            await asyncio.gather(self.members_task, return_exceptions=True)
         if self.task is not None:
             self.task.cancel()
             await asyncio.gather(self.task, return_exceptions=True)

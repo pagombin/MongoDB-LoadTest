@@ -195,6 +195,12 @@ def analyze_window(
         for e in events
         if e["kind"] in PRIMARY_EVENTS and start_ms - 5000 <= e["t_ms"] <= span_end_ms
     ]
+    member_events = [
+        {"t_ms": e["t_ms"], "kind": e["kind"], **{k: e["data"].get(k) for k in ("address", "from", "to", "node_type") if k in e["data"]}}
+        for e in events
+        if e["kind"] in MEMBER_EVENTS and start_ms - 5000 <= e["t_ms"] <= span_end_ms
+    ]
+    route_kinds = sorted({g["kind"] for g in gaps if g["kind"].startswith("read:")})
     return {
         "label": window.get("label"),
         "source": window.get("source"),
@@ -207,13 +213,49 @@ def analyze_window(
         "failed_by_class": dict(sorted(failures.items(), key=lambda kv: -kv[1])),
         "longest_write_gap": _gap_in_span(gaps, "write", start_ms, span_end_ms),
         "longest_read_gap": _gap_in_span(gaps, "read", start_ms, span_end_ms),
+        "route_gaps": {kind[5:]: _gap_in_span(gaps, kind, start_ms, span_end_ms) for kind in route_kinds},
         "primary_changes": primary_changes,
+        "member_events": member_events,
+        "members": _members(before, during, after),
+        "operations": _op_totals(span),
         "before": baseline,
         "during": _stats(during),
         "after": _stats(after),
         "recovery_seconds": recovery,
         "recovered": recovery is not None,
     }
+
+
+MEMBER_EVENTS = ("server_state", "member_added", "member_removed", "heartbeat_failed", "heartbeat_recovered")
+
+
+def _members(before: list[SecondRecord], during: list[SecondRecord], after: list[SecondRecord]) -> dict:
+    """Operations each member answered per second, before, during and after a window, and failures during it."""
+    out: dict[str, dict] = {}
+    for name, part in (("before", before), ("during", during), ("after", after)):
+        seconds = len(part) or 1
+        totals: dict[str, list[int]] = {}
+        for record in part:
+            for host, entry in record.hosts.items():
+                t = totals.setdefault(host, [0, 0, 0])
+                t[0] += entry.reads
+                t[1] += entry.writes
+                t[2] += entry.failed
+        for host, (reads, writes, failed) in totals.items():
+            row = out.setdefault(host, {})
+            row[name] = {"reads_per_s": round(reads / seconds, 2), "writes_per_s": round(writes / seconds, 2), "failed": failed}
+    return dict(sorted(out.items()))
+
+
+def _op_totals(records: list[SecondRecord]) -> dict:
+    totals: dict[str, list[int]] = {}
+    for record in records:
+        counts = record.op_counts or {name: [op.ok, op.err] for name, op in record.ops.items()}
+        for name, (ok, err) in counts.items():
+            t = totals.setdefault(name, [0, 0])
+            t[0] += ok
+            t[1] += err
+    return {name: {"ok": ok, "err": err} for name, (ok, err) in sorted(totals.items())}
 
 
 def _load_level(record: SecondRecord) -> tuple:
@@ -334,10 +376,17 @@ def summarize(records: Iterable[SecondRecord]) -> dict:
     per_op: dict[str, dict] = {}
     errors: dict[str, int] = {}
     labels: dict[str, int] = {}
+    members: dict[str, dict] = {}
     for record in records:
         if record.phase in EXCLUDED_PHASES:
             continue
         seconds += 1
+        for host, served in record.hosts.items():
+            m = members.setdefault(host, {"reads": 0, "writes": 0, "failed": 0, "st": Histogram()})
+            m["reads"] += served.reads
+            m["writes"] += served.writes
+            m["failed"] += served.failed
+            m["st"].merge(served.st)
         for name, op in record.ops.items():
             entry = per_op.setdefault(name, {"ok": 0, "err": 0, "rt": Histogram(), "st": Histogram()})
             entry["ok"] += op.ok
@@ -367,6 +416,10 @@ def summarize(records: Iterable[SecondRecord]) -> dict:
         },
         "errors": dict(sorted(errors.items(), key=lambda kv: -kv[1])),
         "labels": dict(sorted(labels.items(), key=lambda kv: -kv[1])),
+        "members": {
+            host: {"reads": m["reads"], "writes": m["writes"], "failed": m["failed"], "service_time": m["st"].summary()}
+            for host, m in sorted(members.items())
+        },
     }
 
 

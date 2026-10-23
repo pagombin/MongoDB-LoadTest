@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from ballast.engine.histogram import Histogram
 
 WRITE_OPS = ("insert", "update", "upsert", "delete", "find_and_modify")
-READ_OPS = ("find", "range", "aggregate")
+READ_OPS = ("find", "range", "aggregate", "analytics")
 ALL_OPS = READ_OPS + WRITE_OPS
 EXCLUDED_PHASES = ("load", "warmup", "paused", "stopping")
 
@@ -40,6 +40,29 @@ class OpSecond:
 
 
 @dataclass(slots=True)
+class HostSecond:
+    """Commands one member answered in one second, from driver command monitoring (each attempt counts)."""
+
+    reads: int = 0
+    writes: int = 0
+    failed: int = 0
+    st: Histogram = field(default_factory=Histogram)
+
+    def merge(self, other: HostSecond) -> None:
+        self.reads += other.reads
+        self.writes += other.writes
+        self.failed += other.failed
+        self.st.merge(other.st)
+
+    def to_json(self) -> list:
+        return [self.reads, self.writes, self.failed, self.st.to_compact()]
+
+    @classmethod
+    def from_json(cls, data: list, keep_histogram: bool = True) -> HostSecond:
+        return cls(int(data[0]), int(data[1]), int(data[2]), Histogram.from_compact(data[3]) if keep_histogram else Histogram())
+
+
+@dataclass(slots=True)
 class SecondRecord:
     t: int
     phase: str = "steady"
@@ -58,6 +81,8 @@ class SecondRecord:
     inflight: int = 0
     processes: int = 1
     span: int = 1
+    hosts: dict[str, HostSecond] = field(default_factory=dict)
+    op_counts: dict[str, list[int]] = field(default_factory=dict)
 
     @property
     def ok(self) -> int:
@@ -101,6 +126,12 @@ class SecondRecord:
         if other.target_rate is not None:
             self.target_rate = (self.target_rate or 0.0) + other.target_rate
         self.processes += other.processes
+        for host, entry in other.hosts.items():
+            self.hosts.setdefault(host, HostSecond()).merge(entry)
+        for name, (ok, err) in other.op_counts.items():
+            mine = self.op_counts.setdefault(name, [0, 0])
+            mine[0] += ok
+            mine[1] += err
         if other.phase != self.phase and other.phase == "paused":
             self.phase = other.phase
 
@@ -123,6 +154,7 @@ class SecondRecord:
             "inflight": self.inflight,
             "processes": self.processes,
             "span": self.span,
+            "hosts": {host: entry.to_json() for host, entry in self.hosts.items()},
         }
 
     @classmethod
@@ -157,12 +189,16 @@ class SecondRecord:
             inflight=data.get("inflight", 0),
             processes=data.get("processes", 1),
             span=data.get("span", 1),
+            hosts={host: HostSecond.from_json(entry, not collapse) for host, entry in (data.get("hosts") or {}).items()},
+            op_counts={name: [op.get("ok", 0), op.get("err", 0)] for name, op in (data.get("ops") or {}).items()} if collapse else {},
         )
 
     def collapsed(self) -> SecondRecord:
         """A copy with all operations folded into one response-time histogram (see from_json collapse)."""
         ops = {"all": OpSecond(ok=self.ok, err=self.err, rt=self.rt().pack())} if self.ops else {}
-        return dataclasses.replace(self, ops=ops)
+        hosts = {h: HostSecond(e.reads, e.writes, e.failed) for h, e in self.hosts.items()}
+        counts = {name: [op.ok, op.err] for name, op in self.ops.items()}
+        return dataclasses.replace(self, ops=ops, hosts=hosts, op_counts=counts)
 
     def point(self) -> dict:
         """Compact chart point for live updates and reports."""
@@ -187,6 +223,7 @@ class SecondRecord:
             "cpu": round(self.cpu, 1),
             "backlog": self.backlog,
             "ops": {name: round((op.ok + op.err) / self.span, 2) for name, op in self.ops.items()},
+            "hosts": {h: [round((e.reads + e.writes) / self.span, 2), round(e.failed / self.span, 2)] for h, e in self.hosts.items()},
         }
 
 

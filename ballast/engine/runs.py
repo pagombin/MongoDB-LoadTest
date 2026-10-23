@@ -24,7 +24,7 @@ from ballast.engine.analysis import AnalysisSettings
 from ballast.engine.documents import DocumentFactory
 from ballast.engine.monitor import ClusterMonitor
 from ballast.engine.profile import Profile
-from ballast.engine.series import SecondRecord, downsample
+from ballast.engine.series import READ_OPS, SecondRecord, downsample
 from ballast.notify import Notifier
 from ballast.store import Store, intersect_gaps, new_id, now_ms
 from ballast.targets import MASK, client_options, explain_failure, redact_uri, secrets_in
@@ -117,6 +117,60 @@ class ActiveRun:
     plan_index: int = -1
     phase_end: float | None = None
     phase_paused_before: float = 0.0
+
+
+def _matches(tags: dict, tag_set: dict) -> bool:
+    return all(tags.get(k) == v for k, v in tag_set.items())
+
+
+def read_routes(profile: Profile, default: dict, description) -> tuple[list[dict], list[str]]:
+    """Which members each read route can reach right now, and warnings for routes that reach none.
+
+    default is the read preference document the connection string gives (for example
+    {"mode": "secondary", "tags": [{"nodeType": "ANALYTICS"}]}); the profile's driver setting overrides it."""
+    d = profile.driver
+    base: dict[str, Any] = {"mode": d.read_preference, "tags": d.read_preference_tags or []} if d.read_preference else dict(default)
+    base_mode = str(base.get("mode") or "primary")
+    members = [(a, sd) for a, sd in description.server_descriptions().items() if sd.server_type_name in ("RSPrimary", "RSSecondary")]
+    read_ops = [op for op in profile.operations.normalized() if op in READ_OPS]
+    groups: dict[str, list[str]] = {}
+    specs: dict[str, dict] = {}
+    for op in read_ops:
+        route = profile.read_routing.get(op)  # type: ignore[call-overload]
+        spec = (
+            {"mode": route.mode, "tags": route.tags, "name": route.name()}
+            if route
+            else {"mode": base_mode, "tags": base.get("tags") or [], "name": "default"}
+        )
+        key = repr((spec["mode"], spec["tags"]))
+        groups.setdefault(key, []).append(op)
+        specs[key] = spec
+    routes, warnings = [], []
+    for key, ops in groups.items():
+        spec = specs[key]
+        mode, tag_sets = spec["mode"] or "primary", spec["tags"] or [{}]
+        eligible = [
+            (a, sd)
+            for a, sd in members
+            if mode in ("nearest",)
+            or (mode in ("secondary", "secondaryPreferred") and sd.server_type_name == "RSSecondary")
+            or (mode in ("primary", "primaryPreferred") and sd.server_type_name == "RSPrimary")
+        ]
+        if mode == "primaryPreferred":
+            eligible += [(a, sd) for a, sd in members if sd.server_type_name == "RSSecondary"]
+        reach = []
+        for tag_set in tag_sets if mode != "primary" else [{}]:
+            reach = [f"{a[0]}:{a[1]}" for a, sd in eligible if _matches(sd.tags or {}, tag_set)]
+            if reach:
+                break
+        routes.append({"operations": ops, "mode": mode, "tags": spec["tags"], "name": spec["name"], "members": sorted(reach)})
+        if not reach and mode != "secondaryPreferred":
+            wanted = " or ".join(",".join(f"{k}:{v}" for k, v in t.items()) or "any" for t in tag_sets)
+            warnings.append(
+                f"{', '.join(ops)} reads go to {mode} members tagged {wanted}, and no member matches now. They will wait "
+                f"serverSelectionTimeoutMS ({d.server_selection_timeout_ms} ms) and fail until one does."
+            )
+    return routes, warnings
 
 
 class RunManager:
@@ -224,7 +278,10 @@ class RunManager:
             for name in planned:
                 if name in names:
                     counts[name] = await db[name].estimated_document_count()
+            routes, warnings = read_routes(profile, client.read_preference.document, client.topology_description)
             return {
+                "routes": routes,
+                "routing_warnings": warnings,
                 "database": profile.dataset.database,
                 "existing_collections": names,
                 "ballast_collections": ours,
@@ -325,7 +382,15 @@ class RunManager:
         except Exception:
             version = None
         description = client.topology_description
-        members = [{"address": f"{a[0]}:{a[1]}", "state": sd.server_type_name} for a, sd in description.server_descriptions().items()]
+        members = [
+            {
+                "address": f"{a[0]}:{a[1]}",
+                "state": sd.server_type_name,
+                "node_type": (sd.tags or {}).get("nodeType"),
+                "tags": dict(sd.tags or {}),
+            }
+            for a, sd in description.server_descriptions().items()
+        ]
         try:
             mem = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
         except (ValueError, OSError, AttributeError):
@@ -351,7 +416,8 @@ class RunManager:
                 "memory_bytes": mem,
                 "platform": platform.platform(),
             },
-            "preflight": {k: pre[k] for k in ("database", "foreign_collections", "document_counts")},
+            "preflight": {k: pre.get(k) for k in ("database", "foreign_collections", "document_counts", "routes", "routing_warnings")},
+            "read_preference": client.read_preference.document,
             "profile_summary": run.profile.plain_summary(),
         }
 

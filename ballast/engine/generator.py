@@ -20,7 +20,7 @@ import random
 import signal
 import time
 
-from pymongo import AsyncMongoClient, ReturnDocument, monitoring
+from pymongo import AsyncMongoClient, ReturnDocument, monitoring, read_preferences
 from pymongo import errors as pe
 from pymongo.asynchronous.database import AsyncDatabase
 
@@ -28,7 +28,7 @@ from ballast.engine.documents import DocumentFactory
 from ballast.engine.errors import classify
 from ballast.engine.keys import KeyChooser
 from ballast.engine.profile import Profile
-from ballast.engine.series import READ_OPS, WRITE_OPS, OpSecond, SecondRecord
+from ballast.engine.series import READ_OPS, WRITE_OPS, HostSecond, OpSecond, SecondRecord
 
 GAP_MIN_MS = 100
 CLOSE_GRACE_SECONDS = 0.15
@@ -119,6 +119,39 @@ class _PoolEvents(monitoring.ConnectionPoolListener):
         self.gen.on_checkout_failed(str(event.reason))
 
 
+READ_COMMANDS = {"find", "aggregate", "getMore", "count", "distinct"}
+WRITE_COMMANDS = {"insert", "update", "delete", "findAndModify"}
+MODES = {
+    "primary": read_preferences.Primary,
+    "primaryPreferred": read_preferences.PrimaryPreferred,
+    "secondary": read_preferences.Secondary,
+    "secondaryPreferred": read_preferences.SecondaryPreferred,
+    "nearest": read_preferences.Nearest,
+}
+
+
+def read_preference(route) -> read_preferences._ServerMode:
+    if route.mode == "primary":
+        return read_preferences.Primary()
+    return MODES[route.mode](tag_sets=route.tags or None, max_staleness=route.max_staleness_seconds or -1)
+
+
+class _CommandStats(monitoring.CommandListener):
+    """Which member answered each read and write command, and how long it took on the wire."""
+
+    def __init__(self, gen: Generator):
+        self.gen = gen
+
+    def started(self, event):
+        pass
+
+    def succeeded(self, event):
+        self.gen.on_command(event.command_name, event.connection_id, event.duration_micros, True)
+
+    def failed(self, event):
+        self.gen.on_command(event.command_name, event.connection_id, event.duration_micros, False)
+
+
 class Generator:
     def __init__(self, conn, spec: dict):
         self.conn = conn
@@ -149,6 +182,8 @@ class Generator:
             self.op_cum.append(acc)
         self.has_writes = any(name in WRITE_OPS for name in self.op_names)
         self.has_reads = any(name in READ_OPS for name in self.op_names)
+        self.route_kind = {op: f"read:{route.name()}" for op, route in self.profile.read_routing.items() if op in self.op_names}
+        self.routed_colls: dict[str, list] = {}
         self.phase = "idle"
         self.running = False
         self.stopping = False
@@ -161,9 +196,10 @@ class Generator:
         self.inflight = 0
         self.seconds: dict[int, SecondRecord] = {}
         self.last_emitted: int | None = None
-        self.last_ok_ms: dict[str, int | None] = {"write": None, "read": None}
-        self.kind_rate = {"write": 0.0, "read": 0.0}
-        self.kind_count = {"write": 0, "read": 0}
+        kinds = ["write", "read", *sorted(set(self.route_kind.values()))]
+        self.last_ok_ms: dict[str, int | None] = {k: None for k in kinds}
+        self.kind_rate = {k: 0.0 for k in kinds}
+        self.kind_count = {k: 0 for k in kinds}
         self.cpu_mark = (time.monotonic(), sum(os.times()[:2]))
         self.cpu = 0.0
         self.tasks: list[asyncio.Task] = []
@@ -216,6 +252,21 @@ class Generator:
             self._second(int(now)).pool_cleared += 1
         self.send({"type": "event", "kind": "pool_cleared", "t_ms": int(now * 1000), "data": {"address": address, "process": self.index}})
 
+    def on_command(self, name: str, address, duration_us: int, ok: bool) -> None:
+        if not self.running or name not in READ_COMMANDS and name not in WRITE_COMMANDS:
+            return
+        host = f"{address[0]}:{address[1]}" if address else "unknown"
+        entry = self._second(int(time.time())).hosts.get(host)
+        if entry is None:
+            entry = self._second(int(time.time())).hosts[host] = HostSecond()
+        if not ok:
+            entry.failed += 1
+        elif name in READ_COMMANDS:
+            entry.reads += 1
+        else:
+            entry.writes += 1
+        entry.st.record(duration_us)
+
     def record(self, op: str, ok: bool, rt_us: float, st_us: float, info, wall: float) -> None:
         rec = self._second(int(wall))
         entry = rec.ops.get(op)
@@ -227,13 +278,14 @@ class Generator:
         kind = "write" if op in WRITE_OPS else "read"
         if ok:
             entry.ok += 1
-            self.kind_count[kind] += 1
-            last = self.last_ok_ms[kind]
-            if last is not None:
-                threshold = max(GAP_MIN_MS, 4000.0 / self.kind_rate[kind]) if self.kind_rate[kind] > 0 else GAP_MIN_MS
-                if wall_ms - last >= threshold:
-                    self.send({"type": "gap", "kind": kind, "start_ms": last, "end_ms": wall_ms, "process": self.index})
-            self.last_ok_ms[kind] = wall_ms
+            for k in (kind, self.route_kind[op]) if op in self.route_kind else (kind,):
+                self.kind_count[k] += 1
+                last = self.last_ok_ms[k]
+                if last is not None:
+                    threshold = max(GAP_MIN_MS, 4000.0 / self.kind_rate[k]) if self.kind_rate[k] > 0 else GAP_MIN_MS
+                    if wall_ms - last >= threshold:
+                        self.send({"type": "gap", "kind": k, "start_ms": last, "end_ms": wall_ms, "process": self.index})
+                self.last_ok_ms[k] = wall_ms
         else:
             entry.err += 1
             rec.errors[info.error_class] = rec.errors.get(info.error_class, 0) + 1
@@ -290,7 +342,7 @@ class Generator:
                 self._sample_gauges(rec, mono)
             self.sampled.discard(t)
             rec.processes = 1
-            for kind in ("write", "read"):
+            for kind in self.kind_rate:
                 self.kind_rate[kind] = 0.7 * self.kind_rate[kind] + 0.3 * self.kind_count[kind]
                 self.kind_count[kind] = 0
             self.send({"type": "second", "data": rec.to_json()})
@@ -309,7 +361,7 @@ class Generator:
         )
 
     async def run_op(self, op: str, i: int) -> None:
-        coll = self.colls[i]
+        coll = (self.routed_colls.get(op) or self.colls)[i]
         keys = self.keys[self.collections_names[i]]
         docs = self.docs
         if op == "find":
@@ -335,6 +387,16 @@ class Generator:
                 {"$group": {"_id": None, "count": {"$sum": 1}, "total": {"$sum": "$v"}}},
             ]
             await (await coll.aggregate(pipeline)).to_list()
+        elif op == "analytics":
+            size = max(1, keys.size)
+            span = min(self.profile.keys.analytics_docs, size)
+            start = self.rng.randrange(max(1, size - span + 1))
+            pipeline = [
+                {"$match": {"_id": {"$gte": start, "$lt": start + span}}},
+                {"$group": {"_id": {"$mod": ["$_id", 16]}, "docs": {"$sum": 1}, "avg_v": {"$avg": "$v"}, "max_v": {"$max": "$v"}}},
+                {"$sort": {"docs": -1, "_id": 1}},
+            ]
+            await (await coll.aggregate(pipeline, allowDiskUse=True)).to_list()
         elif op == "find_and_modify":
             await coll.find_one_and_update({"_id": keys.existing() or 0}, {"$inc": {"n": 1}}, return_document=ReturnDocument.AFTER)
 
@@ -433,6 +495,8 @@ class Generator:
     def start_measuring(self) -> None:
         now_ms = int(time.time() * 1000)
         self.last_ok_ms = {"write": now_ms if self.has_writes else None, "read": now_ms if self.has_reads else None}
+        for kind in set(self.route_kind.values()):
+            self.last_ok_ms[kind] = now_ms
 
     def close_open_gaps(self) -> None:
         now_ms = int(time.time() * 1000)
@@ -484,10 +548,16 @@ class Generator:
         options.update(self.profile.driver.client_options())
         options["appname"] = self.spec.get("app_name", "ballast")
         try:
-            self.client = AsyncMongoClient(self.spec["uri"], event_listeners=[_PoolEvents(self)], **options)
+            listeners: list = [_PoolEvents(self)]
+            if self.profile.driver.track_members:
+                listeners.append(_CommandStats(self))
+            self.client = AsyncMongoClient(self.spec["uri"], event_listeners=listeners, **options)
             await self.client.admin.command("ping")
             self.db = self.client[self.spec["database"]]
             self.colls = [self.db[name] for name in self.collections_names]
+            for op, route in self.profile.read_routing.items():
+                pref = read_preference(route)
+                self.routed_colls[op] = [c.with_options(read_preference=pref) for c in self.colls]
         except Exception as exc:
             self.send({"type": "error", "stage": "connect", "error": classify(exc, self.redact).as_dict()})
             return
