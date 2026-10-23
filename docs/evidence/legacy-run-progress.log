@@ -1,0 +1,7 @@
+2026-10-23 01:07:39 | INFO    | runner-main | mongo_load_tester | Load test starting max_users=50 target_users=50 workers=10 duration=900s ramp_up=120s
+2026-10-23 01:07:45 | INFO    | runner-main | mongo_load_tester | Progress total_ops=0 errors=0 ops_per_sec=0.00 active_users=5 paused=False
+2026-10-23 01:07:50 | INFO    | runner-main | mongo_load_tester | Progress total_ops=0 errors=0 ops_per_sec=0.00 active_users=5 paused=False
+2026-10-23 01:07:55 | INFO    | runner-main | mongo_load_tester | Progress total_ops=0 errors=0 ops_per_sec=0.00 active_users=10 paused=False
+2026-10-23 01:08:00 | INFO    | runner-main | mongo_load_tester | Progress total_ops=0 errors=0 ops_per_sec=0.00 active_users=10 paused=False
+2026-10-23 01:08:05 | INFO    | runner-main | mongo_load_tester | Progress total_ops=0 errors=0 ops_per_sec=0.00 active_users=15 paused=False
+2026-10-23 01:08:07 | INFO    | runner-main | mongo_load_tester | Load test finished total_ops=320 success=320 errors=0 avg_latency_ms=1.16 p95_ms=1.72 active_elapsed=27.37s
