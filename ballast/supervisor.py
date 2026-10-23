@@ -47,7 +47,9 @@ def pid_is_ours(pid: int, home: Path) -> bool:
         cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode(errors="replace")
     except OSError:
         try:
-            cmdline = subprocess.run(["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True, timeout=5, check=False).stdout
+            cmdline = subprocess.run(
+                ["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True, timeout=5, check=False
+            ).stdout
         except (OSError, subprocess.SubprocessError):
             return True
     return "ballast" in cmdline
@@ -136,7 +138,9 @@ def supervise(loaded: Loaded, config_args: list[str], detach_first: bool) -> int
     if detach_first:
         detach(console_log)
     cfg = loaded.config
-    logs.setup(loaded.log_dir, cfg.logging.level, cfg.logging.format, cfg.logging.max_size_mb, cfg.logging.max_files, filename="supervisor.log")
+    logs.setup(
+        loaded.log_dir, cfg.logging.level, cfg.logging.format, cfg.logging.max_size_mb, cfg.logging.max_files, filename="supervisor.log"
+    )
     _write_pid(pids.supervisor, os.getpid())
     sup = cfg.supervisor
     stopping = False
@@ -167,7 +171,9 @@ def supervise(loaded: Loaded, config_args: list[str], detach_first: bool) -> int
             env = dict(os.environ, BALLAST_HOME=str(loaded.home), BALLAST_SUPERVISED="1")
             env.pop("BALLAST_FOREGROUND", None)
             with open(console_log, "ab") as out:
-                child = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=out, stderr=out, env=env, cwd=str(loaded.home), start_new_session=False)
+                child = subprocess.Popen(
+                    cmd, stdin=subprocess.DEVNULL, stdout=out, stderr=out, env=env, cwd=str(loaded.home), start_new_session=False
+                )
             _write_pid(pids.server, child.pid)
             started = time.monotonic()
             pids.state.write_text(json.dumps({"server_pid": child.pid, "started": time.time(), "restarts": len(restarts)}))
@@ -193,8 +199,14 @@ def supervise(loaded: Loaded, config_args: list[str], detach_first: bool) -> int
                 log.error("server crashed %d times in %d s; giving up", len(restarts), sup.restart_window_seconds)
                 exit_code = 1
                 break
-            log.warning("server exited with code %s after %.1f s; restarting in %.1f s (restart %d of %d in window)",
-                        code, ran, backoff, len(restarts), sup.max_restarts)
+            log.warning(
+                "server exited with code %s after %.1f s; restarting in %.1f s (restart %d of %d in window)",
+                code,
+                ran,
+                backoff,
+                len(restarts),
+                sup.max_restarts,
+            )
             deadline = time.monotonic() + backoff
             while time.monotonic() < deadline and not stopping:
                 time.sleep(0.2)

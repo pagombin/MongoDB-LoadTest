@@ -68,8 +68,15 @@ class TextFormatter(logging.Formatter):
         self.converter = time.gmtime
 
 
-def setup(log_dir: Path, level: str = "info", fmt: str = "json", max_size_mb: int = 100, max_files: int = 10,
-          filename: str = "ballast.log", console: bool = False) -> logging.Logger:
+def setup(
+    log_dir: Path,
+    level: str = "info",
+    fmt: str = "json",
+    max_size_mb: int = 100,
+    max_files: int = 10,
+    filename: str = "ballast.log",
+    console: bool = False,
+) -> logging.Logger:
     log_dir.mkdir(parents=True, exist_ok=True)
     root = logging.getLogger()
     for handler in root.handlers[:]:
@@ -77,7 +84,9 @@ def setup(log_dir: Path, level: str = "info", fmt: str = "json", max_size_mb: in
         handler.close()
     root.setLevel(getattr(logging, level.upper(), logging.INFO))
     formatter = JsonFormatter() if fmt == "json" else TextFormatter()
-    file_handler = logging.handlers.RotatingFileHandler(log_dir / filename, maxBytes=max_size_mb * 1024 * 1024, backupCount=max_files, encoding="utf-8")
+    file_handler = logging.handlers.RotatingFileHandler(
+        log_dir / filename, maxBytes=max_size_mb * 1024 * 1024, backupCount=max_files, encoding="utf-8"
+    )
     file_handler.setFormatter(formatter)
     file_handler.addFilter(RedactingFilter())
     root.addHandler(file_handler)

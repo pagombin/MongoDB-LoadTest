@@ -70,7 +70,9 @@ class KeyChooser:
     ``base + index + count * i`` so processes never collide.
     """
 
-    def __init__(self, distribution: str, size: int, rng: random.Random, theta: float = 0.99, process_index: int = 0, process_count: int = 1):
+    def __init__(
+        self, distribution: str, size: int, rng: random.Random, theta: float = 0.99, process_index: int = 0, process_count: int = 1
+    ):
         self.distribution = distribution
         self.rng = rng
         self.theta = theta

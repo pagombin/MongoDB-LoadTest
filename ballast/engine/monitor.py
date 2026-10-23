@@ -9,11 +9,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Callable
+from collections.abc import Callable
 
-from pymongo import AsyncMongoClient
+from pymongo import AsyncMongoClient, monitoring
 from pymongo import errors as pe
-from pymongo import monitoring
 
 log = logging.getLogger("ballast.monitor")
 
@@ -37,9 +36,14 @@ class _TopologyEvents(monitoring.TopologyListener, monitoring.ServerListener, mo
         self.failing: set[str] = set()
         self.last_primary: str | None = None
 
-    def opened(self, event): pass
-    def closed(self, event): pass
-    def started(self, event): pass
+    def opened(self, event):
+        pass
+
+    def closed(self, event):
+        pass
+
+    def started(self, event):
+        pass
 
     def description_changed(self, event):
         previous, new = event.previous_description, event.new_description
@@ -77,8 +81,16 @@ class _TopologyEvents(monitoring.TopologyListener, monitoring.ServerListener, mo
 
 
 class ClusterMonitor:
-    def __init__(self, uri: str, client_options: dict, on_event: Callable[[int, str, dict], None],
-                 on_sample: Callable[[int, str, dict], None], sampling: bool, interval: float, redact=None):
+    def __init__(
+        self,
+        uri: str,
+        client_options: dict,
+        on_event: Callable[[int, str, dict], None],
+        on_sample: Callable[[int, str, dict], None],
+        sampling: bool,
+        interval: float,
+        redact=None,
+    ):
         self.uri = uri
         self.client_options = client_options
         self.on_event = on_event
@@ -127,10 +139,15 @@ class ClusterMonitor:
         except pe.OperationFailure as exc:
             if exc.code in UNAUTHORIZED_CODES or "not authorized" in str(exc).lower() or "unauthorized" in str(exc).lower():
                 self.unavailable.add(name)
-                self.on_event(int(time.time() * 1000), "sampling_unavailable", {
-                    "command": name, "reason": self.redact(str(exc).split("\n")[0][:200]),
-                    "fix": "Grant the clusterMonitor role to this user to enable server sampling. The run continues without it.",
-                })
+                self.on_event(
+                    int(time.time() * 1000),
+                    "sampling_unavailable",
+                    {
+                        "command": name,
+                        "reason": self.redact(str(exc).split("\n")[0][:200]),
+                        "fix": "Grant the clusterMonitor role to this user to enable server sampling. The run continues without it.",
+                    },
+                )
                 return None
             if name == "replSetGetStatus" and exc.code in (76, 94):
                 self.unavailable.add(name)
@@ -143,17 +160,29 @@ class ClusterMonitor:
             try:
                 hello = await self._command("hello", {"hello": 1})
                 if hello:
-                    self.on_sample(t_ms, "hello", {k: hello.get(k) for k in ("isWritablePrimary", "secondary", "setName", "primary", "me", "hosts", "msg") if k in hello})
+                    self.on_sample(
+                        t_ms,
+                        "hello",
+                        {
+                            k: hello.get(k)
+                            for k in ("isWritablePrimary", "secondary", "setName", "primary", "me", "hosts", "msg")
+                            if k in hello
+                        },
+                    )
                 status = await self._command("serverStatus", {"serverStatus": 1, "repl": 1, "metrics": 0, "locks": 0, "wiredTiger": 0})
                 if status:
-                    self.on_sample(t_ms, "serverStatus", {
-                        "host": status.get("host"),
-                        "version": status.get("version"),
-                        "uptime": status.get("uptime"),
-                        "connections": status.get("connections"),
-                        "opcounters": status.get("opcounters"),
-                        "network": {k: status.get("network", {}).get(k) for k in ("bytesIn", "bytesOut", "numRequests")},
-                    })
+                    self.on_sample(
+                        t_ms,
+                        "serverStatus",
+                        {
+                            "host": status.get("host"),
+                            "version": status.get("version"),
+                            "uptime": status.get("uptime"),
+                            "connections": status.get("connections"),
+                            "opcounters": status.get("opcounters"),
+                            "network": {k: status.get("network", {}).get(k) for k in ("bytesIn", "bytesOut", "numRequests")},
+                        },
+                    )
                 rs = await self._command("replSetGetStatus", {"replSetGetStatus": 1})
                 if rs:
                     members = []

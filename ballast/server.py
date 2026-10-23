@@ -33,10 +33,13 @@ from ballast.store import Store, intersect_gaps
 log = logging.getLogger("ballast.server")
 WEB_DIR = Path(__file__).resolve().parent / "web"
 CSRF_HEADER = "X-Ballast-Request"
+RETENTION_TASK = web.AppKey("retention", asyncio.Task)
 COOKIE = "ballast_session"
 STATE_CHANGING = {"POST", "PUT", "PATCH", "DELETE"}
-CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; "
-       "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'")
+CSP = (
+    "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; "
+    "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
+)
 
 
 class ApiError(Exception):
@@ -55,7 +58,9 @@ def json_response(data: Any, status: int = 200) -> web.Response:
 
 async def read_model(request: web.Request, model: type[BaseModel]) -> BaseModel:
     if request.content_type != "application/json":
-        raise ApiError(415, "Expected a JSON body", f"Content-Type was {request.content_type or 'missing'}.", "Send Content-Type: application/json.")
+        raise ApiError(
+            415, "Expected a JSON body", f"Content-Type was {request.content_type or 'missing'}.", "Send Content-Type: application/json."
+        )
     try:
         data = await request.json()
     except (ValueError, UnicodeDecodeError):
@@ -63,8 +68,13 @@ async def read_model(request: web.Request, model: type[BaseModel]) -> BaseModel:
     try:
         return model.model_validate(data)
     except ValidationError as exc:
-        problems = [{"field": ".".join(str(p) for p in e["loc"]), "problem": "unknown field" if e["type"] == "extra_forbidden" else e["msg"]} for e in exc.errors()]
-        raise ApiError(422, "Some values are not valid", "; ".join(f"{p['field']}: {p['problem']}" for p in problems[:8]), "", {"problems": problems}) from None
+        problems = [
+            {"field": ".".join(str(p) for p in e["loc"]), "problem": "unknown field" if e["type"] == "extra_forbidden" else e["msg"]}
+            for e in exc.errors()
+        ]
+        raise ApiError(
+            422, "Some values are not valid", "; ".join(f"{p['field']}: {p['problem']}" for p in problems[:8]), "", {"problems": problems}
+        ) from None
 
 
 class RunRequest(BaseModel):
@@ -181,7 +191,12 @@ class App:
                 self.check_same_origin(request)
             if not self.authorized(request) and not self.gate_exempt(request.path):
                 if request.path.startswith("/api/"):
-                    raise ApiError(401, "Access token required", "This server has an access gate.", "Open the app in a browser to enter the token, or send Authorization: Bearer <token>.")
+                    raise ApiError(
+                        401,
+                        "Access token required",
+                        "This server has an access gate.",
+                        "Open the app in a browser to enter the token, or send Authorization: Bearer <token>.",
+                    )
                 raise web.HTTPSeeOther("/auth")
             response = await handler(request)
         except ApiError as exc:
@@ -189,15 +204,24 @@ class App:
         except RunError as exc:
             response = json_response({"error": exc.as_dict()}, exc.status)
         except web.HTTPRequestEntityTooLarge:
-            response = json_response(error_body("Request body too large", f"The limit is {self.cfg.server.max_body_kb} KB.", "Send a smaller body."), 413)
+            response = json_response(
+                error_body("Request body too large", f"The limit is {self.cfg.server.max_body_kb} KB.", "Send a smaller body."), 413
+            )
         except web.HTTPException as exc:
             if exc.status >= 400 and request.path.startswith("/api/"):
                 response = json_response(error_body(exc.reason or "Error"), exc.status)
             else:
-                response = exc
+                response = web.Response(status=exc.status, headers=exc.headers, body=exc.body)
         except Exception:
             log.exception("unhandled error on %s %s", request.method, request.path)
-            response = json_response(error_body("Internal error", "The server hit an unexpected error. It has been logged.", "Download the log bundle from System and contact support."), 500)
+            response = json_response(
+                error_body(
+                    "Internal error",
+                    "The server hit an unexpected error. It has been logged.",
+                    "Download the log bundle from System and contact support.",
+                ),
+                500,
+            )
         self.add_security_headers(request, response)
         return response
 
@@ -211,10 +235,17 @@ class App:
                 raise ApiError(403, "Cross-site request blocked")
             return
         if request.headers.get(CSRF_HEADER) != "1":
-            raise ApiError(403, "Missing request header", f"State-changing requests must send {CSRF_HEADER}: 1.", "Use the app or ballastctl, which send it.")
+            raise ApiError(
+                403,
+                "Missing request header",
+                f"State-changing requests must send {CSRF_HEADER}: 1.",
+                "Use the app or ballastctl, which send it.",
+            )
         origin = request.headers.get("Origin")
         if origin is not None and not self.origin_matches(request, origin):
-            raise ApiError(403, "Cross-site request blocked", f"Origin {origin} does not match this server.", "Open the app from its own address.")
+            raise ApiError(
+                403, "Cross-site request blocked", f"Origin {origin} does not match this server.", "Open the app from its own address."
+            )
         site = request.headers.get("Sec-Fetch-Site")
         if site and site not in ("same-origin", "none"):
             raise ApiError(403, "Cross-site request blocked", f"Sec-Fetch-Site was {site}.", "")
@@ -253,12 +284,16 @@ class App:
             form = await request.post()
             supplied = str(form.get("token", ""))
             if self.token and hmac.compare_digest(supplied.encode(), self.token.encode()):
-                response = web.HTTPSeeOther("/")
+                response = web.Response(status=303, headers={"Location": "/"})
                 secure = self.scheme_and_host(request)[0] == "https"
-                response.set_cookie(COOKIE, self.session_value(), httponly=True, secure=secure, samesite="Strict", path="/", max_age=30 * 86400)
-                raise response
+                response.set_cookie(
+                    COOKIE, self.session_value(), httponly=True, secure=secure, samesite="Strict", path="/", max_age=30 * 86400
+                )
+                return response
             await asyncio.sleep(1)
-            return web.Response(text=_gate_html(self.cfg.branding.product_name, "That token is not correct."), content_type="text/html", status=401)
+            return web.Response(
+                text=_gate_html(self.cfg.branding.product_name, "That token is not correct."), content_type="text/html", status=401
+            )
         return web.Response(text=_gate_html(self.cfg.branding.product_name, ""), content_type="text/html")
 
     async def logo(self, request: web.Request) -> web.StreamResponse:
@@ -272,15 +307,28 @@ class App:
 
     async def health(self, request: web.Request) -> web.Response:
         active = self.runs.status()
-        return json_response({"status": "ok", "version": product.VERSION, "uptime_seconds": int(time.time() - self.started),
-                              "active_run": {"id": active["id"], "status": active["status"]} if active and self.authorized(request) else None})
+        return json_response(
+            {
+                "status": "ok",
+                "version": product.VERSION,
+                "uptime_seconds": int(time.time() - self.started),
+                "active_run": {"id": active["id"], "status": active["status"]} if active and self.authorized(request) else None,
+            }
+        )
 
     def about_data(self) -> dict:
         return {
-            "product": self.cfg.branding.product_name, "default_product": product.NAME, "description": product.DESCRIPTION,
-            "version": product.VERSION, "commit": buildinfo.COMMIT, "built": buildinfo.BUILT, "driver": f"PyMongo {pymongo.version}",
-            "python": platform.python_version(), "accent_color": self.cfg.branding.accent_color or None,
-            "has_logo": bool(self.cfg.branding.logo_file), "access_gate": bool(self.token),
+            "product": self.cfg.branding.product_name,
+            "default_product": product.NAME,
+            "description": product.DESCRIPTION,
+            "version": product.VERSION,
+            "commit": buildinfo.COMMIT,
+            "built": buildinfo.BUILT,
+            "driver": f"PyMongo {pymongo.version}",
+            "python": platform.python_version(),
+            "accent_color": self.cfg.branding.accent_color or None,
+            "has_logo": bool(self.cfg.branding.logo_file),
+            "access_gate": bool(self.token),
         }
 
     async def about(self, request: web.Request) -> web.Response:
@@ -297,17 +345,31 @@ class App:
             except Exception as exc:
                 cert = {"error": str(exc)}
         listen = self.cfg.server.listen
-        return json_response({
-            "health": "ok", "uptime_seconds": int(time.time() - self.started), "pid": os.getpid(),
-            "listen": listen, "scheme": "http" if self.cfg.tls.mode == "off" else "https",
-            "about": self.about_data(), "home": str(self.loaded.home), "config_file": str(self.loaded.path) if self.loaded.path else None,
-            "config": effective_with_sources(self.loaded),
-            "storage": {"database_bytes": self.store.size_bytes(), "runs": len(self.store.list_runs(100000)), "logs_bytes": log_size,
-                        "disk_free_bytes": disk.free, "disk_total_bytes": disk.total, "data_dir": str(data_dir)},
-            "certificate": cert, "tls_mode": self.cfg.tls.mode,
-            "warnings": list(dict.fromkeys(_warnings())),
-            "logs": logs.tail(self.loaded.log_dir, lines=100, min_level=request.query.get("level", "warning")),
-        })
+        return json_response(
+            {
+                "health": "ok",
+                "uptime_seconds": int(time.time() - self.started),
+                "pid": os.getpid(),
+                "listen": listen,
+                "scheme": "http" if self.cfg.tls.mode == "off" else "https",
+                "about": self.about_data(),
+                "home": str(self.loaded.home),
+                "config_file": str(self.loaded.path) if self.loaded.path else None,
+                "config": effective_with_sources(self.loaded),
+                "storage": {
+                    "database_bytes": self.store.size_bytes(),
+                    "runs": len(self.store.list_runs(100000)),
+                    "logs_bytes": log_size,
+                    "disk_free_bytes": disk.free,
+                    "disk_total_bytes": disk.total,
+                    "data_dir": str(data_dir),
+                },
+                "certificate": cert,
+                "tls_mode": self.cfg.tls.mode,
+                "warnings": list(dict.fromkeys(_warnings())),
+                "logs": logs.tail(self.loaded.log_dir, lines=100, min_level=request.query.get("level", "warning")),
+            }
+        )
 
     async def log_bundle(self, request: web.Request) -> web.Response:
         buffer = io.BytesIO()
@@ -317,10 +379,14 @@ class App:
                     if path.is_file() and path.stat().st_size < 200 * 1024 * 1024:
                         zf.writestr(f"logs/{path.name}", logs.redact(path.read_text(encoding="utf-8", errors="replace")))
             zf.writestr("config.json", json.dumps(self.loaded.redacted(), indent=2))
-            zf.writestr("about.json", json.dumps({**self.about_data(), "platform": platform.platform(), "cpu_count": os.cpu_count()}, indent=2))
+            zf.writestr(
+                "about.json", json.dumps({**self.about_data(), "platform": platform.platform(), "cpu_count": os.cpu_count()}, indent=2)
+            )
             zf.writestr("runs.json", json.dumps(self.store.list_runs(200), indent=2, default=str))
         name = f"{product.SLUG}-logs-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}.zip"
-        return web.Response(body=buffer.getvalue(), content_type="application/zip", headers={"Content-Disposition": f'attachment; filename="{name}"'})
+        return web.Response(
+            body=buffer.getvalue(), content_type="application/zip", headers={"Content-Disposition": f'attachment; filename="{name}"'}
+        )
 
     # ---- targets ----
 
@@ -398,7 +464,9 @@ class App:
         active = self.runs.active
         if active and active.target["id"] == target["id"] and active.database == body.database:
             raise ApiError(409, "Database is in use", "A run is writing to this database.", "Stop the run first.")
-        client = AsyncMongoClient(target["uri"], serverSelectionTimeoutMS=8000, appname=f"{product.SLUG}-cleanup", **targets.client_options(target))
+        client = AsyncMongoClient(
+            target["uri"], serverSelectionTimeoutMS=8000, appname=f"{product.SLUG}-cleanup", **targets.client_options(target)
+        )
         dropped = []
         try:
             db = client[body.database]
@@ -466,8 +534,11 @@ class App:
         current = self._profile(request.match_info["id"])
         payload = {"format": f"{product.SLUG}-profile", "version": 1, "profile": current["body"]}
         filename = "".join(c if c.isalnum() or c in "-_." else "-" for c in current["name"]) + ".json"
-        return web.Response(text=json.dumps(payload, indent=2), content_type="application/json",
-                            headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+        return web.Response(
+            text=json.dumps(payload, indent=2),
+            content_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
 
     async def import_profile(self, request):
         try:
@@ -478,7 +549,12 @@ class App:
         try:
             profile = Profile.model_validate(body)
         except ValidationError as exc:
-            raise ApiError(422, "The file is not a valid profile", "; ".join(f"{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in exc.errors()[:8]), "") from None
+            raise ApiError(
+                422,
+                "The file is not a valid profile",
+                "; ".join(f"{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in exc.errors()[:8]),
+                "",
+            ) from None
         name, n = profile.name, 2
         while self.store.get_profile_by_name(name):
             name = f"{profile.name} {n}"[:80]
@@ -558,7 +634,9 @@ class App:
         body = await read_model(request, WindowRequest)
         if body.end_ms <= body.start_ms:
             raise ApiError(422, "End must be after start")
-        return json_response(self.runs.analyze(row["id"], {"label": body.label, "source": "selection", "start_ms": body.start_ms, "end_ms": body.end_ms}))
+        return json_response(
+            self.runs.analyze(row["id"], {"label": body.label, "source": "selection", "start_ms": body.start_ms, "end_ms": body.end_ms})
+        )
 
     async def run_samples(self, request):
         row = self._run(request.match_info["id"])
@@ -602,15 +680,22 @@ class App:
         if fmt == "csv":
             body, ctype = report.csv_export(self.store, row), "text/csv"
         elif fmt == "json":
-            body, ctype = report.json_export(self.store, row, self.runs.analyze(row["id"]) if row["status"] in ACTIVE else row.get("analysis")), "application/json"
+            body, ctype = (
+                report.json_export(self.store, row, self.runs.analyze(row["id"]) if row["status"] in ACTIVE else row.get("analysis")),
+                "application/json",
+            )
         elif fmt == "html":
             analysis_result = self.runs.analyze(row["id"]) if row["status"] in ACTIVE or not row.get("analysis") else row["analysis"]
             body, ctype = report.html_export(self.store, row, analysis_result, self.about_data(), self.runs), "text/html"
         else:
             raise ApiError(404, "Unknown export format")
         body = logs.redact(body)
-        return web.Response(text=body, content_type=ctype, charset="utf-8",
-                            headers={"Content-Disposition": f'attachment; filename="{safe}-{row["id"]}.{fmt}"'})
+        return web.Response(
+            text=body,
+            content_type=ctype,
+            charset="utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{safe}-{row["id"]}.{fmt}"'},
+        )
 
     async def compare(self, request):
         ids = [i for i in request.query.get("ids", "").split(",") if i][:6]
@@ -632,9 +717,20 @@ class App:
             series = self.runs.series(row["id"], 1500)
             summary = (row.get("analysis") or {}).get("summary") or row.get("summary") or {}
             impacts = (row.get("analysis") or {}).get("impacts", [])
-            out.append({"id": row["id"], "name": row["name"], "status": row["status"], "offset_s": offset_s, "aligned_on": aligned_on,
-                        "step": series["step"], "points": series["points"], "summary": summary, "impacts": impacts,
-                        "markers": self.store.markers(row["id"])})
+            out.append(
+                {
+                    "id": row["id"],
+                    "name": row["name"],
+                    "status": row["status"],
+                    "offset_s": offset_s,
+                    "aligned_on": aligned_on,
+                    "step": series["step"],
+                    "points": series["points"],
+                    "summary": summary,
+                    "impacts": impacts,
+                    "markers": self.store.markers(row["id"]),
+                }
+            )
         return json_response({"align": align, "marker": marker_label, "runs": out})
 
     async def marker_labels(self, request):
@@ -734,20 +830,32 @@ class App:
             self.store.save_target(preset, existing["id"] if existing else None)
             self._register_target_secrets(preset["uri"])
         self._seed_profiles()
-        app["retention"] = asyncio.create_task(self._retention_loop())
+        app[RETENTION_TASK] = asyncio.create_task(self._retention_loop())
 
     def _seed_profiles(self) -> None:
         if self.store.list_profiles():
             return
         defaults = [
-            {"name": "OLTP steady 1k", "description": "60% reads by key, 30% updates, 10% inserts at 1,000 ops/s. A starting point for scale tests.",
-             "load": {"model": "open", "rate": 1000, "concurrency": 64}, "schedule": {"warmup_seconds": 30, "steady_seconds": None},
-             "dataset": {"load": {"documents": 100000}}},
-            {"name": "Write heavy 2k", "description": "80% inserts and updates at 2,000 ops/s with majority write concern.",
-             "operations": {"find": 20, "insert": 40, "update": 40}, "load": {"model": "open", "rate": 2000, "concurrency": 128},
-             "schedule": {"warmup_seconds": 30, "steady_seconds": None}},
-            {"name": "Closed loop 32 workers", "description": "32 workers with no think time; throughput finds its own level.",
-             "load": {"model": "closed", "concurrency": 32}, "schedule": {"warmup_seconds": 15, "steady_seconds": 300}},
+            {
+                "name": "OLTP steady 1k",
+                "description": "60% reads by key, 30% updates, 10% inserts at 1,000 ops/s. A starting point for scale tests.",
+                "load": {"model": "open", "rate": 1000, "concurrency": 64},
+                "schedule": {"warmup_seconds": 30, "steady_seconds": None},
+                "dataset": {"load": {"documents": 100000}},
+            },
+            {
+                "name": "Write heavy 2k",
+                "description": "80% inserts and updates at 2,000 ops/s with majority write concern.",
+                "operations": {"find": 20, "insert": 40, "update": 40},
+                "load": {"model": "open", "rate": 2000, "concurrency": 128},
+                "schedule": {"warmup_seconds": 30, "steady_seconds": None},
+            },
+            {
+                "name": "Closed loop 32 workers",
+                "description": "32 workers with no think time; throughput finds its own level.",
+                "load": {"model": "closed", "concurrency": 32},
+                "schedule": {"warmup_seconds": 15, "steady_seconds": 300},
+            },
         ]
         for body in defaults:
             self.store.save_profile(Profile.model_validate(body).model_dump(mode="json"))
@@ -764,7 +872,7 @@ class App:
 
     async def on_shutdown(self, app) -> None:
         log.info("shutting down")
-        task = app.get("retention")
+        task = app.get(RETENTION_TASK)
         if task:
             task.cancel()
         await self.runs.shutdown()
@@ -800,8 +908,25 @@ def _gate_html(name: str, message: str) -> str:
 
 
 def _run_view(row: dict) -> dict:
-    return {k: row.get(k) for k in ("id", "name", "status", "target_id", "target_name", "database_name", "created_at", "started_at", "ended_at",
-                                   "profile", "snapshot", "summary", "analysis", "error")}
+    return {
+        k: row.get(k)
+        for k in (
+            "id",
+            "name",
+            "status",
+            "target_id",
+            "target_name",
+            "database_name",
+            "created_at",
+            "started_at",
+            "ended_at",
+            "profile",
+            "snapshot",
+            "summary",
+            "analysis",
+            "error",
+        )
+    }
 
 
 def startup_checks(loaded: Loaded) -> list[str]:
@@ -817,7 +942,9 @@ def startup_checks(loaded: Loaded) -> list[str]:
     try:
         free_mb = shutil.disk_usage(loaded.data_dir).free // (1024 * 1024)
         if free_mb < loaded.config.paths.min_free_disk_mb:
-            problems.append(f"Only {free_mb} MB free on the disk holding {loaded.data_dir}; at least {loaded.config.paths.min_free_disk_mb} MB is required (paths.min_free_disk_mb).")
+            problems.append(
+                f"Only {free_mb} MB free on the disk holding {loaded.data_dir}; at least {loaded.config.paths.min_free_disk_mb} MB is required (paths.min_free_disk_mb)."
+            )
     except OSError:
         pass
     return problems
@@ -866,8 +993,14 @@ def serve(loaded: Loaded, ready_file: Path | None = None) -> int:
             print(f"startup check failed: {problem}", flush=True)
         return 3
     cfg = loaded.config
-    logs.setup(loaded.log_dir, cfg.logging.level, cfg.logging.format, cfg.logging.max_size_mb, cfg.logging.max_files,
-               console=os.environ.get("BALLAST_FOREGROUND") == "1")
+    logs.setup(
+        loaded.log_dir,
+        cfg.logging.level,
+        cfg.logging.format,
+        cfg.logging.max_size_mb,
+        cfg.logging.max_files,
+        console=os.environ.get("BALLAST_FOREGROUND") == "1",
+    )
     for warning in _warnings():
         log.warning(warning)
         print(f"warning: {warning}", flush=True)

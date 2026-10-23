@@ -56,7 +56,7 @@ markers = [
   "e2e: browser tests",
   "soak: long-running soak test",
 ]
-addopts = "-m 'not integration and not e2e and not soak'"
+addopts = "--import-mode=importlib -m 'not integration and not e2e and not soak'"
 
 [tool.ruff]
 line-length = 140
@@ -65,7 +65,7 @@ extend-exclude = ["mongo_load_tester"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "S"]
-ignore = ["S101", "S311", "S603", "S607", "E731", "B008", "UP038"]
+ignore = ["S101", "S110", "S311", "S603", "S607", "E501", "E731", "B008"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S", "B"]

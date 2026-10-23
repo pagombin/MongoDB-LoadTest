@@ -46,7 +46,7 @@ def load_cert(path: Path) -> x509.Certificate:
 
 def fingerprint(cert: x509.Certificate) -> str:
     digest = cert.fingerprint(hashes.SHA256()).hex().upper()
-    return ":".join(digest[i:i + 2] for i in range(0, len(digest), 2))
+    return ":".join(digest[i : i + 2] for i in range(0, len(digest), 2))
 
 
 def describe(path: Path) -> dict:
@@ -63,10 +63,12 @@ def describe(path: Path) -> dict:
 
 def generate_self_signed(cert_path: Path, key_path: Path, hosts: list[str]) -> x509.Certificate:
     key = ec.generate_private_key(ec.SECP256R1())
-    subject = x509.Name([
-        x509.NameAttribute(NameOID.COMMON_NAME, hosts[0] if hosts else "localhost"),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, f"{product.NAME} self-signed"),
-    ])
+    subject = x509.Name(
+        [
+            x509.NameAttribute(NameOID.COMMON_NAME, hosts[0] if hosts else "localhost"),
+            x509.NameAttribute(NameOID.ORGANIZATION_NAME, f"{product.NAME} self-signed"),
+        ]
+    )
     now = dt.datetime.now(dt.UTC)
     builder = (
         x509.CertificateBuilder()
@@ -79,8 +81,20 @@ def generate_self_signed(cert_path: Path, key_path: Path, hosts: list[str]) -> x
         .add_extension(x509.SubjectAlternativeName(_san_entries(hosts) or [x509.DNSName("localhost")]), critical=False)
         .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
         .add_extension(x509.ExtendedKeyUsage([x509.oid.ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)
-        .add_extension(x509.KeyUsage(digital_signature=True, key_encipherment=False, content_commitment=False, data_encipherment=False,
-                                     key_agreement=True, key_cert_sign=False, crl_sign=False, encipher_only=False, decipher_only=False), critical=True)
+        .add_extension(
+            x509.KeyUsage(
+                digital_signature=True,
+                key_encipherment=False,
+                content_commitment=False,
+                data_encipherment=False,
+                key_agreement=True,
+                key_cert_sign=False,
+                crl_sign=False,
+                encipher_only=False,
+                decipher_only=False,
+            ),
+            critical=True,
+        )
     )
     cert = builder.sign(key, hashes.SHA256())
     cert_path.parent.mkdir(parents=True, exist_ok=True)

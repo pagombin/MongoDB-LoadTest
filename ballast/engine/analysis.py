@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 import statistics
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 
 from ballast.engine.histogram import Histogram
 from ballast.engine.series import EXCLUDED_PHASES, SecondRecord
@@ -34,7 +34,7 @@ class AnalysisSettings:
     client_bound_min_seconds: int = 10
 
     @classmethod
-    def from_dict(cls, data: dict | None) -> "AnalysisSettings":
+    def from_dict(cls, data: dict | None) -> AnalysisSettings:
         settings = cls()
         for key, value in (data or {}).items():
             if hasattr(settings, key) and value is not None:
@@ -71,19 +71,21 @@ def marker_windows(markers: list[dict]) -> list[dict]:
     for i, marker in enumerate(ordered):
         if marker_phase(marker) != "begin":
             continue
-        for later in ordered[i + 1:]:
+        for later in ordered[i + 1 :]:
             if later.get("id") in used:
                 continue
             if marker_phase(later) == "end":
                 used.add(later.get("id"))
-                windows.append({
-                    "label": _base_label(marker.get("label") or "window"),
-                    "source": "markers",
-                    "start_ms": marker["t_ms"],
-                    "end_ms": later["t_ms"],
-                    "begin_marker": marker.get("id"),
-                    "end_marker": later.get("id"),
-                })
+                windows.append(
+                    {
+                        "label": _base_label(marker.get("label") or "window"),
+                        "source": "markers",
+                        "start_ms": marker["t_ms"],
+                        "end_ms": later["t_ms"],
+                        "begin_marker": marker.get("id"),
+                        "end_marker": later.get("id"),
+                    }
+                )
                 break
     return windows
 
@@ -220,7 +222,7 @@ def detect_disruptions(records: list[SecondRecord], settings: AnalysisSettings) 
     median_tput = statistics.median(tputs)
     median_p99 = statistics.median([p for p in p99s if p] or [0])
     bad: list[int] = []
-    for record, p99 in zip(measured, p99s):
+    for record, p99 in zip(measured, p99s, strict=True):
         disturbed = record.err > 0
         if median_tput and record.ok < median_tput * (1 - settings.disruption_throughput_drop):
             disturbed = True
@@ -275,18 +277,22 @@ def client_bound(records: list[SecondRecord], settings: AnalysisSettings, disrup
         sample = [r for r in measured if start <= r.t <= end]
         achieved = sum(r.ok + r.err for r in sample) / len(sample)
         target = sample[-1].target_rate or 0
-        reasons.append({"kind": "rate", "start": start, "end": end,
-                        "detail": f"Achieved {achieved:,.0f} of {target:,.0f} ops/s target"})
+        reasons.append({"kind": "rate", "start": start, "end": end, "detail": f"Achieved {achieved:,.0f} of {target:,.0f} ops/s target"})
     cpu_flags = [(r.t, r.cpu >= settings.client_bound_cpu_percent) for r in measured]
     for start, end in _runs_of(cpu_flags, settings.client_bound_min_seconds):
         peak = max(r.cpu for r in measured if start <= r.t <= end)
-        reasons.append({"kind": "cpu", "start": start, "end": end,
-                        "detail": f"Generator CPU at {peak:.0f}% of one core"})
+        reasons.append({"kind": "cpu", "start": start, "end": end, "detail": f"Generator CPU at {peak:.0f}% of one core"})
     pool_flags = [(r.t, r.pool_wait.percentile(99) >= settings.client_bound_pool_wait_us and r.t not in disturbed) for r in measured]
     for start, end in _runs_of(pool_flags, settings.client_bound_min_seconds):
         peak = max(r.pool_wait.percentile(99) for r in measured if start <= r.t <= end)
-        reasons.append({"kind": "pool", "start": start, "end": end,
-                        "detail": f"Connection pool checkout wait p99 reached {peak / 1000:.1f} ms; raise maxPoolSize"})
+        reasons.append(
+            {
+                "kind": "pool",
+                "start": start,
+                "end": end,
+                "detail": f"Connection pool checkout wait p99 reached {peak / 1000:.1f} ms; raise maxPoolSize",
+            }
+        )
     return {"client_bound": bool(reasons), "reasons": reasons}
 
 
@@ -331,7 +337,9 @@ def summarize(records: list[SecondRecord]) -> dict:
     }
 
 
-def full_analysis(records: list[SecondRecord], gaps: list[dict], events: list[dict], markers: list[dict], settings: AnalysisSettings) -> dict:
+def full_analysis(
+    records: list[SecondRecord], gaps: list[dict], events: list[dict], markers: list[dict], settings: AnalysisSettings
+) -> dict:
     windows = marker_windows(markers)
     disruptions = detect_disruptions(records, settings)
     impacts = [analyze_window(w, records, gaps, events, settings, windows) for w in windows]

@@ -3,7 +3,7 @@ import random
 
 import pytest
 
-from ballast.engine.histogram import Histogram, RELATIVE_PRECISION, bucket_bounds, bucket_index, merged
+from ballast.engine.histogram import RELATIVE_PRECISION, Histogram, bucket_bounds, bucket_index, merged
 
 
 def exact_percentile(values, p):

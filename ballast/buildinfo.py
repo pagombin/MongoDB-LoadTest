@@ -12,7 +12,12 @@ if COMMIT == "unknown":
     _root = Path(__file__).resolve().parent.parent
     if (_root / ".git").exists():
         try:
-            COMMIT = subprocess.run(["git", "-C", str(_root), "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=2, check=False).stdout.strip() or "unknown"
+            COMMIT = (
+                subprocess.run(
+                    ["git", "-C", str(_root), "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=2, check=False
+                ).stdout.strip()
+                or "unknown"
+            )
             BUILT = "source checkout"
         except (OSError, subprocess.SubprocessError):
             pass

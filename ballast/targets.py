@@ -14,7 +14,9 @@ from pymongo import errors as pe
 from ballast.product import SLUG
 
 MASK = "****"
-URI_RE = re.compile(r"^(?P<scheme>mongodb(?:\+srv)?)://(?:(?P<user>[^:@/]*)(?::(?P<password>[^@/]*))?@)?(?P<hosts>[^/?]+)(?P<path>/[^?]*)?(?:\?(?P<query>.*))?$")
+URI_RE = re.compile(
+    r"^(?P<scheme>mongodb(?:\+srv)?)://(?:(?P<user>[^:@/]*)(?::(?P<password>[^@/]*))?@)?(?P<hosts>[^/?]+)(?P<path>/[^?]*)?(?:\?(?P<query>.*))?$"
+)
 SENSITIVE_QUERY_KEYS = {"authmechanismproperties", "tlscertificatekeyfilepassword", "sslclientcertificatekeypassword"}
 
 
@@ -147,17 +149,35 @@ def explain_failure(exc: BaseException, redact) -> dict:
     text = redact(str(exc))
     lower = text.lower()
     if isinstance(exc, pe.InvalidURI):
-        return {"cause": "invalid_uri", "title": "The connection string is not valid", "detail": text,
-                "fix": "Check the format: mongodb://user:password@host:port/?options or mongodb+srv://user:password@cluster-host/. Percent-encode special characters in the password."}
-    if isinstance(exc, pe.ConfigurationError) and ("dns" in lower or "srv" in lower or "nxdomain" in lower or "resolution" in lower or "query name" in lower):
-        return {"cause": "dns_srv", "title": "DNS SRV lookup failed", "detail": text,
-                "fix": "Check the cluster host name. From this server run: nslookup -type=SRV _mongodb._tcp.<cluster-host>. If DNS is blocked, use the standard mongodb:// connection string with every member listed."}
+        return {
+            "cause": "invalid_uri",
+            "title": "The connection string is not valid",
+            "detail": text,
+            "fix": "Check the format: mongodb://user:password@host:port/?options or mongodb+srv://user:password@cluster-host/. Percent-encode special characters in the password.",
+        }
+    if isinstance(exc, pe.ConfigurationError) and (
+        "dns" in lower or "srv" in lower or "nxdomain" in lower or "resolution" in lower or "query name" in lower
+    ):
+        return {
+            "cause": "dns_srv",
+            "title": "DNS SRV lookup failed",
+            "detail": text,
+            "fix": "Check the cluster host name. From this server run: nslookup -type=SRV _mongodb._tcp.<cluster-host>. If DNS is blocked, use the standard mongodb:// connection string with every member listed.",
+        }
     if (isinstance(exc, pe.OperationFailure) and getattr(exc, "code", None) == 18) or "authentication failed" in lower:
-        return {"cause": "auth", "title": "Authentication failed", "detail": text,
-                "fix": "Check the user name and password, and set authSource (usually admin) in the connection string. Managed services also need the user to exist on this cluster."}
+        return {
+            "cause": "auth",
+            "title": "Authentication failed",
+            "detail": text,
+            "fix": "Check the user name and password, and set authSource (usually admin) in the connection string. Managed services also need the user to exist on this cluster.",
+        }
     if "certificate" in lower or "ssl" in lower or "tls" in lower:
-        return {"cause": "tls", "title": "TLS handshake failed", "detail": text,
-                "fix": "If the server uses a private CA, set the CA file path. If TLS is required, set TLS to on. For a host name mismatch, connect using the name on the certificate."}
+        return {
+            "cause": "tls",
+            "title": "TLS handshake failed",
+            "detail": text,
+            "fix": "If the server uses a private CA, set the CA file path. If TLS is required, set TLS to on. For a host name mismatch, connect using the name on the certificate.",
+        }
     if isinstance(exc, pe.ServerSelectionTimeoutError):
         if "connection refused" in lower:
             fix = "Nothing is listening on that host and port. Check the port and that mongod is running."
@@ -173,7 +193,12 @@ def explain_failure(exc: BaseException, redact) -> dict:
             title = "Server selection timed out"
         return {"cause": "server_selection", "title": title, "detail": text, "fix": fix}
     if isinstance(exc, pe.ConfigurationError):
-        return {"cause": "configuration", "title": "Driver configuration error", "detail": text, "fix": "Check the connection string options and TLS file paths."}
+        return {
+            "cause": "configuration",
+            "title": "Driver configuration error",
+            "detail": text,
+            "fix": "Check the connection string options and TLS file paths.",
+        }
     return {"cause": "other", "title": type(exc).__name__, "detail": text, "fix": "See the detail for the driver's message."}
 
 
@@ -189,8 +214,11 @@ async def test_connection(target: dict, timeout_ms: int = 8000) -> dict:
     client = None
     try:
         client = AsyncMongoClient(
-            target["uri"], appname=f"{SLUG}-test", serverSelectionTimeoutMS=timeout_ms,
-            connectTimeoutMS=timeout_ms, **client_options(target),
+            target["uri"],
+            appname=f"{SLUG}-test",
+            serverSelectionTimeoutMS=timeout_ms,
+            connectTimeoutMS=timeout_ms,
+            **client_options(target),
         )
         hello = await client.admin.command("hello")
         try:
@@ -201,11 +229,13 @@ async def test_connection(target: dict, timeout_ms: int = 8000) -> dict:
         description = client.topology_description
         members = []
         for address, sd in description.server_descriptions().items():
-            members.append({
-                "address": f"{address[0]}:{address[1]}",
-                "state": sd.server_type_name,
-                "round_trip_ms": round(sd.round_trip_time * 1000, 1) if sd.round_trip_time is not None else None,
-            })
+            members.append(
+                {
+                    "address": f"{address[0]}:{address[1]}",
+                    "state": sd.server_type_name,
+                    "round_trip_ms": round(sd.round_trip_time * 1000, 1) if sd.round_trip_time is not None else None,
+                }
+            )
         members.sort(key=lambda m: m["address"])
         topology = description.topology_type_name
         if hello.get("msg") == "isdbgrid":
@@ -221,7 +251,12 @@ async def test_connection(target: dict, timeout_ms: int = 8000) -> dict:
             "members": members,
         }
     except Exception as exc:
-        return {"ok": False, "tested_at": int(time.time() * 1000), "elapsed_ms": round((time.monotonic() - started) * 1000), **explain_failure(exc, redact)}
+        return {
+            "ok": False,
+            "tested_at": int(time.time() * 1000),
+            "elapsed_ms": round((time.monotonic() - started) * 1000),
+            **explain_failure(exc, redact),
+        }
     finally:
         if client is not None:
             await client.close()

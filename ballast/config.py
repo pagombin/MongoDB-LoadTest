@@ -44,7 +44,9 @@ class ServerConfig(Section):
     def _listen(cls, value: str) -> str:
         host, port = split_listen(value)
         if port < 1024:
-            raise ValueError(f"port {port} is below 1024; ports below 1024 need root, which {product.NAME} does not use. Pick a port such as 8443")
+            raise ValueError(
+                f"port {port} is below 1024; ports below 1024 need root, which {product.NAME} does not use. Pick a port such as 8443"
+            )
         if port > 65535:
             raise ValueError("port must be at most 65535")
         return value
@@ -64,6 +66,11 @@ class TlsConfig(Section):
     self_signed_hosts: list[str] = Field(default_factory=lambda: ["localhost", "127.0.0.1"])
     min_version: Literal["1.2", "1.3"] = "1.2"
     redirect_http_listen: str = ""
+
+    @field_validator("mode", mode="before")
+    @classmethod
+    def _yaml_off(cls, value):
+        return "off" if value is False else value
 
     @field_validator("redirect_http_listen")
     @classmethod
@@ -151,7 +158,7 @@ class Config(Section):
     targets: list[TargetPreset] = Field(default_factory=list)
 
     @model_validator(mode="after")
-    def _secrets(self) -> "Config":
+    def _secrets(self) -> Config:
         sources = [bool(self.server.access_token), bool(self.server.access_token_env), bool(self.server.access_token_file)]
         if sum(sources) > 1:
             raise ValueError("set only one of server.access_token, server.access_token_env, server.access_token_file")
@@ -195,12 +202,14 @@ def env_overrides(environ: dict[str, str] | None = None) -> dict[str, dict[str, 
     for name, raw in environ.items():
         if not name.startswith(product.ENV_PREFIX):
             continue
-        rest = name[len(product.ENV_PREFIX):].lower()
+        rest = name[len(product.ENV_PREFIX) :].lower()
         if rest in ("home", "config"):
             continue
         section, _, key = rest.partition("_")
         if section not in SECTIONS or not key or section == "targets":
-            raise ConfigError(f"unknown environment variable {name}: expected {product.ENV_PREFIX}<SECTION>_<KEY> with section one of {', '.join(s for s in SECTIONS if s != 'targets')}")
+            raise ConfigError(
+                f"unknown environment variable {name}: expected {product.ENV_PREFIX}<SECTION>_<KEY> with section one of {', '.join(s for s in SECTIONS if s != 'targets')}"
+            )
         fields = Config.model_fields[section].annotation.model_fields
         if key not in fields:
             raise ConfigError(f"unknown environment variable {name}: {section} has no key '{key}'")
@@ -286,20 +295,34 @@ class Loaded:
             if password:
                 from urllib.parse import quote
 
-                uri = re.sub(r"^(mongodb(?:\+srv)?://)([^:@/]+)(?::[^@/]*)?@", lambda m: f"{m.group(1)}{m.group(2)}:{quote(password, safe='')}@", uri, count=1)
-            out.append({"name": preset.name, "uri": uri, "tls": preset.tls, "tls_ca_file": preset.tls_ca_file,
-                        "tls_certificate_key_file": preset.tls_certificate_key_file, "tls_allow_invalid_hostnames": preset.tls_allow_invalid_hostnames})
+                encoded = quote(password, safe="")
+                uri = re.sub(
+                    r"^(mongodb(?:\+srv)?://)([^:@/]+)(?::[^@/]*)?@",
+                    lambda m, enc=encoded: f"{m.group(1)}{m.group(2)}:{enc}@",
+                    uri,
+                    count=1,
+                )
+            out.append(
+                {
+                    "name": preset.name,
+                    "uri": uri,
+                    "tls": preset.tls,
+                    "tls_ca_file": preset.tls_ca_file,
+                    "tls_certificate_key_file": preset.tls_certificate_key_file,
+                    "tls_allow_invalid_hostnames": preset.tls_allow_invalid_hostnames,
+                }
+            )
         return out
 
     def redacted(self) -> dict:
         data = self.config.model_dump(mode="json")
         if data["server"].get("access_token"):
-            data["server"]["access_token"] = "****"
+            data["server"]["access_token"] = "****"  # noqa: S105
         from ballast.targets import redact_uri
 
         for preset in data.get("targets", []):
             if preset.get("password"):
-                preset["password"] = "****"
+                preset["password"] = "****"  # noqa: S105
             preset["uri"] = redact_uri(preset["uri"])
         return data
 
@@ -317,7 +340,9 @@ def read_secret_file(path: Path, key: str) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def load(path: str | Path | None = None, flags: list[str] | None = None, environ: dict[str, str] | None = None, home: Path | None = None) -> Loaded:
+def load(
+    path: str | Path | None = None, flags: list[str] | None = None, environ: dict[str, str] | None = None, home: Path | None = None
+) -> Loaded:
     home = home or install_home()
     environ = os.environ if environ is None else environ
     config_path: Path | None = None

@@ -19,7 +19,7 @@ class OpSecond:
     rt: Histogram = field(default_factory=Histogram)
     st: Histogram = field(default_factory=Histogram)
 
-    def merge(self, other: "OpSecond") -> None:
+    def merge(self, other: OpSecond) -> None:
         self.ok += other.ok
         self.err += other.err
         self.rt.merge(other.rt)
@@ -29,8 +29,13 @@ class OpSecond:
         return {"ok": self.ok, "err": self.err, "rt": self.rt.to_compact(), "st": self.st.to_compact()}
 
     @classmethod
-    def from_json(cls, data: dict) -> "OpSecond":
-        return cls(ok=data.get("ok", 0), err=data.get("err", 0), rt=Histogram.from_compact(data.get("rt")), st=Histogram.from_compact(data.get("st")))
+    def from_json(cls, data: dict) -> OpSecond:
+        return cls(
+            ok=data.get("ok", 0),
+            err=data.get("err", 0),
+            rt=Histogram.from_compact(data.get("rt")),
+            st=Histogram.from_compact(data.get("st")),
+        )
 
 
 @dataclass(slots=True)
@@ -74,7 +79,7 @@ class SecondRecord:
             hist.merge(op.st)
         return hist
 
-    def merge(self, other: "SecondRecord") -> None:
+    def merge(self, other: SecondRecord) -> None:
         for name, op in other.ops.items():
             self.ops.setdefault(name, OpSecond()).merge(op)
         for key, value in other.errors.items():
@@ -120,7 +125,7 @@ class SecondRecord:
         }
 
     @classmethod
-    def from_json(cls, data: dict) -> "SecondRecord":
+    def from_json(cls, data: dict) -> SecondRecord:
         return cls(
             t=int(data["t"]),
             phase=data.get("phase", "steady"),

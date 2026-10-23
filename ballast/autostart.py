@@ -83,14 +83,20 @@ def enable(home: Path) -> tuple[int, list[str]]:
                 break
         else:
             lines.append(f"Enabled systemd user unit {name} ({unit_dir / name}).")
-            lines.append("It runs 'bin/ballast supervise'. If Ballast is already running from ballastctl start, the unit takes over at the next boot.")
+            lines.append(
+                "It runs 'bin/ballast supervise'. If Ballast is already running from ballastctl start, the unit takes over at the next boot."
+            )
             linger = linger_state()
             if linger == "yes":
                 lines.append("Lingering is on, so the service starts at boot and keeps running after you log out.")
             else:
-                lines.append("Lingering is off (or unknown). Without it, user services start only when you log in and stop when you log out.")
+                lines.append(
+                    "Lingering is off (or unknown). Without it, user services start only when you log in and stop when you log out."
+                )
                 lines.append(f"Turn it on with: loginctl enable-linger {getpass.getuser()}")
-                lines.append("On many hosts this needs an administrator. If it is refused, run 'ballastctl autostart disable' and use the crontab method instead.")
+                lines.append(
+                    "On many hosts this needs an administrator. If it is refused, run 'ballastctl autostart disable' and use the crontab method instead."
+                )
             return 0, lines
     if crontab_available():
         current = _run(["crontab", "-l"]).stdout if _run(["crontab", "-l"]).returncode == 0 else ""

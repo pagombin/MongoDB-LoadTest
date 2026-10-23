@@ -19,11 +19,9 @@ import os
 import random
 import signal
 import time
-from typing import Any
 
-from pymongo import AsyncMongoClient, ReturnDocument
+from pymongo import AsyncMongoClient, ReturnDocument, monitoring
 from pymongo import errors as pe
-from pymongo import monitoring
 
 from ballast.engine.documents import DocumentFactory
 from ballast.engine.errors import classify
@@ -82,17 +80,32 @@ class OpenSchedule:
 
 
 class _PoolEvents(monitoring.ConnectionPoolListener):
-    def __init__(self, gen: "Generator"):
+    def __init__(self, gen: Generator):
         self.gen = gen
 
-    def pool_created(self, event): pass
-    def pool_ready(self, event): pass
-    def pool_closed(self, event): pass
-    def connection_created(self, event): pass
-    def connection_ready(self, event): pass
-    def connection_closed(self, event): pass
-    def connection_check_out_started(self, event): pass
-    def connection_checked_in(self, event): pass
+    def pool_created(self, event):
+        pass
+
+    def pool_ready(self, event):
+        pass
+
+    def pool_closed(self, event):
+        pass
+
+    def connection_created(self, event):
+        pass
+
+    def connection_ready(self, event):
+        pass
+
+    def connection_closed(self, event):
+        pass
+
+    def connection_check_out_started(self, event):
+        pass
+
+    def connection_checked_in(self, event):
+        pass
 
     def pool_cleared(self, event):
         self.gen.on_pool_cleared(f"{event.address[0]}:{event.address[1]}")
@@ -115,8 +128,14 @@ class Generator:
         self.docs = DocumentFactory(self.profile.document, self.rng)
         self.collections_names: list[str] = spec["collections"]
         self.keys = {
-            name: KeyChooser(self.profile.keys.distribution, int(spec["key_sizes"].get(name, 0)), self.rng,
-                             self.profile.keys.zipf_theta, self.index, self.count)
+            name: KeyChooser(
+                self.profile.keys.distribution,
+                int(spec["key_sizes"].get(name, 0)),
+                self.rng,
+                self.profile.keys.zipf_theta,
+                self.index,
+                self.count,
+            )
             for name in self.collections_names
         }
         mix = self.profile.operations.normalized()
@@ -270,7 +289,11 @@ class Generator:
     # ---- operations ----
 
     def choose_op(self) -> str:
-        return self.op_names[bisect.bisect_left(self.op_cum, self.rng.random() * self.op_cum[-1])] if len(self.op_names) > 1 else self.op_names[0]
+        return (
+            self.op_names[bisect.bisect_left(self.op_cum, self.rng.random() * self.op_cum[-1])]
+            if len(self.op_names) > 1
+            else self.op_names[0]
+        )
 
     async def run_op(self, op: str, i: int) -> None:
         coll = self.colls[i]
@@ -378,7 +401,9 @@ class Generator:
                 share = 0.001
             if self.schedule is None:
                 self.schedule = OpenSchedule(share, now)
-                concurrency = max(1, self.profile.load.concurrency // self.count + (1 if self.index < self.profile.load.concurrency % self.count else 0))
+                concurrency = max(
+                    1, self.profile.load.concurrency // self.count + (1 if self.index < self.profile.load.concurrency % self.count else 0)
+                )
                 self.tasks = [asyncio.create_task(self.open_worker()) for _ in range(concurrency)]
             else:
                 self.schedule.set_rate(share, now)

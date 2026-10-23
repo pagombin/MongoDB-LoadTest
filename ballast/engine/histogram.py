@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import math
 import zlib
-from typing import Iterable
+from collections.abc import Iterable
 
 SUB_BUCKET_BITS = 11
 SUB_BUCKET_COUNT = 1 << SUB_BUCKET_BITS
@@ -64,7 +64,7 @@ class Histogram:
         self.total += count
         self.sum += value * count
 
-    def merge(self, other: "Histogram") -> "Histogram":
+    def merge(self, other: Histogram) -> Histogram:
         if other.total == 0:
             return self
         counts = self.counts
@@ -78,7 +78,7 @@ class Histogram:
         self.sum += other.sum
         return self
 
-    def copy(self) -> "Histogram":
+    def copy(self) -> Histogram:
         clone = Histogram()
         clone.counts = dict(self.counts)
         clone.total, clone.sum, clone.min, clone.max = self.total, self.sum, self.min, self.max
@@ -137,13 +137,13 @@ class Histogram:
         return [self.total, self.sum, self.min, self.max, deltas, [self.counts[i] for i in indexes]]
 
     @classmethod
-    def from_compact(cls, data: list | None) -> "Histogram":
+    def from_compact(cls, data: list | None) -> Histogram:
         hist = cls()
         if not data:
             return hist
         hist.total, hist.sum, hist.min, hist.max = int(data[0]), int(data[1]), int(data[2]), int(data[3])
         index = 0
-        for delta, count in zip(data[4], data[5]):
+        for delta, count in zip(data[4], data[5], strict=True):
             index += delta
             hist.counts[index] = count
         return hist
@@ -152,7 +152,7 @@ class Histogram:
         return zlib.compress(json.dumps(self.to_compact(), separators=(",", ":")).encode())
 
     @classmethod
-    def decode(cls, blob: bytes) -> "Histogram":
+    def decode(cls, blob: bytes) -> Histogram:
         return cls.from_compact(json.loads(zlib.decompress(blob)))
 
     def summary(self) -> dict[str, float]:

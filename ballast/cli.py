@@ -7,7 +7,6 @@ import hashlib
 import http.client
 import json
 import os
-import socket
 import ssl
 import sys
 import time
@@ -48,6 +47,7 @@ def _passthrough(args) -> list[str]:
 
 
 # ---- talking to the local server ----
+
 
 class LocalClient:
     def __init__(self, loaded: Loaded):
@@ -90,7 +90,9 @@ class LocalClient:
             actual = hashlib.sha256(conn.sock.getpeercert(binary_form=True)).hexdigest()
             if expected and actual != expected:
                 conn.close()
-                raise ConnectionError(f"the server at {self.host}:{self.port} presented a different certificate than {self.loaded.config.tls.cert_file}")
+                raise ConnectionError(
+                    f"the server at {self.host}:{self.port} presented a different certificate than {self.loaded.config.tls.cert_file}"
+                )
         else:
             conn = http.client.HTTPConnection(self.host, self.port, timeout=timeout)
         try:
@@ -118,6 +120,7 @@ def _print_error(payload) -> None:
 
 
 # ---- commands ----
+
 
 def cmd_serve(args) -> int:
     loaded = _loaded(args)
@@ -222,7 +225,7 @@ def cmd_health(args) -> int:
     loaded = _loaded(args)
     try:
         status, payload = LocalClient(loaded).request("GET", "/api/health", timeout=args.timeout)
-    except (OSError, ConnectionError, socket.timeout) as exc:
+    except (TimeoutError, OSError, ConnectionError) as exc:
         print(f"unhealthy: cannot reach the server: {exc}")
         return 1
     if status == 200 and isinstance(payload, dict) and payload.get("status") == "ok":
@@ -267,7 +270,7 @@ def cmd_logs(args) -> int:
             print(line)
 
     with path.open(encoding="utf-8", errors="replace") as handle:
-        lines = handle.readlines()[-args.lines:]
+        lines = handle.readlines()[-args.lines :]
         for line in lines:
             show(line.rstrip("\n"))
         if args.follow:
@@ -352,14 +355,19 @@ def cmd_config(args) -> int:
 def cmd_version(args) -> int:
     import pymongo
 
-    print(f"{product.NAME} {product.VERSION} (commit {buildinfo.COMMIT}, built {buildinfo.BUILT}, PyMongo {pymongo.version}, Python {sys.version.split()[0]})")
+    print(
+        f"{product.NAME} {product.VERSION} (commit {buildinfo.COMMIT}, built {buildinfo.BUILT}, PyMongo {pymongo.version}, Python {sys.version.split()[0]})"
+    )
     return 0
 
 
 def cmd_legacy(args) -> int:
     loaded = _loaded(args)
     if not loaded.config.features.legacy_dashboard:
-        print("error: the legacy dashboard is turned off. Set features.legacy_dashboard: true to use it (see docs/DECISIONS.md D-003).", file=sys.stderr)
+        print(
+            "error: the legacy dashboard is turned off. Set features.legacy_dashboard: true to use it (see docs/DECISIONS.md D-003).",
+            file=sys.stderr,
+        )
         return EXIT_CONFIG
     from mongo_load_tester.cli import app as legacy_app
 
@@ -382,9 +390,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--detach", action="store_true")
     p.set_defaults(func=cmd_supervise)
 
-    for name, func, help_text in (("start", cmd_start, "start in the background under the supervisor"),
-                                  ("stop", cmd_stop, "stop gracefully, then force after a timeout"),
-                                  ("restart", cmd_restart, "stop, then start")):
+    for name, func, help_text in (
+        ("start", cmd_start, "start in the background under the supervisor"),
+        ("stop", cmd_stop, "stop gracefully, then force after a timeout"),
+        ("restart", cmd_restart, "stop, then start"),
+    ):
         p = sub.add_parser(name, help=help_text)
         _common(p)
         p.add_argument("--wait", type=float, default=45, help="seconds to wait for the server to become ready")

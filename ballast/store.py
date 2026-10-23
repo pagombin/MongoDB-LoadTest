@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import sqlite3
 import threading
 import time
@@ -15,7 +14,9 @@ from pathlib import Path
 from ballast.engine.series import SecondRecord
 
 MIGRATIONS: list[tuple[int, str]] = [
-    (1, """
+    (
+        1,
+        """
     CREATE TABLE targets (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL UNIQUE,
@@ -89,7 +90,8 @@ MIGRATIONS: list[tuple[int, str]] = [
         data_json TEXT NOT NULL
     );
     CREATE INDEX samples_run ON samples(run_id, t_ms);
-    """),
+    """,
+    ),
 ]
 LATEST_VERSION = MIGRATIONS[-1][0]
 
@@ -147,7 +149,9 @@ class Store:
         with self._lock:
             current = self.schema_version()
             if current > LATEST_VERSION:
-                raise RuntimeError(f"data store schema version {current} is newer than this build supports ({LATEST_VERSION}); use a newer release")
+                raise RuntimeError(
+                    f"data store schema version {current} is newer than this build supports ({LATEST_VERSION}); use a newer release"
+                )
             if current == LATEST_VERSION:
                 return None
             if existed and current > 0:
@@ -220,11 +224,15 @@ class Store:
         ts = now_ms()
         if target_id is None:
             target_id = new_id()
-            self._exec("INSERT INTO targets(id,name,uri,options_json,created_at,updated_at) VALUES (?,?,?,?,?,?)",
-                       (target_id, data["name"], data["uri"], json.dumps(options), ts, ts))
+            self._exec(
+                "INSERT INTO targets(id,name,uri,options_json,created_at,updated_at) VALUES (?,?,?,?,?,?)",
+                (target_id, data["name"], data["uri"], json.dumps(options), ts, ts),
+            )
         else:
-            self._exec("UPDATE targets SET name=?, uri=?, options_json=?, updated_at=? WHERE id=?",
-                       (data["name"], data["uri"], json.dumps(options), ts, target_id))
+            self._exec(
+                "UPDATE targets SET name=?, uri=?, options_json=?, updated_at=? WHERE id=?",
+                (data["name"], data["uri"], json.dumps(options), ts, target_id),
+            )
         return self.get_target(target_id)
 
     def set_target_test(self, target_id: str, result: dict) -> None:
@@ -254,8 +262,10 @@ class Store:
         ts = now_ms()
         if profile_id is None:
             profile_id = new_id()
-            self._exec("INSERT INTO profiles(id,name,body_json,created_at,updated_at) VALUES (?,?,?,?,?)",
-                       (profile_id, body["name"], json.dumps(body), ts, ts))
+            self._exec(
+                "INSERT INTO profiles(id,name,body_json,created_at,updated_at) VALUES (?,?,?,?,?)",
+                (profile_id, body["name"], json.dumps(body), ts, ts),
+            )
         else:
             self._exec("UPDATE profiles SET name=?, body_json=?, updated_at=? WHERE id=?", (body["name"], json.dumps(body), ts, profile_id))
         return self.get_profile(profile_id)
@@ -274,8 +284,10 @@ class Store:
         return row
 
     def create_run(self, run_id: str, name: str, target: dict, database: str, profile: dict) -> dict:
-        self._exec("INSERT INTO runs(id,name,status,target_id,target_name,database_name,created_at,profile_json) VALUES (?,?,?,?,?,?,?,?)",
-                   (run_id, name, "starting", target["id"], target["name"], database, now_ms(), json.dumps(profile)))
+        self._exec(
+            "INSERT INTO runs(id,name,status,target_id,target_name,database_name,created_at,profile_json) VALUES (?,?,?,?,?,?,?,?)",
+            (run_id, name, "starting", target["id"], target["name"], database, now_ms(), json.dumps(profile)),
+        )
         return self.get_run(run_id)
 
     def update_run(self, run_id: str, **fields) -> None:
@@ -296,7 +308,10 @@ class Store:
         return self._run_row(self._one("SELECT * FROM runs WHERE id=?", (run_id,)))
 
     def list_runs(self, limit: int = 500) -> list[dict]:
-        rows = self._all("SELECT id,name,status,target_id,target_name,database_name,created_at,started_at,ended_at,summary_json,analysis_json FROM runs ORDER BY created_at DESC LIMIT ?", (limit,))
+        rows = self._all(
+            "SELECT id,name,status,target_id,target_name,database_name,created_at,started_at,ended_at,summary_json,analysis_json FROM runs ORDER BY created_at DESC LIMIT ?",
+            (limit,),
+        )
         out = []
         for row in rows:
             summary = json.loads(row.pop("summary_json")) if row.get("summary_json") else None
@@ -326,8 +341,15 @@ class Store:
         for run_id in ids:
             last = self._one("SELECT MAX(t) AS t FROM seconds WHERE run_id=?", (run_id,))
             ended = (last["t"] + 1) * 1000 if last and last["t"] is not None else now_ms()
-            self.update_run(run_id, status="interrupted", ended_at=ended,
-                            error={"title": "Interrupted", "detail": "The application stopped while this run was active. Data recorded up to that point is kept."})
+            self.update_run(
+                run_id,
+                status="interrupted",
+                ended_at=ended,
+                error={
+                    "title": "Interrupted",
+                    "detail": "The application stopped while this run was active. Data recorded up to that point is kept.",
+                },
+            )
         return ids
 
     def prune(self, max_age_days: int, max_count: int) -> list[str]:
@@ -380,7 +402,9 @@ class Store:
         return [{"id": r["id"], "t_ms": r["t_ms"], "kind": r["kind"], "data": json.loads(r["data_json"])} for r in rows]
 
     def add_marker(self, run_id: str, t_ms: int, label: str, note: str, phase: str | None, source: str) -> dict:
-        cur = self._exec("INSERT INTO markers(run_id,t_ms,label,note,phase,source) VALUES (?,?,?,?,?,?)", (run_id, t_ms, label, note, phase, source))
+        cur = self._exec(
+            "INSERT INTO markers(run_id,t_ms,label,note,phase,source) VALUES (?,?,?,?,?,?)", (run_id, t_ms, label, note, phase, source)
+        )
         return {"id": cur.lastrowid, "run_id": run_id, "t_ms": t_ms, "label": label, "note": note, "phase": phase, "source": source}
 
     def markers(self, run_id: str) -> list[dict]:

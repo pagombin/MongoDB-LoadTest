@@ -29,7 +29,9 @@ def scenario():
         if t < 30:
             records.append(second(t, phase="warmup", rt_us=9000))
         elif 102 <= t <= 108:
-            records.append(second(t, ok=200, err=50, rt_us=500_000, first=102_100 if t == 102 else None, last=108_800 if t == 108 else None))
+            records.append(
+                second(t, ok=200, err=50, rt_us=500_000, first=102_100 if t == 102 else None, last=108_800 if t == 108 else None)
+            )
         elif 110 <= t <= 115:
             records.append(second(t, rt_us=50_000))
         else:

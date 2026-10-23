@@ -138,9 +138,16 @@ class RunManager:
             return None
         last = run.live[-1] if run.live else None
         return {
-            "id": run.id, "name": run.name, "status": run.status, "phase": run.phase, "level": run.level,
-            "model": run.profile.load.model, "target_rate": run.profile.load.rate if run.profile.load.model == "open" else None,
-            "started_at": run.started_at, "elapsed_ms": self._elapsed_ms(run), "last": last,
+            "id": run.id,
+            "name": run.name,
+            "status": run.status,
+            "phase": run.phase,
+            "level": run.level,
+            "model": run.profile.load.model,
+            "target_rate": run.profile.load.rate if run.profile.load.model == "open" else None,
+            "started_at": run.started_at,
+            "elapsed_ms": self._elapsed_ms(run),
+            "last": last,
             "load": {"target": run.load_target_docs, "done": sum(p.loaded for p in run.processes)} if run.status == "loading" else None,
             "errors": run.errors_live,
         }
@@ -161,7 +168,9 @@ class RunManager:
     async def preflight(self, target: dict, profile: Profile) -> dict:
         """Check what a run would touch, without writing anything."""
         self.register_secrets(target["uri"])
-        client = AsyncMongoClient(target["uri"], serverSelectionTimeoutMS=8000, appname=f"{product.SLUG}-preflight", **client_options(target))
+        client = AsyncMongoClient(
+            target["uri"], serverSelectionTimeoutMS=8000, appname=f"{product.SLUG}-preflight", **client_options(target)
+        )
         try:
             db = client[profile.dataset.database]
             names = sorted(await db.list_collection_names())
@@ -208,7 +217,11 @@ class RunManager:
         for name in profile.dataset.collection_names():
             if name not in existing:
                 await db.create_collection(name)
-                await registry.update_one({"_id": name}, {"$setOnInsert": {"product": product.NAME, "created_at": datetime.now(UTC), "run_id": run_id}}, upsert=True)
+                await registry.update_one(
+                    {"_id": name},
+                    {"$setOnInsert": {"product": product.NAME, "created_at": datetime.now(UTC), "run_id": run_id}},
+                    upsert=True,
+                )
             for index in profile.dataset.indexes:
                 keys = list(index.keys.items())
                 await db[name].create_index(keys, unique=index.unique)
@@ -221,23 +234,43 @@ class RunManager:
     async def start(self, *, name: str, target: dict, profile: Profile, acknowledge_foreign: bool = False) -> dict:
         async with self._lock:
             if self.active is not None:
-                raise RunError("A run is already active", f"Run '{self.active.name}' is {self.active.status}.", "Stop it before starting another.", status=409)
+                raise RunError(
+                    "A run is already active",
+                    f"Run '{self.active.name}' is {self.active.status}.",
+                    "Stop it before starting another.",
+                    status=409,
+                )
             pre = await self.preflight(target, profile)
             if pre["name_clash"]:
-                raise RunError("Collection name clash",
-                               f"{', '.join(pre['name_clash'])} already exist in {pre['database']} and were not created by {product.NAME}.",
-                               "Choose another collection prefix or database.", status=409, extra={"preflight": pre})
+                raise RunError(
+                    "Collection name clash",
+                    f"{', '.join(pre['name_clash'])} already exist in {pre['database']} and were not created by {product.NAME}.",
+                    "Choose another collection prefix or database.",
+                    status=409,
+                    extra={"preflight": pre},
+                )
             if pre["writes"] and pre["foreign_collections"] and not acknowledge_foreign:
-                raise RunError("Confirmation needed",
-                               f"{pre['database']} contains collections {product.NAME} did not create: {', '.join(pre['foreign_collections'][:20])}.",
-                               "Writes go only to the benchmark collections, but they share the database's cache and disk. Confirm to continue.",
-                               status=428, extra={"preflight": pre, "needs": "acknowledge_foreign"})
+                raise RunError(
+                    "Confirmation needed",
+                    f"{pre['database']} contains collections {product.NAME} did not create: {', '.join(pre['foreign_collections'][:20])}.",
+                    "Writes go only to the benchmark collections, but they share the database's cache and disk. Confirm to continue.",
+                    status=428,
+                    extra={"preflight": pre, "needs": "acknowledge_foreign"},
+                )
             run_id = new_id()
             self.register_secrets(target["uri"])
             row = self.store.create_run(run_id, name, target, profile.dataset.database, profile.model_dump(mode="json"))
             settings = AnalysisSettings.from_dict(profile.analysis.model_dump(exclude_none=True))
-            run = ActiveRun(id=run_id, name=name, profile=profile, target=target, database=profile.dataset.database,
-                            collections=profile.dataset.collection_names(), settings=settings, secrets=secrets_in(target["uri"]))
+            run = ActiveRun(
+                id=run_id,
+                name=name,
+                profile=profile,
+                target=target,
+                database=profile.dataset.database,
+                collections=profile.dataset.collection_names(),
+                settings=settings,
+                secrets=secrets_in(target["uri"]),
+            )
             self.active = run
             run.task = asyncio.create_task(self._drive(run, pre))
             self.hub.publish("state", self.status())
@@ -261,11 +294,21 @@ class RunManager:
             "app": {"name": product.NAME, "version": product.VERSION, "commit": buildinfo.COMMIT, "built": buildinfo.BUILT},
             "driver": {"name": "pymongo", "version": pymongo.version},
             "python": platform.python_version(),
-            "server": {"version": version, "topology": description.topology_type_name if hello.get("msg") != "isdbgrid" else "Sharded",
-                       "set_name": hello.get("setName"), "primary": hello.get("primary"), "members": sorted(members, key=lambda m: m["address"])},
+            "server": {
+                "version": version,
+                "topology": description.topology_type_name if hello.get("msg") != "isdbgrid" else "Sharded",
+                "set_name": hello.get("setName"),
+                "primary": hello.get("primary"),
+                "members": sorted(members, key=lambda m: m["address"]),
+            },
             "target": {"name": run.target["name"], "uri": redact_uri(run.target["uri"]), "tls": run.target.get("tls", "auto")},
             "effective_driver_options": run.profile.driver.client_options(),
-            "generator_host": {"hostname": platform.node(), "cpu_count": os.cpu_count(), "memory_bytes": mem, "platform": platform.platform()},
+            "generator_host": {
+                "hostname": platform.node(),
+                "cpu_count": os.cpu_count(),
+                "memory_bytes": mem,
+                "platform": platform.platform(),
+            },
             "preflight": {k: pre[k] for k in ("database", "foreign_collections", "document_counts")},
             "profile_summary": run.profile.plain_summary(),
         }
@@ -275,28 +318,47 @@ class RunManager:
         reader_fds: list[int] = []
         loop = asyncio.get_running_loop()
         try:
-            client = AsyncMongoClient(run.target["uri"], serverSelectionTimeoutMS=15000, appname=f"{product.SLUG}-control", **client_options(run.target))
+            client = AsyncMongoClient(
+                run.target["uri"], serverSelectionTimeoutMS=15000, appname=f"{product.SLUG}-control", **client_options(run.target)
+            )
             sizes = await self._prepare_collections(client, run.profile, run.id)
             snapshot = await self._snapshot(client, run, pre)
             self.store.update_run(run.id, snapshot=snapshot)
-            run.monitor = ClusterMonitor(run.target["uri"], client_options(run.target), self._on_monitor_event, self._on_sample,
-                                         run.profile.sampling.enabled, run.profile.sampling.interval_seconds, self.redact)
+            run.monitor = ClusterMonitor(
+                run.target["uri"],
+                client_options(run.target),
+                self._on_monitor_event,
+                self._on_sample,
+                run.profile.sampling.enabled,
+                run.profile.sampling.interval_seconds,
+                self.redact,
+            )
             try:
                 await run.monitor.start()
             except Exception as exc:
                 self._record_event(run, now_ms(), "monitor_unavailable", {"error": self.redact(str(exc))[:200]})
             spec = {
-                "run_id": run.id, "uri": run.target["uri"], "client_options": client_options(run.target),
-                "profile": run.profile.model_dump(mode="json"), "database": run.database, "collections": run.collections,
-                "key_sizes": sizes, "app_name": f"{product.SLUG}-gen", "secrets": run.secrets,
+                "run_id": run.id,
+                "uri": run.target["uri"],
+                "client_options": client_options(run.target),
+                "profile": run.profile.model_dump(mode="json"),
+                "database": run.database,
+                "collections": run.collections,
+                "key_sizes": sizes,
+                "app_name": f"{product.SLUG}-gen",
+                "secrets": run.secrets,
             }
             count = run.profile.load.processes
             for index in range(count):
                 parent_conn, child_conn = self.ctx.Pipe()
                 from ballast.engine import generator
 
-                proc = self.ctx.Process(target=generator.entry, args=(child_conn, {**spec, "process_index": index, "process_count": count}),
-                                        name=f"ballast-gen-{index}", daemon=True)
+                proc = self.ctx.Process(
+                    target=generator.entry,
+                    args=(child_conn, {**spec, "process_index": index, "process_count": count}),
+                    name=f"ballast-gen-{index}",
+                    daemon=True,
+                )
                 proc.start()
                 child_conn.close()
                 handle = ProcessHandle(index=index, process=proc, conn=parent_conn)
@@ -310,7 +372,13 @@ class RunManager:
                 run.phase = "load"
                 self._record_event(run, now_ms(), "phase", {"phase": "load", "documents_per_collection": run.load_target_docs})
                 for p in run.processes:
-                    p.conn.send({"cmd": "load", "targets": {n: run.load_target_docs for n in run.collections}, "batch_size": run.profile.dataset.load.batch_size})
+                    p.conn.send(
+                        {
+                            "cmd": "load",
+                            "targets": {n: run.load_target_docs for n in run.collections},
+                            "batch_size": run.profile.dataset.load.batch_size,
+                        }
+                    )
                 await self._wait(run, lambda: all(p.load_done for p in run.processes), None, "Data load did not finish")
                 self._record_event(run, now_ms(), "load_done", {"documents": sum(p.loaded for p in run.processes)})
             if run.stop_requested.is_set():
@@ -324,7 +392,11 @@ class RunManager:
             run.error = exc.as_dict()
         except Exception as exc:
             log.exception("run %s failed", run.id)
-            info = explain_failure(exc, self.redact) if not isinstance(exc, RuntimeError) else {"title": "Run failed", "detail": self.redact(str(exc)), "fix": ""}
+            info = (
+                explain_failure(exc, self.redact)
+                if not isinstance(exc, RuntimeError)
+                else {"title": "Run failed", "detail": self.redact(str(exc)), "fix": ""}
+            )
             run.error = info
         finally:
             await self._finish(run, client, reader_fds)
@@ -369,7 +441,9 @@ class RunManager:
         target = run.profile.target_level()
         first = True
         if sched.warmup_seconds > 0:
-            if not await self._phase(run, "warmup", run.profile.schedule.ramp[0].level if sched.ramp else target, sched.warmup_seconds, first):
+            if not await self._phase(
+                run, "warmup", run.profile.schedule.ramp[0].level if sched.ramp else target, sched.warmup_seconds, first
+            ):
                 return
             first = False
         for i, step in enumerate(sched.ramp):
@@ -408,7 +482,9 @@ class RunManager:
             handle.ready = True
         elif kind == "load_progress":
             handle.loaded = msg["docs"]
-            self.hub.publish("load", {"run": run.id, "done": sum(p.loaded for p in run.processes), "target": run.load_target_docs * len(run.collections)})
+            self.hub.publish(
+                "load", {"run": run.id, "done": sum(p.loaded for p in run.processes), "target": run.load_target_docs * len(run.collections)}
+            )
         elif kind == "load_done":
             handle.loaded = msg["docs"]
             handle.load_done = True
@@ -420,8 +496,12 @@ class RunManager:
             handle.stopped = True
         elif kind == "error":
             err = msg.get("error", {})
-            run.error = {"title": f"Generator failed during {msg.get('stage')}", "detail": self.redact(err.get("message", "")), "fix": "",
-                         "class": err.get("class")}
+            run.error = {
+                "title": f"Generator failed during {msg.get('stage')}",
+                "detail": self.redact(err.get("message", "")),
+                "fix": "",
+                "class": err.get("class"),
+            }
             if msg.get("stage") == "connect":
                 run.error["fix"] = "Test the target's connection from the Targets page."
             run.stop_requested.set()
@@ -513,7 +593,9 @@ class RunManager:
                 self._set_status(run, "stopping")
         return {"id": run.id, "status": run.status}
 
-    def add_marker(self, run_id: str, label: str, note: str = "", phase: str | None = None, source: str = "api", t_ms: int | None = None) -> dict:
+    def add_marker(
+        self, run_id: str, label: str, note: str = "", phase: str | None = None, source: str = "api", t_ms: int | None = None
+    ) -> dict:
         run = self.active if run_id == "active" else None
         target_id = run.id if run else run_id
         row = self.store.get_run(target_id)
@@ -587,7 +669,9 @@ class RunManager:
             await self.stop(self.active.id, reason="server_shutdown")
             if self.active and self.active.task:
                 try:
-                    await asyncio.wait_for(asyncio.shield(self.active.task), timeout=self.active.profile.schedule.drain_timeout_seconds + 15)
+                    await asyncio.wait_for(
+                        asyncio.shield(self.active.task), timeout=self.active.profile.schedule.drain_timeout_seconds + 15
+                    )
                 except (TimeoutError, asyncio.CancelledError):
                     pass
 

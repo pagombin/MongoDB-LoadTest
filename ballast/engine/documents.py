@@ -7,10 +7,9 @@ import string
 from datetime import UTC, datetime
 from typing import Any
 
+from ballast.engine.profile import DocumentSpec
 from mongo_load_tester.config import SchemaConfig
 from mongo_load_tester.workload.schema import DocumentGenerator
-
-from ballast.engine.profile import DocumentSpec
 
 _PAD_ALPHABET = string.ascii_letters + string.digits
 _FIXED_OVERHEAD = 60
@@ -32,7 +31,7 @@ class DocumentFactory:
         if self._pad_len == 0:
             return ""
         start = self.rng.randrange(len(self._pad_source) - self._pad_len + 1)
-        return self._pad_source[start:start + self._pad_len]
+        return self._pad_source[start : start + self._pad_len]
 
     def new(self, key: int) -> dict[str, Any]:
         if self._schema_gen is not None:

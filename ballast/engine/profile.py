@@ -30,7 +30,7 @@ class OperationMix(Strict):
     find_and_modify: float = Field(default=0, ge=0)
 
     @model_validator(mode="after")
-    def _positive(self) -> "OperationMix":
+    def _positive(self) -> OperationMix:
         if sum(self.weights().values()) <= 0:
             raise ValueError("at least one operation needs a weight above 0")
         return self
@@ -57,7 +57,7 @@ class DocumentSpec(Strict):
     )
 
     @model_validator(mode="after")
-    def _schema(self) -> "DocumentSpec":
+    def _schema(self) -> DocumentSpec:
         if self.mode == "schema" and not self.schema_fields:
             raise ValueError("schema_fields is required when mode is 'schema'")
         if self.schema_fields:
@@ -140,7 +140,7 @@ class DriverSettings(Strict):
     heartbeat_frequency_ms: int = Field(default=10_000, ge=500)
 
     @model_validator(mode="after")
-    def _pools(self) -> "DriverSettings":
+    def _pools(self) -> DriverSettings:
         if self.min_pool_size > self.max_pool_size:
             raise ValueError("min_pool_size must be <= max_pool_size")
         return self
@@ -194,7 +194,9 @@ class ScheduleSpec(Strict):
 
 
 class RetrySpec(Strict):
-    max_attempts: int = Field(default=1, ge=1, le=20, description="Application-level attempts on top of driver retries. 1 means no extra retries.")
+    max_attempts: int = Field(
+        default=1, ge=1, le=20, description="Application-level attempts on top of driver retries. 1 means no extra retries."
+    )
     initial_backoff_ms: int = Field(default=50, ge=0, le=60_000)
     max_backoff_ms: int = Field(default=2_000, ge=0, le=600_000)
     backoff_multiplier: float = Field(default=2.0, ge=1.0, le=10.0)

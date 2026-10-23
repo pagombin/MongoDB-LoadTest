@@ -12,7 +12,9 @@ def test_not_writable_primary_by_code_and_labels():
 
 
 def test_operation_failure_uses_code_name():
-    exc = pe.OperationFailure("stepped down", code=189, details={"code": 189, "codeName": "PrimarySteppedDown", "errorLabels": ["RetryableWriteError"]})
+    exc = pe.OperationFailure(
+        "stepped down", code=189, details={"code": 189, "codeName": "PrimarySteppedDown", "errorLabels": ["RetryableWriteError"]}
+    )
     info = classify(exc)
     assert info.error_class == "PrimarySteppedDown"
     assert "RetryableWriteError" in info.labels
