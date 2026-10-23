@@ -74,7 +74,7 @@ def test_impact_analysis_known_answers():
     assert result["failed_by_class"] == {"NotWritablePrimary": 350}
     assert result["longest_write_gap"] == {"ms": 6_600, "start_ms": 102_300, "end_ms": 108_900}
     assert result["longest_read_gap"]["ms"] == 400
-    assert result["primary_changes"] == [{"t_ms": 103_000, "from": "rs1:27011", "to": "rs2:27012"}]
+    assert result["primary_changes"] == [{"t_ms": 103_000, "kind": "primary_changed", "from": "rs1:27011", "to": "rs2:27012"}]
     assert result["before"]["p99_us"] == 2_000
     assert result["before"]["throughput"] == 1_000
     assert result["during"]["max_us"] >= 500_000

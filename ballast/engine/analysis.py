@@ -14,6 +14,7 @@ from ballast.engine.histogram import Histogram
 from ballast.engine.series import EXCLUDED_PHASES, SecondRecord
 
 BEGIN_RE = re.compile(r"(?:^|\b)(start|started|starting|begin|began|beginning)\s*$", re.I)
+PRIMARY_EVENTS = ("primary_changed", "primary_lost", "primary_restored")
 END_RE = re.compile(r"(?:^|\b)(finish|finished|end|ended|done|complete|completed|stop|stopped)\s*$", re.I)
 
 
@@ -185,9 +186,9 @@ def analyze_window(
         if record.last_err_ms is not None and (last_fail is None or record.last_err_ms > last_fail):
             last_fail = record.last_err_ms
     primary_changes = [
-        {"t_ms": e["t_ms"], "from": e["data"].get("from"), "to": e["data"].get("to")}
+        {"t_ms": e["t_ms"], "kind": e["kind"], "from": e["data"].get("from"), "to": e["data"].get("to")}
         for e in events
-        if e["kind"] == "primary_changed" and start_ms - 5000 <= e["t_ms"] <= span_end_ms
+        if e["kind"] in PRIMARY_EVENTS and start_ms - 5000 <= e["t_ms"] <= span_end_ms
     ]
     return {
         "label": window.get("label"),

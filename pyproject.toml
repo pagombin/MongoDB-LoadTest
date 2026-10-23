@@ -3,34 +3,69 @@ requires = ["setuptools>=69", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mongo-load-tester"
-version = "0.1.0"
-description = "Config-driven MongoDB load and stress testing application with live dashboard"
+name = "ballast"
+dynamic = ["version"]
+description = "Load testing for MongoDB clusters, built to show what a workload experiences during scale operations."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
+license-files = ["LICENSE"]
 dependencies = [
-  "dash>=2.18.2",
+  "aiohttp>=3.10",
+  "cryptography>=43",
   "faker>=33.0.0",
+  "pydantic>=2.10.6",
+  "pymongo>=4.13",
+  "pyyaml>=6.0.2",
+]
+
+[project.optional-dependencies]
+legacy = [
+  "dash>=2.18.2",
   "kaleido>=1.0.0",
   "plotly>=6.0.0",
-  "pydantic>=2.10.6",
-  "pymongo>=4.11.1",
-  "pyyaml>=6.0.2",
   "reportlab>=4.2.5",
   "typer>=0.15.1",
   "waitress>=3.0.0",
 ]
-
-[project.optional-dependencies]
 dev = [
   "pytest>=8.3.4",
+  "pytest-asyncio>=0.24",
+  "ruff>=0.6",
+  "mypy>=1.11",
+  "pip-audit>=2.7",
 ]
 
 [project.scripts]
+ballast = "ballast.cli:main"
 mongo-load-tester = "mongo_load_tester.cli:main"
 
+[tool.setuptools.dynamic]
+version = {attr = "ballast.product.VERSION"}
+
 [tool.setuptools.packages.find]
-include = ["mongo_load_tester*"]
+include = ["ballast*", "mongo_load_tester*"]
+
+[tool.setuptools.package-data]
+ballast = ["web/**/*", "web/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+  "integration: needs a local MongoDB replica set (BALLAST_TEST_URI)",
+  "e2e: browser tests",
+  "soak: long-running soak test",
+]
+addopts = "-m 'not integration and not e2e and not soak'"
+
+[tool.ruff]
+line-length = 140
+target-version = "py311"
+extend-exclude = ["mongo_load_tester"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S"]
+ignore = ["S101", "S311", "S603", "S607", "E731", "B008", "UP038"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "B"]

@@ -9,7 +9,7 @@ from ballast.engine.histogram import Histogram
 WRITE_OPS = ("insert", "update", "upsert", "delete", "find_and_modify")
 READ_OPS = ("find", "range", "aggregate")
 ALL_OPS = READ_OPS + WRITE_OPS
-EXCLUDED_PHASES = ("load", "warmup", "paused")
+EXCLUDED_PHASES = ("load", "warmup", "paused", "stopping")
 
 
 @dataclass(slots=True)
