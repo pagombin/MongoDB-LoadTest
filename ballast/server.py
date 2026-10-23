@@ -662,7 +662,9 @@ class App:
         if body.end_ms <= body.start_ms:
             raise ApiError(422, "End must be after start")
         return json_response(
-            await off_loop(self.runs.analyze, row["id"], {"label": body.label, "source": "selection", "start_ms": body.start_ms, "end_ms": body.end_ms})
+            await off_loop(
+                self.runs.analyze, row["id"], {"label": body.label, "source": "selection", "start_ms": body.start_ms, "end_ms": body.end_ms}
+            )
         )
 
     async def run_samples(self, request):
@@ -711,7 +713,10 @@ class App:
                 analysis_result = await off_loop(self.runs.analyze, row["id"]) if row["status"] in ACTIVE else row.get("analysis")
                 chunks, ctype = report.json_chunks(self.store, row, analysis_result), "application/json"
             response = web.StreamResponse(
-                headers={"Content-Type": f"{ctype}; charset=utf-8", "Content-Disposition": f'attachment; filename="{safe}-{row["id"]}.{fmt}"'}
+                headers={
+                    "Content-Type": f"{ctype}; charset=utf-8",
+                    "Content-Disposition": f'attachment; filename="{safe}-{row["id"]}.{fmt}"',
+                }
             )
             self.add_security_headers(request, response)
             await response.prepare(request)
@@ -720,10 +725,14 @@ class App:
             await response.write_eof()
             return response
         if fmt == "md":
-            analysis_result = await off_loop(self.runs.analyze, row["id"]) if row["status"] in ACTIVE or not row.get("analysis") else row["analysis"]
+            analysis_result = (
+                await off_loop(self.runs.analyze, row["id"]) if row["status"] in ACTIVE or not row.get("analysis") else row["analysis"]
+            )
             body, ctype = report.markdown_export(row, analysis_result), "text/markdown"
         elif fmt == "html":
-            analysis_result = await off_loop(self.runs.analyze, row["id"]) if row["status"] in ACTIVE or not row.get("analysis") else row["analysis"]
+            analysis_result = (
+                await off_loop(self.runs.analyze, row["id"]) if row["status"] in ACTIVE or not row.get("analysis") else row["analysis"]
+            )
             body, ctype = await off_loop(report.html_export, self.store, row, analysis_result, self.about_data(), self.runs), "text/html"
         else:
             raise ApiError(404, "Unknown export format")
