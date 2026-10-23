@@ -77,7 +77,9 @@ SHOTS=docs/design/after node tests/e2e/run.mjs
 
 Steps: empty runs page; create a target through the form and see the connection test result; open a profile; walk the new-run wizard to the review; start the run and land on the live view; add "resize started" and "resize finished" markers with the M key while a 4-second write stall runs; check the active-run band on the runs page; pause and resume with P; stop with S and confirm; check the impact table; export the HTML report and open it from disk with network requests recorded; CSV and JSON exports; compare, settings, system pages; dark theme and compact density; keyboard shortcuts dialog and N. All passed, with no console errors and no request to any host other than the server. The exported report made zero network requests.
 
-The resulting report (`docs/design/after/04-report.png`) shows the stall exactly as designed: a 4.07 s write gap, p99 rising from 6.8 ms before the window to 3.9 s during it, the open model's catch-up burst to about 1,500 ops/s as its backlog drained, and a recovery time of 10 s.
+The resulting report (`docs/design/after/04-report.png`, rerun after the review fixes in commit 6038045) shows the stall exactly as designed: a 4.13 s write gap, p99 rising from 16.2 ms before the window to 3.98 s during it, the open model's catch-up burst to about 1,500 ops/s as its backlog drained, and recovery within the first second after the end marker.
+
+One rerun of this test happened while the release build was compressing bundles on the same 4-CPU host (load average 6). That run showed p99 near 1 s after resume and an extra detected disruption. The next run on an idle host did not, so that was generator CPU starvation rather than a defect. It is also the case that the client-bound check exists to flag.
 
 ## 4. Accessibility
 
