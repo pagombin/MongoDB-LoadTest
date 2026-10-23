@@ -16,7 +16,7 @@ Environment: Linux x86-64, 4 CPUs, 15.7 GB RAM; Docker 29.9.1; MongoDB 8.0.34 an
 | Browser end-to-end (12.5) | 20 of 20 checks passed | `docs/evidence/e2e-browser.txt` |
 | Accessibility scan, WCAG 2.2 A/AA rules (7.3.3) | 0 violations, 22 page, dialog and theme combinations | `docs/evidence/a11y-axe.txt` |
 | Lint, format, type checks (12.6) | 0 errors, 0 warnings | `docs/evidence/static-checks.txt` |
-| Dependency vulnerabilities (11.9) | No known vulnerabilities in 53 pinned packages | `docs/evidence/pip-audit.txt` |
+| Dependency vulnerabilities (11.9) | No known vulnerabilities in 50 pinned packages | `docs/evidence/pip-audit.txt` |
 | Simulated fresh host (12.7) | 23 of 23 host checks passed, plus the steps in section 7 | `docs/evidence/fresh-host.log` |
 | Install from git (10.1.2) | passed | `docs/evidence/git-install.txt` |
 | Certificate reload on SIGHUP (9.3) | passed | `docs/evidence/sighup-reload.txt` |
@@ -164,11 +164,12 @@ make release
 
 | Archive | Compressed size |
 |---|---|
-| `ballast-1.0.0-linux-amd64.tar.gz` | 93.5 MB |
-| `ballast-1.0.0-linux-arm64.tar.gz` | 88.2 MB |
-| `ballast-1.0.0-darwin-arm64.tar.gz` | 50.5 MB |
+| `ballast-1.0.0-linux-amd64.tar.gz` | 88.7 MB |
+| `ballast-1.0.0-linux-arm64.tar.gz` | 83.4 MB |
+| `ballast-1.0.0-darwin-arm64.tar.gz` | 46.6 MB |
+| `ballast-1.0.0-darwin-amd64.tar.gz` | 47.2 MB |
 
-Each comes with a CycloneDX SBOM (`*.sbom.cdx.json`, also inside the bundle as `sbom.cdx.json`) and `THIRD_PARTY_NOTICES` generated from the shipped packages' metadata and license files, plus CPython, uPlot and IBM Plex. `dist/SHA256SUMS` lists the archives. The linux-amd64 bundle is the one tested in sections 5 and 7. The linux-arm64 and darwin-arm64 bundles were built and inspected but not executed here (no ARM host or Mac available); they contain the same files with platform wheels. `darwin-amd64` is not built (D-018).
+Each comes with a CycloneDX SBOM (`*.sbom.cdx.json`, also inside the bundle as `sbom.cdx.json`) and `THIRD_PARTY_NOTICES` generated from the shipped packages' metadata and license files, plus CPython, uPlot and IBM Plex. `dist/SHA256SUMS` lists the archives. The final linux-amd64 bundle (commit f37c875) is the one tested in section 7; the soak in section 5 used the bundle from commit 6038045. The linux-arm64 and both macOS bundles were built and inspected but not executed here (no ARM host or Mac available); they contain the same files with platform wheels, and the darwin-amd64 interpreter and compiled extensions were checked to be x86-64 Mach-O. The bundles no longer contain `cryptography`, which made darwin-amd64 possible (D-018, D-027).
 
 Licensing of shipped components: no GPL, AGPL or SSPL package is included (`THIRD_PARTY_NOTICES`; audit section 7).
 

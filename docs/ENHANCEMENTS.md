@@ -15,7 +15,7 @@ Thirty-one changes made after the first rebuild. About a third make Ballast inst
 | 7 | `scripts/install.sh`: venv if possible, else `pip --target`, no setuptools or compiler needed for Ballast itself (D-030) | ca98107 | Stock Ubuntu 22.04 without `python3-venv`: install and 21 of 21 host checks including a load run (`docs/evidence/install-ubuntu22-no-venv.log`) |
 | 8 | Installer retries the aiohttp family in pure-Python mode when a wheel is missing and nothing can compile | ca98107 | Script path reviewed; not exercised, because every test host had wheels |
 | 9 | Offline kit: `scripts/make-wheelhouse.sh` builds source plus wheels for a target Python and architecture | ca98107, 039bea5 | Install, doctor and start on Ubuntu 22.04 with no network (`docs/evidence/install-offline-kit.log`); this test found that version-gated dependencies were missing, fixed in 039bea5 |
-| 10 | Intel Mac bundle (`darwin-amd64`) now builds, since `cryptography` is gone (D-018) | this commit | Built; interpreter and extensions checked to be x86-64 Mach-O; not run on a Mac |
+| 10 | Intel Mac bundle (`darwin-amd64`) now builds, since `cryptography` is gone (D-018) | 0d4a7d6 | Built; interpreter and extensions checked to be x86-64 Mach-O; not run on a Mac |
 
 ## Engine, API and command line
 
@@ -50,4 +50,6 @@ Thirty-one changes made after the first rebuild. About a third make Ballast inst
 
 The list I first proposed had two items that already existed (runs search and filters, and multi-select compare). I replaced them with 26 (tag filter and filters in the address) and 22 (sizing notes).
 
-Bugs found while doing this, and fixed: the supervisor started the server without the installer's package path (found on Ubuntu 22.04); `BALLAST_SITE` and `BALLAST_LAUNCHER` were rejected by the strict environment check; Ubuntu 22.04's pip built an empty `UNKNOWN` package under `--target`; the offline kit lacked `async-timeout` for Python 3.10; the live "Target rate" box was empty when the view opened during data load; doctor suggested `pip install --user`, which a bundle or `--target` install would never import.
+The two-hour soak, run alongside this work, found that analysing or exporting a long run loaded everything into memory (1 GB for two hours) and that short p99 spikes became hundreds of "detected disruptions". Both are fixed in 2f42758; see `docs/VERIFICATION.md` section 5.
+
+Other bugs found while doing this, and fixed: the supervisor started the server without the installer's package path (found on Ubuntu 22.04); `BALLAST_SITE` and `BALLAST_LAUNCHER` were rejected by the strict environment check; Ubuntu 22.04's pip built an empty `UNKNOWN` package under `--target`; the offline kit lacked `async-timeout` for Python 3.10; the live "Target rate" box was empty when the view opened during data load; doctor suggested `pip install --user`, which a bundle or `--target` install would never import.

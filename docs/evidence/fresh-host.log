@@ -1,10 +1,10 @@
 
 ### Network with no route to the internet, joined by the replica set
 $ docker network create --internal ballast-offline
-830e850b89e1da0f04699c6762bf590574595a59f392c876ed5c931938d54fca
+ee08563837fb408820375083af10a027a724cbcea8cade593779da1ef6cff217
 (exit 0)
 $ docker run -d --name droplet --hostname droplet --network ballast-offline ballast-droplet-sim
-5a2236d9bf7ca35bcf0097fae424ca3e5bafc1c80ede05afab319af18a4bca5d
+6933b2975a021a6201d4e3ea9a73f036a4cd6b17a333e8abf3d6a72ab4779667
 (exit 0)
 droplet address: 172.19.0.5
 
@@ -55,14 +55,14 @@ tls.redirect_http_listen = "0.0.0.0:8080"  # file
 $ [bench@droplet] cd ballast-1.0.0 && bin/verify-host.sh --uri 'mongodb://rs1:27011,rs2:27012,rs3:27013/?replicaSet=rs0'
 Ballast host check in /home/bench/ballast-1.0.0
 PASS  running as a normal user (bench)
-PASS  bin/ballast runs: Ballast 1.0.0 (commit 6038045, built 2026-10-23T03:28:02Z, PyMongo 4.19.0, Python 3.12.12)
+PASS  bin/ballast runs: Ballast 1.0.0 (commit f37c875, built 2026-10-23T06:06:11Z, PyMongo 4.19.0, Python 3.12.12)
 PASS  configuration is valid
 PASS  data/ is writable
 PASS  logs/ is writable
 PASS  run/ is writable
 PASS  certs/ is writable
-started: https://127.0.0.1:8443 (server pid 131, supervisor pid 130)
-certificate SHA-256: 84:5C:74:EB:AB:B4:73:14:86:65:70:9F:74:25:03:AD:32:A2:47:73:FF:8F:92:14:4C:74:B6:F2:C5:EE:F3:1E
+started: https://127.0.0.1:8443 (server pid 133, supervisor pid 132)
+certificate SHA-256: 6E:EF:2A:6C:23:04:15:21:C0:EE:3C:99:AF:FC:3E:28:84:35:ED:9C:DC:E0:B3:C1:1F:92:DD:A8:CA:D3:C7:C1
 PASS  ballastctl start
 PASS  ballastctl status exits 0 while running
 PASS  a second start does not start a second copy
@@ -72,12 +72,12 @@ PASS  listening on port 8443
 PASS  access gate rejects requests without the token
 PASS  target saved
 PASS  connection test: ok 8.0.34
-PASS  run started (bc2557690e4a)
+PASS  run started (05f7ac3c815c)
 PASS  ballastctl mark
 PASS  run completed
-PASS  offline HTML report exported (264050 bytes)
-PASS  supervisor restarted the server after kill -9 (pid 131 -> 269)
-stopped (sent SIGTERM to pid 130, exited cleanly)
+PASS  offline HTML report exported (266979 bytes)
+PASS  supervisor restarted the server after kill -9 (pid 133 -> 268)
+stopped (sent SIGTERM to pid 132, exited cleanly)
 PASS  ballastctl stop
 PASS  status exits 3 when stopped
 
@@ -86,8 +86,8 @@ PASS  status exits 3 when stopped
 
 ### Start again and reach it over HTTPS from outside the box
 $ [bench@droplet] cd ballast-1.0.0 && bin/ballastctl start
-started: https://127.0.0.1:8443 (server pid 306, supervisor pid 305)
-certificate SHA-256: 84:5C:74:EB:AB:B4:73:14:86:65:70:9F:74:25:03:AD:32:A2:47:73:FF:8F:92:14:4C:74:B6:F2:C5:EE:F3:1E
+started: https://127.0.0.1:8443 (server pid 305, supervisor pid 304)
+certificate SHA-256: 6E:EF:2A:6C:23:04:15:21:C0:EE:3C:99:AF:FC:3E:28:84:35:ED:9C:DC:E0:B3:C1:1F:92:DD:A8:CA:D3:C7:C1
 (exit 0)
 $ curl -sS --cacert /dev/null -k -o /dev/null -w 'https %{http_code} from host\n' https://172.19.0.5:8443/api/health
 https 200 from host
@@ -112,12 +112,12 @@ runs listed: 1
 (exit 0)
 
 ### A run interrupted by a crash keeps its data
-run bec62842216e started
+run 6e2cd962a687 started
 $ [bench@droplet] kill -9 $(cat ballast-1.0.0/run/ballast.pid); sleep 6; cd ballast-1.0.0 && bin/ballastctl health
 healthy: version 1.0.0, up 4 s
 (exit 0)
-$ [bench@droplet] curl -sS --cacert mycerts/ballast.crt -H 'Authorization: Bearer ****' https://127.0.0.1:8443/api/runs/bec62842216e | ballast-1.0.0/runtime/python/bin/python3 -c 'import json,sys; d=json.load(sys.stdin); print("status:", d["status"], "| measured seconds kept:", d["analysis"]["summary"]["measured_seconds"], "| ops kept:", d["analysis"]["summary"]["ok"], "|", d["error"]["detail"])'
-status: interrupted | measured seconds kept: 12 | ops kept: 2400 | The application stopped while this run was active. Data recorded up to that point is kept.
+$ [bench@droplet] curl -sS --cacert mycerts/ballast.crt -H 'Authorization: Bearer ****' https://127.0.0.1:8443/api/runs/6e2cd962a687 | ballast-1.0.0/runtime/python/bin/python3 -c 'import json,sys; d=json.load(sys.stdin); print("status:", d["status"], "| measured seconds kept:", d["analysis"]["summary"]["measured_seconds"], "| ops kept:", d["analysis"]["summary"]["ok"], "|", d["error"]["detail"])'
+status: interrupted | measured seconds kept: 12 | ops kept: 2401 | The application stopped while this run was active. Data recorded up to that point is kept.
 (exit 0)
 
 ### Autostart without root, then restart the whole box
@@ -140,9 +140,9 @@ autostart: crontab @reboot entry
 healthy: version 1.0.0, up 24 s
 (exit 0)
 $ [bench@droplet] cd ballast-1.0.0 && tail -3 logs/supervisor.log
-{"ts": "2026-10-23T03:35:21.735Z", "level": "info", "logger": "ballast.supervisor", "msg": "server started (pid 356)"}
-{"ts": "2026-10-23T03:35:40.507Z", "level": "info", "logger": "ballast.supervisor", "msg": "supervisor started (pid 21)"}
-{"ts": "2026-10-23T03:35:40.516Z", "level": "info", "logger": "ballast.supervisor", "msg": "server started (pid 22)"}
+{"ts": "2026-10-23T06:12:17.340Z", "level": "info", "logger": "ballast.supervisor", "msg": "server started (pid 357)"}
+{"ts": "2026-10-23T06:12:33.993Z", "level": "info", "logger": "ballast.supervisor", "msg": "supervisor started (pid 21)"}
+{"ts": "2026-10-23T06:12:33.997Z", "level": "info", "logger": "ballast.supervisor", "msg": "server started (pid 22)"}
 (exit 0)
 
 ### Clean up

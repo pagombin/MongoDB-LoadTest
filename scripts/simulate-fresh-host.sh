@@ -12,6 +12,7 @@ box() { printf '$ [bench@droplet] %s\n' "$1" | sed -E 's/Bearer [^ '"'"']+/Beare
 
 log "Network with no route to the internet, joined by the replica set"
 docker rm -f droplet >/dev/null 2>&1
+for m in rs1 rs2 rs3; do docker network disconnect ballast-offline $m >/dev/null 2>&1; done
 docker network rm ballast-offline >/dev/null 2>&1
 run "docker network create --internal ballast-offline"
 for m in rs1 rs2 rs3; do docker network connect --alias $m ballast-offline $m; done
