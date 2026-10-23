@@ -8,6 +8,7 @@ import io
 import json
 import re
 import time
+from collections.abc import Iterator
 from pathlib import Path
 
 from ballast import product
@@ -23,9 +24,19 @@ def _iso(t: int) -> str:
 
 
 def csv_export(store: Store, run: dict) -> str:
-    records = store.seconds(run["id"])
-    ops = sorted({op for r in records for op in r.ops})
-    classes = sorted({c for r in records for c in r.errors})
+    return "".join(csv_chunks(store, run))
+
+
+def csv_chunks(store: Store, run: dict, rows_per_chunk: int = 500) -> Iterator[str]:
+    """The per-second CSV in pieces. Two passes over the stored seconds (columns first, then rows), so
+    memory stays flat however long the run was."""
+    ops_set: set[str] = set()
+    classes_set: set[str] = set()
+    for blob in store.second_blobs(run["id"]):
+        data = json.loads(blob)
+        ops_set.update(data.get("ops") or {})
+        classes_set.update(data.get("errors") or {})
+    ops, classes = sorted(ops_set), sorted(classes_set)
     out = io.StringIO()
     writer = csv.writer(out)
     header = [
@@ -51,7 +62,7 @@ def csv_export(store: Store, run: dict) -> str:
     ]
     header += [f"ops_{op}" for op in ops] + [f"p99_ms_{op}" for op in ops] + [f"errors_{c}" for c in classes]
     writer.writerow(header)
-    for r in records:
+    for n, r in enumerate(store.iter_seconds(run["id"]), 1):
         rt = r.rt()
         st = r.st()
         p = rt.percentiles((50, 90, 99, 99.9))
@@ -81,7 +92,11 @@ def csv_export(store: Store, run: dict) -> str:
         row += [r.ops[op].rt.percentile(99) / 1000 if op in r.ops else "" for op in ops]
         row += [r.errors.get(c, 0) for c in classes]
         writer.writerow(row)
-    return out.getvalue()
+        if n % rows_per_chunk == 0:
+            yield out.getvalue()
+            out.seek(0)
+            out.truncate()
+    yield out.getvalue()
 
 
 def _meta(run: dict) -> dict:
@@ -91,6 +106,11 @@ def _meta(run: dict) -> dict:
 
 
 def json_export(store: Store, run: dict, analysis: dict | None) -> str:
+    return "".join(json_chunks(store, run, analysis))
+
+
+def json_chunks(store: Store, run: dict, analysis: dict | None, seconds_per_chunk: int = 500) -> Iterator[str]:
+    """The full JSON export in pieces. Stored seconds are copied as they are, without parsing them."""
     processes = (run.get("profile") or {}).get("load", {}).get("processes", 1)
     payload = {
         "format": f"{product.SLUG}-run",
@@ -104,9 +124,20 @@ def json_export(store: Store, run: dict, analysis: dict | None) -> str:
         "markers": store.markers(run["id"]),
         "events": store.events(run["id"]),
         "gaps": intersect_gaps(store.gaps(run["id"]), processes),
-        "seconds": [r.to_json() for r in store.seconds(run["id"])],
+        "seconds": [],
     }
-    return json.dumps(payload, default=str)
+    head = json.dumps(payload, default=str)
+    yield head[: -len("[]}")] + "["
+    batch: list[str] = []
+    first = True
+    for blob in store.second_blobs(run["id"]):
+        batch.append(blob.decode())
+        if len(batch) >= seconds_per_chunk:
+            yield ("" if first else ",") + ",".join(batch)
+            first, batch = False, []
+    if batch:
+        yield ("" if first else ",") + ",".join(batch)
+    yield "]}"
 
 
 def _read(rel: str) -> str:

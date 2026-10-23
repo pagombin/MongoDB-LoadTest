@@ -198,3 +198,46 @@ def test_backup_and_restore(tmp_path, capsys):
         assert args.func(args) == 1
     finally:
         del os.environ["BALLAST_HOME"]
+
+
+async def test_streamed_exports_match_the_stored_seconds(tmp_path):
+    loaded = load(None, ["tls.mode=off"], environ={}, home=tmp_path)
+    app = App(loaded)
+    client = TestClient(TestServer(app.build()))
+    await client.start_server()
+    try:
+        target = app.store.save_target({"name": "t", "uri": "mongodb://h:1/", "tls": "off"})
+        app.store.create_run("r1", "long", target, "db", Profile().model_dump(mode="json"))
+        app.store.update_run("r1", status="completed", started_at=1000, ended_at=2_000_000)
+        for t in range(1, 1301):
+            rec = _second(t, ok=100 + t % 7, err=t % 50 == 0)
+            if t % 50 == 0:
+                rec.errors = {"NetworkTimeout": 1}
+            app.store.add_second("r1", rec)
+        r = await client.get("/api/runs/r1/export.json")
+        assert r.status == 200 and r.headers["X-Content-Type-Options"] == "nosniff" and "attachment" in r.headers["Content-Disposition"]
+        data = json.loads(await r.text())
+        assert [s["t"] for s in data["seconds"]] == list(range(1, 1301))
+        r = await client.get("/api/runs/r1/export.csv")
+        lines = (await r.text()).strip().splitlines()
+        assert len(lines) == 1301 and lines[0].endswith("errors_NetworkTimeout")
+        series = app.runs.series("r1", max_points=100)
+        assert series["step"] == 15 and len(series["points"]) == 87
+        assert abs(sum(p["ok"] * series["step"] for p in series["points"]) - sum(100 + t % 7 for t in range(1, 1301))) < 1
+    finally:
+        await client.close()
+
+
+def test_packed_histograms_behave_like_dict_ones():
+    from ballast.engine.histogram import Histogram
+
+    a = Histogram()
+    for v in (5, 900, 2_500, 70_000, 70_000, 4_000_000):
+        a.record(v)
+    packed = Histogram.from_compact(a.to_compact())
+    assert packed.buckets == a.buckets and packed.percentiles((50, 99)) == a.percentiles((50, 99))
+    merged = Histogram().merge(packed).merge(packed)
+    assert merged.total == 12 and merged.percentile(50) == a.percentile(50)
+    packed.record(1)
+    assert packed.total == 7 and packed.counts[1] == 1
+    assert Histogram.from_compact(a.to_compact()).copy().to_compact() == a.to_compact()

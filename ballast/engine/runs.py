@@ -9,7 +9,7 @@ import multiprocessing
 import os
 import platform
 import time
-from collections import deque
+from collections import OrderedDict, deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from multiprocessing.connection import Connection
@@ -125,6 +125,7 @@ class RunManager:
         self.hub = hub
         self.data_dir = data_dir
         self.notifier = notifier
+        self._series_cache: OrderedDict[tuple, dict] = OrderedDict()
         self.ctx: Any = multiprocessing.get_context(mp_context)
         self.active: ActiveRun | None = None
         self.redactions: list[str] = []
@@ -750,7 +751,7 @@ class RunManager:
         analysis_result = None
         summary = None
         try:
-            analysis_result = self.analyze(run.id)
+            analysis_result = await asyncio.get_running_loop().run_in_executor(None, self.analyze, run.id)
             summary = analysis_result["summary"]
         except Exception:
             log.exception("analysis failed for run %s", run.id)
@@ -802,14 +803,23 @@ class RunManager:
             raise RunError("Run not found", status=404)
         profile = row["profile"] or {}
         settings = AnalysisSettings.from_dict({k: v for k, v in (profile.get("analysis") or {}).items() if v is not None})
-        records = self.store.seconds(run_id)
+        records: list[SecondRecord] = []
+
+        def every_second():
+            for record in self.store.iter_seconds(run_id):
+                records.append(record.collapsed())
+                yield record
+
+        summary = analysis.summarize(every_second()) if extra_window is None else None
+        if extra_window is not None:
+            records = self.store.seconds(run_id, collapse=True)
         processes = (profile.get("load") or {}).get("processes", 1)
         gaps = intersect_gaps(self.store.gaps(run_id), processes)
         events = self.store.events(run_id)
         markers = self.store.markers(run_id)
         if extra_window is not None:
             return analysis.analyze_window(extra_window, records, gaps, events, settings, analysis.marker_windows(markers))
-        result = analysis.full_analysis(records, gaps, events, markers, settings)
+        result = analysis.full_analysis(records, gaps, events, markers, settings, summary=summary)
         load = profile.get("load") or {}
         target_rate = load.get("rate") if load.get("model", "open") == "open" else None
         criteria = {k: v for k, v in (profile.get("slo") or {}).items() if v is not None}
@@ -817,14 +827,39 @@ class RunManager:
         return result
 
     def series(self, run_id: str, max_points: int = 1500, start: int | None = None, end: int | None = None) -> dict:
-        records = self.store.seconds(run_id, start, end)
+        """Chart points, merging whole seconds into buckets when there are more than max_points. Streams the
+        stored seconds, so memory does not grow with the run's length. Finished runs are cached."""
+        key = (run_id, max_points, start, end)
+        finished = self.active is None or self.active.id != run_id
+        if finished and key in self._series_cache:
+            self._series_cache.move_to_end(key)
+            return self._series_cache[key]
+        result = self._series(run_id, max_points, start, end)
+        if finished:
+            self._series_cache[key] = result
+            while len(self._series_cache) > 16:
+                self._series_cache.popitem(last=False)
+        return result
+
+    def _series(self, run_id: str, max_points: int, start: int | None, end: int | None) -> dict:
+        count, lo, hi = self.store.second_span(run_id, start, end)
         step = 1
-        if len(records) > max_points:
-            span = records[-1].t - records[0].t + 1
-            step = max(1, math.ceil(span / max_points))
+        if count > max_points and lo is not None and hi is not None:
+            step = max(1, math.ceil((hi - lo + 1) / max_points))
             for nice in (2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600):
                 if nice >= step:
                     step = nice
                     break
-            records = downsample(records, step)
-        return {"step": step, "points": [r.point() for r in records]}
+        points: list[dict] = []
+        bucket: list[SecondRecord] = []
+        for record in self.store.iter_seconds(run_id, start, end):
+            if step == 1:
+                points.append(record.point())
+                continue
+            if bucket and record.t - record.t % step != bucket[0].t - bucket[0].t % step:
+                points.append(downsample(bucket, step)[0].point())
+                bucket = []
+            bucket.append(record)
+        if bucket:
+            points.append(downsample(bucket, step)[0].point())
+        return {"step": step, "points": points}

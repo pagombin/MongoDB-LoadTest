@@ -5,12 +5,14 @@ rootdir: /home/user/MongoDB-LoadTest
 configfile: pyproject.toml
 plugins: dash-4.4.1, platformdirs-4.13.5, Faker-40.43.0, asyncio-1.4.0
 asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
-collecting ... collected 5 items
+collecting ... collected 7 items
 
-tests/integration/test_failover.py::test_failover_is_recorded_classified_and_measured[1] PASSED [ 20%]
-tests/integration/test_failover.py::test_failover_is_recorded_classified_and_measured[2] PASSED [ 40%]
-tests/integration/test_failover.py::test_write_stall_measures_gap_latency_and_recovery PASSED [ 60%]
-tests/integration/test_leaks.py::test_repeated_runs_do_not_leak PASSED   [ 80%]
+tests/integration/test_failover.py::test_failover_is_recorded_classified_and_measured[1] PASSED [ 14%]
+tests/integration/test_failover.py::test_failover_is_recorded_classified_and_measured[2] PASSED [ 28%]
+tests/integration/test_failover.py::test_write_stall_measures_gap_latency_and_recovery PASSED [ 42%]
+tests/integration/test_headless.py::test_slo_pass_and_fail_set_the_exit_code PASSED [ 57%]
+tests/integration/test_headless.py::test_guardrail_stops_the_run PASSED  [ 71%]
+tests/integration/test_leaks.py::test_repeated_runs_do_not_leak PASSED   [ 85%]
 tests/integration/test_secrets.py::test_password_absent_everywhere PASSED [100%]
 
-======================== 5 passed in 195.01s (0:03:15) =========================
+======================== 7 passed in 225.95s (0:03:45) =========================

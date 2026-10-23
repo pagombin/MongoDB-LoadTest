@@ -151,3 +151,24 @@ def test_throughput_drop_within_a_level_is_a_disruption():
     records[50] = second(50, ok=100)
     found = detect_disruptions(records, AnalysisSettings())
     assert [(w["start_ms"], w["end_ms"]) for w in found] == [(50_000, 51_000)]
+
+
+def test_short_latency_spikes_are_noise_but_failures_and_long_spikes_are_not():
+    records = [second(t, rt_us=2000) for t in range(0, 200)]
+    for t in (20, 21):
+        records[t] = second(t, rt_us=90_000)
+    for t in (60, 61, 62):
+        records[t] = second(t, rt_us=90_000)
+    records[120] = second(120, ok=999, err=1)
+    found = [(w["start_ms"] // 1000, w["end_ms"] // 1000) for w in detect_disruptions(records, AnalysisSettings())]
+    assert found == [(60, 63), (120, 121)]
+
+
+def test_detected_windows_are_capped_keeping_the_worst():
+    records = [second(t) for t in range(0, 400)]
+    for t in range(10, 400, 10):
+        records[t] = second(t, ok=990, err=10 if t == 200 else 1)
+    settings = AnalysisSettings(disruption_max_windows=5)
+    found = detect_disruptions(records, settings)
+    assert len(found) == 5 and any(w["start_ms"] == 200_000 for w in found)
+    assert [w["start_ms"] for w in found] == sorted(w["start_ms"] for w in found)

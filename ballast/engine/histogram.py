@@ -13,7 +13,9 @@ from __future__ import annotations
 import json
 import math
 import zlib
-from collections.abc import Iterable
+from array import array
+from collections.abc import Iterable, Iterator
+from itertools import accumulate
 
 SUB_BUCKET_BITS = 11
 SUB_BUCKET_COUNT = 1 << SUB_BUCKET_BITS
@@ -39,14 +41,51 @@ def bucket_bounds(index: int) -> tuple[int, int]:
 
 
 class Histogram:
-    __slots__ = ("counts", "total", "sum", "min", "max")
+    """Sparse bucket counts. Histograms read from storage stay packed in two arrays (about 12 bytes per
+    bucket instead of about 100 for a dict entry) until something writes to them."""
+
+    __slots__ = ("_counts", "_idx", "_cnt", "total", "sum", "min", "max")
 
     def __init__(self) -> None:
-        self.counts: dict[int, int] = {}
+        self._counts: dict[int, int] | None = {}
+        self._idx: array | None = None
+        self._cnt: array | None = None
         self.total = 0
         self.sum = 0
         self.min = 0
         self.max = 0
+
+    @property
+    def counts(self) -> dict[int, int]:
+        if self._counts is None:
+            assert self._idx is not None and self._cnt is not None
+            self._counts = dict(zip(self._idx, self._cnt, strict=True))
+            self._idx = self._cnt = None
+        return self._counts
+
+    @counts.setter
+    def counts(self, value: dict[int, int]) -> None:
+        self._counts, self._idx, self._cnt = value, None, None
+
+    def items(self) -> Iterator[tuple[int, int]]:
+        """(bucket index, count) in ascending index order."""
+        if self._counts is None:
+            assert self._idx is not None and self._cnt is not None
+            return zip(self._idx, self._cnt, strict=True)
+        return ((i, self._counts[i]) for i in sorted(self._counts))
+
+    def pack(self) -> Histogram:
+        """Switch to the compact read-only form; the next write unpacks it again."""
+        if self._counts is not None:
+            indexes = sorted(self._counts)
+            self._idx = array("I", indexes)
+            self._cnt = array("Q", (self._counts[i] for i in indexes))
+            self._counts = None
+        return self
+
+    @property
+    def buckets(self) -> int:
+        return len(self._counts) if self._counts is not None else len(self._idx or ())
 
     def record(self, value_us: int | float, count: int = 1) -> None:
         value = int(value_us)
@@ -67,9 +106,12 @@ class Histogram:
     def merge(self, other: Histogram) -> Histogram:
         if other.total == 0:
             return self
-        counts = self.counts
-        for index, count in other.counts.items():
-            counts[index] = counts.get(index, 0) + count
+        if self.total == 0 and other._idx is not None and other._cnt is not None:
+            self._idx, self._cnt, self._counts = array("I", other._idx), array("Q", other._cnt), None
+        else:
+            counts = self.counts
+            for index, count in other.items():
+                counts[index] = counts.get(index, 0) + count
         if self.total == 0 or other.min < self.min:
             self.min = other.min
         if other.max > self.max:
@@ -80,7 +122,10 @@ class Histogram:
 
     def copy(self) -> Histogram:
         clone = Histogram()
-        clone.counts = dict(self.counts)
+        if self._idx is not None and self._cnt is not None:
+            clone._idx, clone._cnt, clone._counts = array("I", self._idx), array("Q", self._cnt), None
+        else:
+            clone._counts = dict(self.counts)
         clone.total, clone.sum, clone.min, clone.max = self.total, self.sum, self.min, self.max
         return clone
 
@@ -98,8 +143,8 @@ class Histogram:
             return self.max
         rank = max(1, math.ceil(p / 100.0 * self.total))
         seen = 0
-        for index in sorted(self.counts):
-            seen += self.counts[index]
+        for index, count in self.items():
+            seen += count
             if seen >= rank:
                 return min(bucket_bounds(index)[1], self.max)
         return self.max
@@ -116,8 +161,8 @@ class Histogram:
                 result[p] = r
         seen = 0
         i = 0
-        for index in sorted(self.counts):
-            seen += self.counts[index]
+        for index, count in self.items():
+            seen += count
             while i < len(pending) and seen >= pending[i][1]:
                 result[pending[i][0]] = min(bucket_bounds(index)[1], self.max)
                 i += 1
@@ -128,13 +173,14 @@ class Histogram:
         return result
 
     def to_compact(self) -> list:
-        indexes = sorted(self.counts)
         deltas: list[int] = []
+        counts: list[int] = []
         previous = 0
-        for index in indexes:
+        for index, count in self.items():
             deltas.append(index - previous)
+            counts.append(count)
             previous = index
-        return [self.total, self.sum, self.min, self.max, deltas, [self.counts[i] for i in indexes]]
+        return [self.total, self.sum, self.min, self.max, deltas, counts]
 
     @classmethod
     def from_compact(cls, data: list | None) -> Histogram:
@@ -142,10 +188,9 @@ class Histogram:
         if not data:
             return hist
         hist.total, hist.sum, hist.min, hist.max = int(data[0]), int(data[1]), int(data[2]), int(data[3])
-        index = 0
-        for delta, count in zip(data[4], data[5], strict=True):
-            index += delta
-            hist.counts[index] = count
+        if len(data[4]) != len(data[5]):
+            raise ValueError("histogram index and count lists differ in length")
+        hist._idx, hist._cnt, hist._counts = array("I", accumulate(data[4])), array("Q", data[5]), None
         return hist
 
     def encode(self) -> bytes:

@@ -9,6 +9,7 @@ import threading
 import time
 import uuid
 import zlib
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, overload
 
@@ -421,19 +422,38 @@ class Store:
         blob = zlib.compress(json.dumps(record.to_json(), separators=(",", ":")).encode(), 6)
         self._exec("INSERT OR REPLACE INTO seconds(run_id,t,data) VALUES (?,?,?)", (run_id, record.t, blob))
 
-    def seconds(self, run_id: str, start: int | None = None, end: int | None = None) -> list[SecondRecord]:
-        sql = "SELECT data FROM seconds WHERE run_id=?"
-        params: list = [run_id]
-        if start is not None:
-            sql += " AND t>=?"
-            params.append(start)
-        if end is not None:
-            sql += " AND t<?"
-            params.append(end)
-        sql += " ORDER BY t"
-        with self._lock:
-            rows = self.conn.execute(sql, tuple(params)).fetchall()
-        return [SecondRecord.from_json(json.loads(zlib.decompress(r[0]))) for r in rows]
+    def second_blobs(self, run_id: str, start: int | None = None, end: int | None = None, chunk: int = 600) -> Iterator[bytes]:
+        """Each stored second's JSON, oldest first, read in chunks so the lock is never held for a whole run."""
+        cursor = start if start is not None else -(2**62)
+        while True:
+            sql = "SELECT t, data FROM seconds WHERE run_id=? AND t>=?"
+            params: list = [run_id, cursor]
+            if end is not None:
+                sql += " AND t<?"
+                params.append(end)
+            sql += " ORDER BY t LIMIT ?"
+            params.append(chunk)
+            with self._lock:
+                rows = self.conn.execute(sql, tuple(params)).fetchall()
+            for _t, data in rows:
+                yield zlib.decompress(data)
+            if len(rows) < chunk:
+                return
+            cursor = rows[-1][0] + 1
+
+    def iter_seconds(self, run_id: str, start: int | None = None, end: int | None = None, collapse: bool = False) -> Iterator[SecondRecord]:
+        for blob in self.second_blobs(run_id, start, end):
+            yield SecondRecord.from_json(json.loads(blob), collapse=collapse)
+
+    def seconds(self, run_id: str, start: int | None = None, end: int | None = None, collapse: bool = False) -> list[SecondRecord]:
+        return list(self.iter_seconds(run_id, start, end, collapse))
+
+    def second_span(self, run_id: str, start: int | None = None, end: int | None = None) -> tuple[int, int | None, int | None]:
+        row = self._one(
+            "SELECT COUNT(*) AS n, MIN(t) AS lo, MAX(t) AS hi FROM seconds WHERE run_id=? AND t>=? AND t<?",
+            (run_id, start if start is not None else -(2**62), end if end is not None else 2**62),
+        )
+        return (row["n"], row["lo"], row["hi"]) if row else (0, None, None)
 
     def second_count(self, run_id: str) -> int:
         row = self._one("SELECT COUNT(*) AS n FROM seconds WHERE run_id=?", (run_id,))

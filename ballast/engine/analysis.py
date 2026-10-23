@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import re
 import statistics
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 
 from ballast.engine.histogram import Histogram
@@ -28,6 +29,8 @@ class AnalysisSettings:
     disruption_latency_factor: float = 4.0
     disruption_latency_floor_us: int = 10_000
     disruption_merge_seconds: int = 3
+    disruption_latency_min_seconds: int = 3
+    disruption_max_windows: int = 50
     client_bound_rate_margin: float = 0.05
     client_bound_cpu_percent: float = 90.0
     client_bound_pool_wait_us: int = 5_000
@@ -227,26 +230,43 @@ def detect_disruptions(records: list[SecondRecord], settings: AnalysisSettings) 
     for record in measured:
         segments.setdefault(_load_level(record), []).append(record.ok)
     segment_median = {key: statistics.median(values) for key, values in segments.items()}
-    bad: list[int] = []
+    hard: dict[int, int] = {}
+    slow: list[int] = []
     for record, p99 in zip(measured, p99s, strict=True):
-        disturbed = record.err > 0
         expected = segment_median[_load_level(record)]
-        if expected and record.ok < expected * (1 - settings.disruption_throughput_drop):
-            disturbed = True
-        if median_p99 and p99 > max(median_p99 * settings.disruption_latency_factor, settings.disruption_latency_floor_us):
-            disturbed = True
-        if disturbed:
-            bad.append(record.t)
+        if record.err > 0 or (expected and record.ok < expected * (1 - settings.disruption_throughput_drop)):
+            hard[record.t] = record.err
+        elif median_p99 and p99 > max(median_p99 * settings.disruption_latency_factor, settings.disruption_latency_floor_us):
+            slow.append(record.t)
+    # Latency alone counts only when it lasts; failures and throughput drops count from the first second.
+    for start, end in _consecutive(slow):
+        if end - start + 1 >= settings.disruption_latency_min_seconds:
+            for t in range(start, end + 1):
+                hard.setdefault(t, 0)
     windows: list[dict] = []
-    for t in bad:
+    for t in sorted(hard):
         if windows and t - windows[-1]["_last"] <= settings.disruption_merge_seconds:
             windows[-1]["_last"] = t
+            windows[-1]["_failed"] += hard[t]
         else:
-            windows.append({"_first": t, "_last": t})
+            windows.append({"_first": t, "_last": t, "_failed": hard[t]})
+    if len(windows) > settings.disruption_max_windows:
+        windows = sorted(windows, key=lambda w: (w["_failed"], w["_last"] - w["_first"]), reverse=True)[: settings.disruption_max_windows]
+        windows.sort(key=lambda w: w["_first"])
     return [
         {"label": "Detected disruption", "source": "detected", "start_ms": w["_first"] * 1000, "end_ms": (w["_last"] + 1) * 1000}
         for w in windows
     ]
+
+
+def _consecutive(seconds: list[int]) -> list[tuple[int, int]]:
+    runs: list[tuple[int, int]] = []
+    for t in seconds:
+        if runs and t == runs[-1][1] + 1:
+            runs[-1] = (runs[-1][0], t)
+        else:
+            runs.append((t, t))
+    return runs
 
 
 def _runs_of(flags: list[tuple[int, bool]], minimum: int) -> list[tuple[int, int]]:
@@ -305,28 +325,32 @@ def client_bound(records: list[SecondRecord], settings: AnalysisSettings, disrup
     return {"client_bound": bool(reasons), "reasons": reasons}
 
 
-def summarize(records: list[SecondRecord]) -> dict:
-    """Run summary over measured seconds (warm-up, data load and pauses excluded)."""
-    measured = _measured(records)
+def summarize(records: Iterable[SecondRecord]) -> dict:
+    """Run summary over measured seconds (warm-up, data load and pauses excluded). Reads the records once,
+    so a generator keeps memory flat however long the run was."""
+    seconds = 0
     hist = Histogram()
     service = Histogram()
     per_op: dict[str, dict] = {}
     errors: dict[str, int] = {}
     labels: dict[str, int] = {}
-    for record in measured:
+    for record in records:
+        if record.phase in EXCLUDED_PHASES:
+            continue
+        seconds += 1
         for name, op in record.ops.items():
             entry = per_op.setdefault(name, {"ok": 0, "err": 0, "rt": Histogram(), "st": Histogram()})
             entry["ok"] += op.ok
             entry["err"] += op.err
             entry["rt"].merge(op.rt)
             entry["st"].merge(op.st)
-            hist.merge(op.rt)
-            service.merge(op.st)
         for key, value in record.errors.items():
             errors[key] = errors.get(key, 0) + value
         for key, value in record.labels.items():
             labels[key] = labels.get(key, 0) + value
-    seconds = len(measured)
+    for entry in per_op.values():
+        hist.merge(entry["rt"])
+        service.merge(entry["st"])
     ok = sum(e["ok"] for e in per_op.values())
     err = sum(e["err"] for e in per_op.values())
     return {
@@ -347,7 +371,12 @@ def summarize(records: list[SecondRecord]) -> dict:
 
 
 def full_analysis(
-    records: list[SecondRecord], gaps: list[dict], events: list[dict], markers: list[dict], settings: AnalysisSettings
+    records: list[SecondRecord],
+    gaps: list[dict],
+    events: list[dict],
+    markers: list[dict],
+    settings: AnalysisSettings,
+    summary: dict | None = None,
 ) -> dict:
     windows = marker_windows(markers)
     disruptions = detect_disruptions(records, settings)
@@ -358,7 +387,7 @@ def full_analysis(
         result["overlaps_marker_window"] = covered
         impacts.append(result)
     return {
-        "summary": summarize(records),
+        "summary": summary if summary is not None else summarize(records),
         "impacts": impacts,
         "client_bound": client_bound(records, settings, disruptions),
         "settings": settings.as_dict(),

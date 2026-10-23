@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass, field
 
 from ballast.engine.histogram import Histogram
@@ -125,13 +126,25 @@ class SecondRecord:
         }
 
     @classmethod
-    def from_json(cls, data: dict) -> SecondRecord:
+    def from_json(cls, data: dict, collapse: bool = False) -> SecondRecord:
+        """With collapse, all operations become one "all" entry holding only response time; enough for
+        impact analysis and several times smaller in memory."""
+        if collapse:
+            merged = OpSecond()
+            for op in (data.get("ops") or {}).values():
+                merged.ok += op.get("ok", 0)
+                merged.err += op.get("err", 0)
+                merged.rt.merge(Histogram.from_compact(op.get("rt")))
+            merged.rt.pack()
+            ops = {"all": merged} if data.get("ops") else {}
+        else:
+            ops = {name: OpSecond.from_json(op) for name, op in (data.get("ops") or {}).items()}
         return cls(
             t=int(data["t"]),
             phase=data.get("phase", "steady"),
             target_rate=data.get("target_rate"),
             concurrency=data.get("concurrency", 0),
-            ops={name: OpSecond.from_json(op) for name, op in (data.get("ops") or {}).items()},
+            ops=ops,
             errors=dict(data.get("errors") or {}),
             labels=dict(data.get("labels") or {}),
             first_err_ms=data.get("first_err_ms"),
@@ -145,6 +158,11 @@ class SecondRecord:
             processes=data.get("processes", 1),
             span=data.get("span", 1),
         )
+
+    def collapsed(self) -> SecondRecord:
+        """A copy with all operations folded into one response-time histogram (see from_json collapse)."""
+        ops = {"all": OpSecond(ok=self.ok, err=self.err, rt=self.rt().pack())} if self.ops else {}
+        return dataclasses.replace(self, ops=ops)
 
     def point(self) -> dict:
         """Compact chart point for live updates and reports."""

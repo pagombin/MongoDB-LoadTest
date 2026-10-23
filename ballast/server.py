@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import hashlib
 import hmac
 import io
@@ -240,7 +241,8 @@ class App:
                 ),
                 500,
             )
-        self.add_security_headers(request, response)
+        if not response.prepared:
+            self.add_security_headers(request, response)
         return response
 
     def gate_exempt(self, path: str) -> bool:
@@ -646,12 +648,12 @@ class App:
             end = int(q["end"]) if "end" in q else None
         except ValueError:
             raise ApiError(400, "start, end and max_points must be integers") from None
-        return json_response(self.runs.series(row["id"], max_points, start, end))
+        return json_response(await off_loop(self.runs.series, row["id"], max_points, start, end))
 
     async def run_analysis(self, request):
         row = self._run(request.match_info["id"])
         if row["status"] in ACTIVE or request.query.get("fresh") == "1" or not row.get("analysis"):
-            return json_response(self.runs.analyze(row["id"]))
+            return json_response(await off_loop(self.runs.analyze, row["id"]))
         return json_response(row["analysis"])
 
     async def run_window(self, request):
@@ -660,7 +662,7 @@ class App:
         if body.end_ms <= body.start_ms:
             raise ApiError(422, "End must be after start")
         return json_response(
-            self.runs.analyze(row["id"], {"label": body.label, "source": "selection", "start_ms": body.start_ms, "end_ms": body.end_ms})
+            await off_loop(self.runs.analyze, row["id"], {"label": body.label, "source": "selection", "start_ms": body.start_ms, "end_ms": body.end_ms})
         )
 
     async def run_samples(self, request):
@@ -702,19 +704,27 @@ class App:
         row = self._run(request.match_info["id"])
         fmt = request.match_info["fmt"]
         safe = "".join(c if c.isalnum() or c in "-_" else "-" for c in row["name"])[:60] or row["id"]
-        if fmt == "csv":
-            body, ctype = report.csv_export(self.store, row), "text/csv"
-        elif fmt == "json":
-            body, ctype = (
-                report.json_export(self.store, row, self.runs.analyze(row["id"]) if row["status"] in ACTIVE else row.get("analysis")),
-                "application/json",
+        if fmt in ("csv", "json"):
+            if fmt == "csv":
+                chunks, ctype = report.csv_chunks(self.store, row), "text/csv"
+            else:
+                analysis_result = await off_loop(self.runs.analyze, row["id"]) if row["status"] in ACTIVE else row.get("analysis")
+                chunks, ctype = report.json_chunks(self.store, row, analysis_result), "application/json"
+            response = web.StreamResponse(
+                headers={"Content-Type": f"{ctype}; charset=utf-8", "Content-Disposition": f'attachment; filename="{safe}-{row["id"]}.{fmt}"'}
             )
-        elif fmt == "md":
-            analysis_result = self.runs.analyze(row["id"]) if row["status"] in ACTIVE or not row.get("analysis") else row["analysis"]
+            self.add_security_headers(request, response)
+            await response.prepare(request)
+            while (chunk := await off_loop(next, chunks, None)) is not None:
+                await response.write(logs.redact(chunk).encode())
+            await response.write_eof()
+            return response
+        if fmt == "md":
+            analysis_result = await off_loop(self.runs.analyze, row["id"]) if row["status"] in ACTIVE or not row.get("analysis") else row["analysis"]
             body, ctype = report.markdown_export(row, analysis_result), "text/markdown"
         elif fmt == "html":
-            analysis_result = self.runs.analyze(row["id"]) if row["status"] in ACTIVE or not row.get("analysis") else row["analysis"]
-            body, ctype = report.html_export(self.store, row, analysis_result, self.about_data(), self.runs), "text/html"
+            analysis_result = await off_loop(self.runs.analyze, row["id"]) if row["status"] in ACTIVE or not row.get("analysis") else row["analysis"]
+            body, ctype = await off_loop(report.html_export, self.store, row, analysis_result, self.about_data(), self.runs), "text/html"
         else:
             raise ApiError(404, "Unknown export format")
         body = logs.redact(body)
@@ -773,7 +783,7 @@ class App:
                         offset_s = m["t_ms"] // 1000
                         aligned_on = "marker"
                         break
-            series = self.runs.series(row["id"], 1500)
+            series = await off_loop(self.runs.series, row["id"], 1500)
             summary = (row.get("analysis") or {}).get("summary") or row.get("summary") or {}
             impacts = (row.get("analysis") or {}).get("impacts", [])
             out.append(
@@ -895,7 +905,7 @@ class App:
             log.warning("marked %d run(s) interrupted after restart: %s", len(interrupted), ", ".join(interrupted))
         for run_id in interrupted:
             try:
-                result = self.runs.analyze(run_id)
+                result = await off_loop(self.runs.analyze, run_id)
                 self.store.update_run(run_id, summary=result["summary"], analysis=result)
             except Exception:
                 log.exception("could not analyse interrupted run %s", run_id)
@@ -979,6 +989,11 @@ def _gate_html(name: str, message: str) -> str:
 <h1>Enter the access token</h1><p>This server requires a token. Ask whoever set it up, or read it from the file named by <code>server.access_token_file</code>.</p>
 {note}<form method="post" action="/auth"><label for="token">Access token</label><input id="token" name="token" type="password" autocomplete="current-password" required autofocus>
 <button type="submit" class="btn primary">Continue</button></form></main></body></html>"""
+
+
+async def off_loop(fn, *args):
+    """Run CPU-heavy work (analysis, series, exports) in a worker thread so the event loop keeps serving."""
+    return await asyncio.get_running_loop().run_in_executor(None, functools.partial(fn, *args))
 
 
 def _prom_label(value) -> str:

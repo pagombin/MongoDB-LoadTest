@@ -71,7 +71,7 @@ export async function render(root, [runId]) {
     if (state.windowSeconds === 0) {
       charts.setWindow(0);
       loadAll();
-      allTimer = setInterval(loadAll, 15000);
+      allTimer = setInterval(loadAll, 30000);
     } else {
       charts.setData(state.points, { step: 1 });
       charts.setWindow(state.windowSeconds);
