@@ -24,9 +24,17 @@ class Check:
 
 
 def pip_command(*packages: str) -> str:
-    in_venv = sys.prefix != getattr(sys, "base_prefix", sys.prefix)
-    user = "" if in_venv else " --user"
-    return f"{sys.executable} -m pip install{user} " + " ".join(packages)
+    """The install command that puts packages where this Ballast will find them."""
+    import sysconfig
+
+    site = os.environ.get("BALLAST_SITE")
+    if site:
+        where = f" --target {site}"
+    elif os.access(sysconfig.get_paths()["purelib"], os.W_OK):
+        where = ""
+    else:
+        where = " --user"
+    return f"{sys.executable} -m pip install{where} " + " ".join(packages)
 
 
 def _version(module: str) -> str | None:

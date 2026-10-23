@@ -30,6 +30,20 @@ export async function render(root) {
         ["SHA-256", s.certificate ? s.certificate.sha256 : null], ["Expires", s.certificate ? s.certificate.not_after : null], ["Access gate", a.access_gate ? "on" : "off"], ["Data directory", st.data_dir],
       ]))]),
     ]));
+    const caps = s.capabilities || [];
+    if (caps.length) {
+      const mark = { ok: "ok", warn: "warn", fail: "fail", info: "" };
+      const label = { ok: "ok", warn: "missing", fail: "missing", info: "optional" };
+      const capRows = caps.map((c) => h("tr", null, [
+        h("td", null, h("span", { class: "verdict " + mark[c.status], text: label[c.status] })),
+        h("td", { class: "mono", text: c.name }),
+        h("td", { class: "wrap", text: c.detail }),
+        h("td", { class: "mono small wrap", text: c.status === "ok" ? "" : c.fix || "" }),
+      ]));
+      const missing = caps.filter((c) => c.status === "warn" || c.status === "fail").length;
+      host.appendChild(h("section", { class: "panel" }, [h("header", null, [h("h2", { text: "Installed components" }), h("span", { class: "meta", text: missing ? `${missing} optional feature${missing === 1 ? "" : "s"} unavailable; 'ballast doctor' prints the same list` : "everything available" })]),
+        h("div", { class: "body flush scroll-x" }, h("table", { class: "data" }, [h("thead", null, h("tr", null, ["State", "Component", "What it does here", "To add it"].map((x) => h("th", { scope: "col", text: x })))), h("tbody", null, capRows)]))]));
+    }
     const cfgRows = s.config.map((r) => h("tr", null, [h("td", { class: "mono", text: r.key }), h("td", { class: "mono wrap", text: JSON.stringify(r.value) }), h("td", null, h("span", { class: "source-tag " + r.source, text: r.source }))]));
     host.appendChild(h("section", { class: "panel" }, [h("header", null, [h("h2", { text: "Effective configuration" }), h("span", { class: "meta", text: "secrets redacted; precedence flag > env > file > default" })]),
       h("div", { class: "body flush scroll-x" }, h("table", { class: "data" }, [h("thead", null, h("tr", null, ["Key", "Value", "Source"].map((x) => h("th", { scope: "col", text: x })))), h("tbody", null, cfgRows)]))]));

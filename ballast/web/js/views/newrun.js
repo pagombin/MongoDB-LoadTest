@@ -1,7 +1,7 @@
 import { api } from "../api.js";
 import { navigate, setTitle } from "../app.js";
 import { h, F, pageHead, button, empty, errorBlock, loading, toast, input, select, segmented, field } from "../ui.js";
-import { mixEditor, opsLabel } from "./profile-form.js";
+import { mixEditor, opsLabel, sizingNotes } from "./profile-form.js";
 
 const STEPS = ["Target", "Workload", "Schedule", "Review"];
 
@@ -134,13 +134,18 @@ export async function render(root) {
       field("Think time (ms)", think, "Pause between a worker's operations."),
       field("Generator processes", procs, "Workers are split across processes."),
     ]);
+    const notes = h("div", { class: "notes", role: "status", "aria-live": "polite", "data-sizing": "" });
+    const drawNotes = () => { notes.textContent = ""; sizingNotes(p).forEach((n) => notes.appendChild(h("p", { class: "note " + n.kind, text: n.text }))); };
+    drawNotes();
+    const loadBody = h("div", { class: "body" }, [h("div", { class: "field" }, modelSeg), loadFields, notes]);
+    loadBody.addEventListener("input", drawNotes);
     return [
       h("section", { class: "panel" }, [h("header", null, [h("h2", { text: "Workload profile" }), h("a", { href: "#/profiles", class: "small", text: "Manage profiles" })]), h("div", { class: "body" }, [
         field("Start from", profSel, (profiles.find((x) => x.id === s.profileId) || {}).body ? (profiles.find((x) => x.id === s.profileId).body.description || "") : ""),
         h("p", { class: "small muted", text: "Changes here apply to this run only. Save them as a profile from the Workload profiles page." }),
       ])]),
-      h("section", { class: "panel" }, [h("header", null, h("h2", { text: "Load model" })), h("div", { class: "body" }, [h("div", { class: "field" }, modelSeg), loadFields])]),
-      h("section", { class: "panel" }, [h("header", null, [h("h2", { text: "Operation mix" }), h("span", { class: "meta", text: opsLabel(p) })]), h("div", { class: "body" }, mixEditor(p, () => {}))]),
+      h("section", { class: "panel" }, [h("header", null, h("h2", { text: "Load model" })), loadBody]),
+      h("section", { class: "panel" }, [h("header", null, [h("h2", { text: "Operation mix" }), h("span", { class: "meta", text: opsLabel(p) })]), h("div", { class: "body" }, mixEditor(p, drawNotes))]),
       nav("Next: schedule", () => { s.step = 2; draw(); }),
     ];
   }
@@ -178,6 +183,22 @@ export async function render(root) {
       }, "small"));
     }
     drawRamp();
+    p.guardrails = p.guardrails || {};
+    p.slo = p.slo || {};
+    const numIn = (obj, key, id, attrs) => {
+      const el = input(Object.assign({ id, type: "number", class: "num-input", step: "any", placeholder: "off", value: obj[key] === null || obj[key] === undefined ? "" : String(obj[key]) }, attrs || {}));
+      el.addEventListener("input", () => { obj[key] = el.value === "" ? null : Number(el.value); });
+      return el;
+    };
+    const safety = h("section", { class: "panel" }, [h("header", null, [h("h2", { text: "Guardrails and pass/fail" }), h("span", { class: "meta", text: "optional" })]), h("div", { class: "body" }, [
+      h("p", { class: "small muted", text: "Guardrails stop the run by themselves when the cluster is clearly being hurt. Pass/fail criteria are checked on the finished run and shown on its report." }),
+      h("div", { class: "inline-fields" }, [
+        field("Stop above failed (%)", numIn(p.guardrails, "max_error_percent", "g-err", { min: "0.01", max: "100" })),
+        field("Stop above p99 (ms)", numIn(p.guardrails, "max_p99_ms", "g-p99", { min: "0.1" }), "For 10 seconds in a row by default."),
+        field("Pass if p99 at most (ms)", numIn(p.slo, "p99_ms", "s-p99", { min: "0", placeholder: "" })),
+        field("Pass if failed at most (%)", numIn(p.slo, "error_percent", "s-err", { min: "0", max: "100", placeholder: "" })),
+      ]),
+    ])]);
     return [
       h("section", { class: "panel" }, [h("header", null, h("h2", { text: "Data load" })), h("div", { class: "body" }, [
         h("div", { class: "inline-fields" }, [field("Documents per collection", docs, "Inserted before the measured run if the collection has fewer. 0 skips loading.")]),
@@ -187,6 +208,7 @@ export async function render(root) {
         h("fieldset", null, [h("legend", { text: "Ramp steps (optional)" }), rampList]),
         h("fieldset", null, [h("legend", { text: "Steady phase" }), h("div", { class: "field" }, durSeg), h("div", { class: "inline-fields" }, [field("Steady duration (s)", steady)])]),
       ])]),
+      safety,
       nav("Next: review", () => { s.step = 3; s.preflight = null; draw(); }),
     ];
   }
@@ -207,6 +229,13 @@ export async function render(root) {
     paras.push(`Then it will send ${pre ? pre.summary : ""}.`);
     paras.push(`${sched.warmup_seconds ? `Warm-up ${F.seconds(sched.warmup_seconds)} (not counted)` : "No warm-up"}${ramp ? `, ramp ${ramp}` : ""}, then steady ${sched.steady_seconds ? "for " + F.seconds(sched.steady_seconds) : "until you stop it"}.`);
     paras.push(`Write concern ${((p.driver || {}).write_concern || {}).w || "majority"}, read preference ${(p.driver || {}).read_preference || "primary"}, retryable writes ${(p.driver || {}).retry_writes === false ? "off" : "on"}.`);
+    const g = p.guardrails || {};
+    const stops = [];
+    if (g.max_error_percent) stops.push(`more than ${F.num(g.max_error_percent, 2)}% of operations fail`);
+    if (g.max_p99_ms) stops.push(`p99 goes above ${F.num(g.max_p99_ms, 1)} ms`);
+    paras.push(stops.length ? `It will stop by itself if ${stops.join(" or ")} for ${g.sustain_seconds || 10} seconds in a row.` : "No guardrail is set; the run continues whatever happens until you stop it or its schedule ends.");
+    const slo = Object.entries(p.slo || {}).filter(([, v]) => v !== null && v !== undefined);
+    if (slo.length) paras.push(`The report will mark it passed or failed against ${slo.length} criteri${slo.length === 1 ? "on" : "a"}.`);
     return paras;
   }
 

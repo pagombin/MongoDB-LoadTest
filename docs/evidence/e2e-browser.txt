@@ -9,7 +9,10 @@ ok   pause and resume with keyboard
 ok   stop run shows report
 ok   export html report works offline
 ok   csv and json exports
-ok   compare page
+ok   report: pass/fail card, tags and copy summary
+ok   run again, then compare shows changes
+ok   runs list: tag filter is kept in the address
+ok   command palette jumps to a page
 ok   settings and system pages
 ok   dark theme and compact density
 ok   keyboard: shortcuts dialog and navigation

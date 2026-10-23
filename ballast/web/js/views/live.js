@@ -26,6 +26,8 @@ export async function render(root, [runId]) {
     status: run.status, phase: (run.live && run.live.phase) || "", level: run.live ? run.live.level : null,
     elapsed: run.live ? run.live.elapsed_ms : 0, startedAt: run.started_at, points: [], markers: run.markers || [], events: run.events || [],
     gaps: run.gaps || [], errors: {}, last: null, load: null, samples: {}, windowSeconds: 900, samplingUnavailable: null,
+    progress: run.live ? run.live.progress : null, progressAt: Date.now(), guardrails: run.live ? run.live.guardrails : null,
+    cleanSeconds: 0,
   };
   try {
     const s = await api.get(`api/runs/${runId}/series?max_points=3600&start=${Math.floor(Date.now() / 1000) - 3600}`);
@@ -43,8 +45,11 @@ export async function render(root, [runId]) {
   const pauseBtn = h("button", { type: "button", class: "btn" });
   const stopBtn = h("button", { type: "button", class: "btn danger" }, ["Stop run ", h("kbd", { text: "S" })]);
   const markBtn = h("button", { type: "button", class: "btn primary", "aria-haspopup": "dialog" }, ["Mark ", h("kbd", { text: "M" })]);
+  const notifyBtn = h("button", { type: "button", class: "btn", "aria-pressed": "false", title: "Desktop notification when operations start failing, a guardrail stops the run, or the run ends, while this tab is in the background" });
+  const progressHost = h("div", { class: "progress-host" });
   const head = h("div", { class: "run-head" }, [
-    h("div", { class: "title-row" }, [h("h1", { text: run.name }), statusHost, phaseHost, elapsedHost, h("div", { class: "controls" }, [markBtn, pauseBtn, stopBtn])]),
+    h("div", { class: "title-row" }, [h("h1", { text: run.name }), statusHost, phaseHost, elapsedHost, h("div", { class: "controls" }, [markBtn, pauseBtn, stopBtn, notifyBtn])]),
+    progressHost,
     figuresHost,
   ]);
   root.appendChild(head);
@@ -74,6 +79,7 @@ export async function render(root, [runId]) {
   }, "Time window");
   const levelInput = input({ type: "number", min: "1", step: "1", class: "num-input", style: null, "aria-label": model === "open" ? "Target rate in operations per second" : "Workers" });
   levelInput.value = state.level ? String(Math.round(state.level)) : "";
+  levelInput.addEventListener("input", () => { levelInput.dataset.touched = "1"; });
   const levelBtn = button("Apply", async () => {
     const v = Number(levelInput.value);
     if (!(v > 0)) { toast("Enter a number above 0", "fail"); return; }
@@ -119,6 +125,7 @@ export async function render(root, [runId]) {
     figuresHost.appendChild(R.figure("Errors", F.num(last.err || 0, 0), "/s", `${F.int(Object.values(state.errors).reduce((a, b) => a + b, 0))} total`, last.err ? "bad" : ""));
     if (model === "open") figuresHost.appendChild(R.figure("Backlog", F.int(last.backlog || 0), "ops", "behind schedule", last.backlog > 100 ? "warnish" : ""));
     figuresHost.appendChild(R.figure("Generator CPU", F.num(last.cpu || 0, 0), "%", "of one core", last.cpu > 90 ? "warnish" : ""));
+    if (state.level && !levelInput.dataset.touched && document.activeElement !== levelInput) levelInput.value = String(Math.round(state.level));
     pauseBtn.textContent = "";
     pauseBtn.appendChild(document.createTextNode(state.status === "paused" ? "Resume " : "Pause "));
     pauseBtn.appendChild(h("kbd", { text: "P" }));
@@ -127,8 +134,82 @@ export async function render(root, [runId]) {
     stopBtn.disabled = state.status === "stopping";
   }
 
+  function remaining() {
+    const pr = state.progress;
+    if (!pr) return null;
+    const drift = state.status === "running" ? (Date.now() - state.progressAt) / 1000 : 0;
+    const phase = pr.phase_remaining_s === null ? null : Math.max(0, pr.phase_remaining_s - drift);
+    const total = pr.total_remaining_s === null ? null : Math.max(0, pr.total_remaining_s - drift);
+    return { pr, phase, total };
+  }
+
+  function drawProgress() {
+    progressHost.textContent = "";
+    const r = remaining();
+    if (!r || state.status === "loading") return;
+    const { pr, phase, total } = r;
+    const name = (pr.phases[pr.index] || {}).name || state.phase;
+    let fraction = null, text;
+    if (pr.total_planned_s) {
+      fraction = Math.min(1, Math.max(0, 1 - (total || 0) / pr.total_planned_s));
+      text = `${name}: ${F.seconds(Math.round(phase || 0))} left in this phase, ${F.seconds(Math.round(total || 0))} left in the run`;
+    } else if (phase !== null) {
+      fraction = pr.phase_seconds ? Math.min(1, 1 - phase / pr.phase_seconds) : null;
+      text = `${name}: ${F.seconds(Math.round(phase))} left in this phase, then steady until you stop it`;
+    } else {
+      text = `${name}: runs until you stop it`;
+    }
+    if (state.status === "paused") text += " (paused; the clock is stopped)";
+    const bar = h("div", { class: "progress", role: "progressbar", "aria-label": "Run progress", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": fraction === null ? null : String(Math.round(fraction * 100)), "aria-valuetext": text });
+    const fill = h("span", { class: "progress-fill" + (fraction === null ? " indeterminate" : "") });
+    if (fraction !== null) fill.style.width = `${(fraction * 100).toFixed(1)}%`;
+    bar.appendChild(fill);
+    const ticks = h("div", { class: "progress-ticks", "aria-hidden": "true" });
+    if (pr.total_planned_s) {
+      let acc = 0;
+      pr.phases.slice(0, -1).forEach((p) => { acc += p.seconds || 0; const t = h("span"); t.style.left = `${(acc / pr.total_planned_s) * 100}%`; ticks.appendChild(t); });
+    }
+    progressHost.appendChild(h("div", { class: "progress-wrap" }, [h("div", { class: "progress-track" }, [bar, ticks]), h("div", { class: "xs muted", text })]));
+  }
+
+  /* The tab title carries the live numbers, so the run can be watched from another tab. */
+  function drawTitle() {
+    const last = state.last || {};
+    const mark = state.status === "paused" ? "❚❚" : last.err ? "▲" : "●";
+    const product = (app.about && app.about.product) || "Ballast";
+    document.title = `${mark} ${F.num(last.ok || 0, 0)} ops/s, p99 ${F.lat(last.p99)} – ${run.name} – ${product}`;
+  }
+
+  let notifyOn = false;
+  try { notifyOn = localStorage.getItem("ballast.notify") === "1" && "Notification" in window && Notification.permission === "granted"; } catch (e) { notifyOn = false; }
+  function drawNotify() {
+    notifyBtn.textContent = notifyOn ? "Notifications on" : "Notify me";
+    notifyBtn.setAttribute("aria-pressed", notifyOn ? "true" : "false");
+    notifyBtn.hidden = !("Notification" in window);
+  }
+  notifyBtn.addEventListener("click", async () => {
+    if (notifyOn) { notifyOn = false; } else {
+      const perm = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
+      notifyOn = perm === "granted";
+      if (!notifyOn) toast("The browser did not allow notifications", "fail");
+    }
+    try { localStorage.setItem("ballast.notify", notifyOn ? "1" : "0"); } catch (e) { /* per-browser preference only */ }
+    drawNotify();
+  });
+  function desktop(title, body) {
+    if (!notifyOn || !document.hidden) return;
+    try { new Notification(title, { body, tag: "ballast-" + runId }); } catch (e) { /* notifications are best effort */ }
+  }
+
   function drawFlags() {
     flagsHost.textContent = "";
+    if (state.guardrails) {
+      const g = state.guardrails;
+      const parts = [];
+      if (g.max_error_percent !== null && g.max_error_percent !== undefined) parts.push(`more than ${F.num(g.max_error_percent, 2)}% of operations fail`);
+      if (g.max_p99_ms !== null && g.max_p99_ms !== undefined) parts.push(`p99 is above ${F.num(g.max_p99_ms, 1)} ms`);
+      flagsHost.appendChild(h("p", { class: "guard-note small", text: `Guardrail on: the run stops by itself if ${parts.join(" or ")} for ${g.sustain_seconds} seconds in a row.` }));
+    }
     if (state.samplingUnavailable) {
       const d = state.samplingUnavailable.data || {};
       flagsHost.appendChild(window.BallastReport.notice("", "Server sampling is unavailable", d.reason, d.fix));
@@ -191,6 +272,9 @@ export async function render(root, [runId]) {
 
   function redrawAll() {
     drawHeader();
+    drawProgress();
+    drawTitle();
+    drawNotify();
     drawFlags();
     drawErrors();
     drawEvents();
@@ -281,12 +365,17 @@ export async function render(root, [runId]) {
       if (d.phase) state.phase = d.phase;
       if (d.level) state.level = d.level;
       if (d.elapsed_ms) state.elapsed = d.elapsed_ms;
+      if (d.progress !== undefined) { state.progress = d.progress; state.progressAt = Date.now(); }
+      if (d.guardrails !== undefined) state.guardrails = d.guardrails;
       if (!LIVE.includes(d.status)) {
-        toast(d.status === "completed" ? "Run completed" : d.status === "failed" ? "Run failed" : "Run stopped");
+        const ended = d.status === "completed" ? "Run completed" : d.status === "failed" ? "Run failed" : "Run stopped";
+        desktop(ended, run.name);
+        toast(ended);
         setTimeout(() => navigate(`#/runs/${runId}`), 600);
         return;
       }
       drawHeader();
+      drawProgress();
     }
     if (d && d.run !== runId) return;
     if (kind === "point") {
@@ -298,7 +387,11 @@ export async function render(root, [runId]) {
       Object.entries(p.errors || {}).forEach(([k, v]) => { state.errors[k] = (state.errors[k] || 0) + v; });
       if (p.phase === "steady" && p.p99) state.baseP99 = state.baseP99 ? state.baseP99 * 0.98 + p.p99 * 0.02 : p.p99;
       if (state.windowSeconds !== 0) charts.setData(state.points, { markers: state.markers, events: state.events, gaps: state.gaps });
+      if (p.err && state.cleanSeconds >= 30) desktop("Operations are failing", `${run.name}: ${F.num(p.err, 0)} failed in the last second`);
+      state.cleanSeconds = p.err ? 0 : state.cleanSeconds + 1;
       drawHeader();
+      drawProgress();
+      drawTitle();
       if (++ticks % 2 === 0) { drawFlags(); drawErrors(); }
     } else if (kind === "marker") {
       state.markers.push(d);
@@ -310,6 +403,8 @@ export async function render(root, [runId]) {
       if (d.kind === "phase") { state.phase = d.data.phase; if (d.data.level) { state.level = d.data.level; } }
       if (d.kind === "level_changed") state.level = d.data.level;
       if (d.kind === "sampling_unavailable") { state.samplingUnavailable = d; drawFlags(); }
+      if (d.kind === "guardrail") { desktop("Guardrail stopped the run", (d.data.reasons || []).join("; ")); toast("Guardrail: " + (d.data.reasons || []).join("; "), "fail"); }
+      if (d.kind === "primary_changed") desktop("Primary changed", `${run.name}: ${d.data.from || "none"} → ${d.data.to}`);
       drawEvents();
       drawCluster();
     } else if (kind === "gap") {

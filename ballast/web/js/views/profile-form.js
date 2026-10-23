@@ -64,6 +64,56 @@ function section(title, children) {
   return h("fieldset", null, [h("legend", { text: title }), ...children]);
 }
 
+function share(p, keys) {
+  const mix = p.operations || {};
+  const total = OPS.reduce((a, k) => a + (Number(mix[k]) || 0), 0) || 1;
+  return keys.reduce((a, k) => a + (Number(mix[k]) || 0), 0) / total;
+}
+
+/* Sizing hints that follow the form: how long a stall the in-flight slots absorb, and how much data the run writes. */
+export function sizingNotes(p) {
+  const out = [];
+  const load = p.load || {};
+  const rate = Number(load.rate) || 0;
+  const conc = Number(load.concurrency) || 0;
+  const procs = Number(load.processes) || 1;
+  const pool = Number((p.driver || {}).max_pool_size) || 100;
+  if ((load.model || "open") === "open" && rate > 0 && conc > 0) {
+    const absorb = conc / rate;
+    out.push({ kind: absorb < 1 ? "warn" : "info", text: `In flight: ${F.int(conc)} slots at ${F.num(rate, 0)} ops/s absorb a ${absorb < 1 ? F.num(absorb * 1000, 0) + " ms" : F.num(absorb, 1) + " s"} stall before late operations queue. That is measured correctly either way; to keep sending during a 10 s election, use at least ${F.int(Math.ceil(rate * 10))}.` });
+    if (conc > pool * procs) out.push({ kind: "warn", text: `Concurrency ${F.int(conc)} is above maxPoolSize × processes (${F.int(pool * procs)}), so operations will also wait for a connection. Raise maxPoolSize or add processes if that is not what you want to test.` });
+  }
+  const doc = p.document || {};
+  const size = (doc.mode || "simple") === "simple" ? Number(doc.size_bytes) || 512 : null;
+  const colls = Number((p.dataset || {}).collections) || 1;
+  const loadDocs = Number(((p.dataset || {}).load || {}).documents) || 0;
+  const loadMb = Number(((p.dataset || {}).load || {}).size_mb) || 0;
+  if ((load.model || "open") === "open" && rate > 0) {
+    const inserts = rate * share(p, ["insert", "upsert"]);
+    const updates = rate * share(p, ["update", "find_and_modify"]);
+    const deletes = rate * share(p, ["delete"]);
+    let text = `Writes: ${F.num(inserts, 0)} inserts, ${F.num(updates, 0)} updates and ${F.num(deletes, 0)} deletes per second`;
+    if (size) text += `, about ${F.bytes(inserts * size * 3600)} of new documents per hour before compression and indexes`;
+    out.push({ kind: "info", text: text + "." });
+  }
+  if (loadDocs || loadMb) {
+    const total = loadMb ? loadMb * 1024 * 1024 * colls : size ? loadDocs * size * colls : null;
+    out.push({ kind: "info", text: `Data load: ${loadMb ? F.num(loadMb, 1) + " MB" : F.int(loadDocs) + " documents"} in each of ${colls} collection${colls === 1 ? "" : "s"}${total ? ", about " + F.bytes(total) + " in total" : ""}.` });
+  }
+  return out;
+}
+
+function sizingBox(p) {
+  const box = h("div", { class: "notes", role: "status", "aria-live": "polite", "data-sizing": "" });
+  const draw = () => {
+    box.textContent = "";
+    for (const n of sizingNotes(p)) box.appendChild(h("p", { class: "note " + n.kind, text: n.text }));
+  };
+  draw();
+  box.refresh = draw;
+  return box;
+}
+
 export function profileForm(p) {
   p.document = p.document || {};
   p.keys = p.keys || {};
@@ -75,6 +125,9 @@ export function profileForm(p) {
   p.schedule = p.schedule || {};
   p.retry = p.retry || {};
   p.sampling = p.sampling || {};
+  p.guardrails = p.guardrails || {};
+  p.slo = p.slo || {};
+  const sizing = sizingBox(p);
   const d = p.driver, wc = d.write_concern;
   const wSel = select([{ value: "majority", label: "majority" }, { value: "1", label: "1" }, { value: "0", label: "0 (unacknowledged)" }, { value: "2", label: "2" }, { value: "3", label: "3" }], String(wc.w ?? "majority"), { id: "pf-w" });
   wSel.addEventListener("change", () => { wc.w = wSel.value === "majority" ? "majority" : Number(wSel.value); });
@@ -95,7 +148,7 @@ export function profileForm(p) {
   const untilStop = p.schedule.steady_seconds === null || p.schedule.steady_seconds === undefined;
   const steadyInput = num(p.schedule, "steady_seconds", { id: "pf-steady", min: "1", placeholder: "until stopped" });
   if (untilStop) steadyInput.value = "";
-  return h("div", { class: "stack" }, [
+  const form = h("div", { class: "stack" }, [
     section("General", [h("div", { class: "inline-fields" }, [field("Name", text(p, "name", { id: "pf-name", maxlength: "80" })), field("Seed", num(p, "seed", { id: "pf-seed", min: "0" }), "Same seed, same key and document sequence.")]),
       field("Description", text(p, "description", { id: "pf-desc", maxlength: "2000" }))]),
     section("Operations", [mixEditor(p)]),
@@ -124,7 +177,7 @@ export function profileForm(p) {
       field("Model", choose(p.load, "model", [{ value: "open", label: "open (target rate)" }, { value: "closed", label: "closed (workers)" }], { id: "pf-model" })),
       field("Rate (ops/s)", num(p.load, "rate", { id: "pf-rate", min: "1" }), "Open model."), field("Concurrency", num(p.load, "concurrency", { id: "pf-conc", min: "1" }), "Workers, or max in flight."),
       field("Think time (ms)", num(p.load, "think_time_ms", { id: "pf-think", min: "0" }), "Closed model."), field("Generator processes", num(p.load, "processes", { id: "pf-procs", min: "1", max: "64" })),
-    ])]),
+    ]), sizing]),
     section("Schedule", [h("div", { class: "inline-fields" }, [
       field("Warm-up (s)", num(p.schedule, "warmup_seconds", { id: "pf-warm", min: "0" })), field("Steady (s)", steadyInput, "Empty runs until stopped."),
       field("Drain timeout (s)", num(p.schedule, "drain_timeout_seconds", { id: "pf-drain", min: "1" }), "How long in-flight operations get at stop."),
@@ -134,11 +187,28 @@ export function profileForm(p) {
       field("Initial backoff (ms)", num(p.retry, "initial_backoff_ms", { id: "pf-ib", min: "0" })), field("Max backoff (ms)", num(p.retry, "max_backoff_ms", { id: "pf-mb", min: "0" })),
     ])]),
     section("Server sampling", [bool(p.sampling, "enabled", "Poll hello, serverStatus and replSetGetStatus (needs clusterMonitor; degrades without it)"), h("div", { class: "inline-fields" }, [field("Interval (s)", num(p.sampling, "interval_seconds", { id: "pf-si", min: "1" }))])]),
+    section("Guardrails", [h("p", { class: "small muted", text: "Stop the run by itself if the cluster is clearly being hurt, for example when testing against production. Leave empty to never stop early." }), h("div", { class: "inline-fields" }, [
+      field("Stop above failed (%)", num(p.guardrails, "max_error_percent", { id: "pf-g-err", min: "0.01", max: "100", step: "0.1", placeholder: "off" })),
+      field("Stop above p99 (ms)", num(p.guardrails, "max_p99_ms", { id: "pf-g-p99", min: "0.1", step: "any", placeholder: "off" })),
+      field("For seconds in a row", num(p.guardrails, "sustain_seconds", { id: "pf-g-sus", min: "1", placeholder: "10" }), "Warm-up and pauses do not count."),
+    ])]),
+    section("Pass/fail criteria (SLO)", [h("p", { class: "small muted", text: "Checked against the whole measured run. The report shows pass or fail, and 'ballast run' exits with code 1 when one fails." }), h("div", { class: "inline-fields" }, [
+      field("p50 at most (ms)", num(p.slo, "p50_ms", { id: "pf-s-p50", min: "0", step: "any" })),
+      field("p99 at most (ms)", num(p.slo, "p99_ms", { id: "pf-s-p99", min: "0", step: "any" })),
+      field("max at most (ms)", num(p.slo, "max_ms", { id: "pf-s-max", min: "0", step: "any" })),
+      field("Failed at most (%)", num(p.slo, "error_percent", { id: "pf-s-err", min: "0", max: "100", step: "any" })),
+      field("Throughput at least (ops/s)", num(p.slo, "min_throughput", { id: "pf-s-tput", min: "0", step: "any" })),
+      field("Share of target at least", num(p.slo, "min_throughput_ratio", { id: "pf-s-ratio", min: "0", max: "1", step: "0.01" }), "Open model, 0 to 1."),
+    ])]),
   ]);
+  form.addEventListener("input", () => sizing.refresh());
+  form.addEventListener("change", () => sizing.refresh());
+  return form;
 }
 
 export function cleanProfile(p) {
   const out = JSON.parse(JSON.stringify(p));
+  if (out.guardrails && (out.guardrails.sustain_seconds === null || out.guardrails.sustain_seconds === "")) delete out.guardrails.sustain_seconds;
   if (out.document && out.document.mode !== "schema") out.document.schema_fields = null;
   if (out.schedule && (out.schedule.steady_seconds === 0 || out.schedule.steady_seconds === "")) out.schedule.steady_seconds = null;
   return out;

@@ -20,7 +20,7 @@ function activeBand(active) {
   ]);
 }
 
-export async function render(root) {
+export async function render(root, [query]) {
   setTitle("Runs");
   root.appendChild(pageHead("Runs", "Every run, newest first. Open one to see its report.", [h("a", { class: "btn primary", href: "#/new" }, ["New run ", h("kbd", { text: "N" })])]));
   const bandHost = h("div");
@@ -40,15 +40,28 @@ export async function render(root) {
     draw();
   };
   const selected = new Set();
-  let filterText = "", statusFilter = "all", targetFilter = "all";
+  const params = new URLSearchParams(query || "");
+  let filterText = params.get("q") || "", statusFilter = params.get("status") || "all", targetFilter = params.get("target") || "all", tagFilter = params.get("tag") || "all";
   let table = null;
+
+  /* Filters live in the address, so a filtered list can be bookmarked or shared. */
+  function remember() {
+    const q = new URLSearchParams();
+    if (filterText) q.set("q", filterText);
+    if (statusFilter !== "all") q.set("status", statusFilter);
+    if (targetFilter !== "all") q.set("target", targetFilter);
+    if (tagFilter !== "all") q.set("tag", tagFilter);
+    const hash = "#/runs" + (q.toString() ? "?" + q.toString() : "");
+    if (window.location.hash !== hash) history.replaceState(null, "", hash);
+  }
 
   function rows() {
     return data.runs.filter((r) => {
       if (statusFilter !== "all" && r.status !== statusFilter) return false;
       if (targetFilter !== "all" && r.target_name !== targetFilter) return false;
+      if (tagFilter !== "all" && !(r.tags || []).includes(tagFilter)) return false;
       if (filterText) {
-        const hay = (r.name + " " + (r.target_name || "") + " " + (r.database_name || "") + " " + r.id).toLowerCase();
+        const hay = (r.name + " " + (r.target_name || "") + " " + (r.database_name || "") + " " + r.id + " " + (r.tags || []).join(" ") + " " + (r.notes || "")).toLowerCase();
         if (!hay.includes(filterText.toLowerCase())) return false;
       }
       return true;
@@ -66,15 +79,19 @@ export async function render(root) {
       ])));
       return;
     }
-    const filter = h("input", { type: "search", placeholder: "Filter by name, target, database or id", "aria-label": "Filter runs", "data-filter": "", value: filterText });
-    filter.addEventListener("input", () => { filterText = filter.value; table.setRows(rows()); foot(); });
+    const filter = h("input", { type: "search", placeholder: "Filter by name, target, tag, notes or id", "aria-label": "Filter runs", "data-filter": "", value: filterText });
+    filter.addEventListener("input", () => { filterText = filter.value; table.setRows(rows()); foot(); remember(); });
     const statuses = ["all", "running", "completed", "stopped", "failed", "interrupted"];
     const statusSel = select(statuses.map((s) => ({ value: s, label: s === "all" ? "All statuses" : F.statusText(s) })), statusFilter, { "aria-label": "Status" });
-    statusSel.addEventListener("change", () => { statusFilter = statusSel.value; table.setRows(rows()); foot(); });
+    statusSel.addEventListener("change", () => { statusFilter = statusSel.value; table.setRows(rows()); foot(); remember(); });
     const targetsList = ["all", ...new Set(data.runs.map((r) => r.target_name).filter(Boolean))];
     const targetSel = select(targetsList.map((t) => ({ value: t, label: t === "all" ? "All targets" : t })), targetFilter, { "aria-label": "Target" });
-    targetSel.addEventListener("change", () => { targetFilter = targetSel.value; table.setRows(rows()); foot(); });
-    const toolbar = h("div", { class: "chart-toolbar" }, [h("div", { style: null, class: "spacer" }, filter), h("div", null, statusSel), h("div", null, targetSel)]);
+    targetSel.addEventListener("change", () => { targetFilter = targetSel.value; table.setRows(rows()); foot(); remember(); });
+    const tagList = [...new Set(data.runs.flatMap((r) => r.tags || []))].sort();
+    if (tagFilter !== "all" && !tagList.includes(tagFilter)) tagList.push(tagFilter);
+    const tagSel = select([{ value: "all", label: "All tags" }, ...tagList.map((t) => ({ value: t, label: t }))], tagFilter, { "aria-label": "Tag" });
+    tagSel.addEventListener("change", () => { tagFilter = tagSel.value; table.setRows(rows()); foot(); remember(); });
+    const toolbar = h("div", { class: "chart-toolbar" }, [h("div", { style: null, class: "spacer" }, filter), h("div", null, statusSel), h("div", null, targetSel), tagList.length ? h("div", null, tagSel) : null]);
     const cols = [
       { key: "sel", label: "", render: (r) => {
         const cb = h("input", { type: "checkbox", "aria-label": `Select ${r.name}` });
@@ -82,8 +99,9 @@ export async function render(root) {
         cb.addEventListener("change", () => { if (cb.checked) selected.add(r.id); else selected.delete(r.id); foot(); });
         return cb;
       } },
-      { key: "name", label: "Name", value: (r) => r.name.toLowerCase(), render: (r) => h("a", { class: "rowlink", href: LIVE.includes(r.status) ? `#/runs/${r.id}/live` : `#/runs/${r.id}`, text: r.name }) },
-      { key: "status", label: "Status", value: (r) => r.status, render: (r) => [chip(r.status), r.client_bound ? h("span", { class: "chip warn plain", style: null, text: "client-bound" }) : null] },
+      { key: "name", label: "Name", value: (r) => r.name.toLowerCase(), render: (r) => [h("a", { class: "rowlink", href: LIVE.includes(r.status) ? `#/runs/${r.id}/live` : `#/runs/${r.id}`, text: r.name }), (r.tags || []).length ? h("div", { class: "tags small" }, r.tags.map((t) => h("span", { class: "tag", text: t }))) : null] },
+      { key: "status", label: "Status", value: (r) => r.status, render: (r) => [chip(r.status), r.stop_reason === "guardrail" ? h("span", { class: "chip warn plain", text: "guardrail" }) : null, r.client_bound ? h("span", { class: "chip warn plain", style: null, text: "client-bound" }) : null] },
+      { key: "slo", label: "SLO", value: (r) => (r.slo_passed === null || r.slo_passed === undefined ? null : r.slo_passed ? 1 : 0), render: (r) => (r.slo_passed === true ? h("span", { class: "verdict ok", text: "pass" }) : r.slo_passed === false ? h("span", { class: "verdict fail", text: "fail" }) : h("span", { class: "muted", text: "–" })) },
       { key: "target", label: "Target", value: (r) => r.target_name || "", render: (r) => [r.target_name || "–", h("div", { class: "xs muted mono", text: r.database_name || "" })] },
       { key: "started", label: "Started", value: (r) => r.started_at || r.created_at, render: (r) => F.dateTime(r.started_at || r.created_at) },
       { key: "dur", label: "Duration", num: true, value: (r) => (r.ended_at && r.started_at ? r.ended_at - r.started_at : null), render: (r) => (r.ended_at && r.started_at ? F.duration(r.ended_at - r.started_at) : LIVE.includes(r.status) ? "live" : "–") },

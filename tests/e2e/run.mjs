@@ -20,6 +20,7 @@ if (shots) mkdirSync(shots, { recursive: true });
 
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1440, height: 900 }, locale: 'en-US', acceptDownloads: true });
+await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(base).origin });
 const page = await ctx.newPage();
 const problems = [];
 const external = [];
@@ -93,9 +94,14 @@ await step('new run wizard to review', async () => {
   await page.waitForSelector('#warmup');
   await page.fill('#warmup', '5');
   await page.fill('#load-docs', '2000');
+  await page.fill('#g-err', '90');
+  await page.fill('#s-p99', '60000');
+  await page.fill('#s-err', '50');
+  await shot('02d-new-run-schedule');
   await page.click('text=Next: review');
   await page.waitForSelector('#run-name', { timeout: 30000 });
   await page.fill('#run-name', 'resize rehearsal');
+  await page.waitForSelector('text=It will stop by itself if more than 90% of operations fail');
   await shot('02c-new-run-review');
 });
 
@@ -107,6 +113,9 @@ await step('start run opens live view', async () => {
   runId = page.url().match(/runs\/(\w+)\/live/)[1];
   await page.waitForSelector('.run-head .chip.running', { timeout: 60000 });
   await page.waitForTimeout(12000);
+  await page.waitForSelector('.progress[role="progressbar"]');
+  if (!/ops\/s, p99/.test(await page.title())) throw new Error('tab title has no live numbers: ' + (await page.title()));
+  await page.waitForSelector('text=Guardrail on: the run stops by itself');
 });
 
 await step('add markers with keyboard shortcut', async () => {
@@ -176,10 +185,66 @@ await step('csv and json exports', async () => {
   }
 });
 
-await step('compare page', async () => {
-  await page.goto(base + `#/compare?ids=${runId}`);
+await step('report: pass/fail card, tags and copy summary', async () => {
+  await page.goto(base + `#/runs/${runId}`);
+  await page.waitForSelector('.panel.slo >> text=Passed');
+  await page.click('button:has-text("Add notes or tags")');
+  await page.fill('#meta-tags', 'rehearsal, e2e');
+  await page.fill('#meta-notes', 'Write stall of 4 s with fsyncLock while markers were open.');
+  await page.click('dialog button:has-text("Save")');
+  await page.waitForSelector('.meta-bar a.tag:has-text("e2e")');
+  await page.click('button:has-text("Copy summary")');
+  await page.waitForSelector('.toast:has-text("Summary copied")');
+  const md = await page.evaluate(() => navigator.clipboard.readText());
+  if (!md.includes('## resize rehearsal') || !md.includes('**SLO: passed**')) throw new Error('clipboard summary missing content');
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await shot('16-report-slo-tags', false);
+});
+
+let rerunId = null;
+await step('run again, then compare shows changes', async () => {
+  await page.click('button:has-text("Run again")');
+  const ack = await page.waitForSelector('dialog[open] button:has-text("Start anyway")', { timeout: 5000 }).catch(() => null);
+  if (ack) await ack.click();
+  await page.waitForURL(/\/live$/, { timeout: 30000 });
+  rerunId = page.url().match(/runs\/(\w+)\/live/)[1];
+  if (rerunId === runId) throw new Error('rerun has the same id');
+  await page.waitForSelector('.run-head .chip.running', { timeout: 60000 });
+  await page.waitForTimeout(15000);
+  await page.keyboard.press('s');
+  await page.click('dialog button:has-text("Stop run")');
+  await page.waitForURL(new RegExp(`#/runs/${rerunId}$`), { timeout: 90000 });
+  await page.waitForSelector('.meta-bar a.tag:has-text("e2e")');
+  await page.goto(base + `#/compare?ids=${runId},${rerunId}`);
   await page.waitForSelector('h1:has-text("Compare")');
-  await shot('05-compare', false);
+  await page.waitForSelector('td .delta');
+  await shot('05-compare');
+});
+
+await step('runs list: tag filter is kept in the address', async () => {
+  await page.goto(base + '#/runs?tag=e2e');
+  await page.waitForSelector('table.data');
+  const shown = await page.$$eval('table.data tbody tr', (r) => r.length);
+  if (shown !== 2) throw new Error(`expected 2 runs tagged e2e, saw ${shown}`);
+  await page.fill('input[data-filter]', 'rehearsal');
+  await page.waitForFunction(() => window.location.hash.includes('q=rehearsal') && window.location.hash.includes('tag=e2e'));
+  await page.waitForSelector('td .verdict.ok');
+});
+
+await step('command palette jumps to a page', async () => {
+  await page.goto(base + '#/runs');
+  await page.waitForSelector('table.data');
+  await page.keyboard.press('Control+k');
+  await page.waitForSelector('dialog.palette[open] input');
+  await page.keyboard.type('resize');
+  await page.waitForSelector('dialog.palette li[aria-selected="true"]');
+  await shot('17-command-palette', false);
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Control+k');
+  await page.keyboard.type('system');
+  await page.keyboard.press('Enter');
+  await page.waitForURL(/#\/system$/);
+  await page.waitForSelector('text=Installed components');
 });
 
 await step('settings and system pages', async () => {

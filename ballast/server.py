@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import platform
+import re
 import secrets
 import shutil
 import signal
@@ -741,7 +742,9 @@ class App:
             raise ApiError(409, "Target missing", "The run's target is no longer saved.", "Start a new run from New run.")
         target = self._target(row["target_id"])
         profile = Profile.model_validate(row["profile"])
-        name = body.name or row["name"]
+        base = re.sub(r" \(again(?: \d+)?\)$", "", row["name"])
+        taken = {r["name"] for r in self.store.list_runs(100000)}
+        name = body.name or next(n for n in [f"{base} (again)", *(f"{base} (again {i})" for i in range(2, 10_000))] if n not in taken)
         new = await self.runs.start(name=name, target=target, profile=profile, acknowledge_foreign=body.acknowledge_foreign)
         if row.get("tags"):
             self.store.update_run(new["id"], tags=row["tags"])

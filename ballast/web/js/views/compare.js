@@ -61,10 +61,12 @@ export async function render(root, [query]) {
     const t = window.BallastCharts.theme();
     const colors = [t.c1, t.c2, t.c3, t.c4, t.c5];
     const dashes = ["", "dashed", "dotted", "dashed", "dotted"];
+    const dupes = new Set(data.runs.map((r) => r.name).filter((n, i, all) => all.indexOf(n) !== i));
+    data.runs.forEach((r) => { r.label = dupes.has(r.name) ? `${r.name} (${F.dateTime(r.started_at || r.created_at)})` : r.name; });
     const legend = h("div", { class: "legend" }, data.runs.map((r, i) => {
       const sw = h("span", { class: "swatch " + dashes[i % dashes.length] });
       sw.style.color = colors[i % colors.length];
-      return h("span", { class: "key" }, [sw, r.name + (align === "marker" && r.aligned_on !== "marker" ? " (marker not found, aligned at start)" : "")]);
+      return h("span", { class: "key" }, [sw, r.label + (align === "marker" && r.aligned_on !== "marker" ? " (marker not found, aligned at start)" : "")]);
     }));
     const tHost = h("div", { class: "chart-host" });
     const lHost = h("div", { class: "chart-host" });
@@ -76,16 +78,34 @@ export async function render(root, [query]) {
     const a = window.BallastCharts.compareChart(tHost, data.runs, "throughput");
     const b = window.BallastCharts.compareChart(lHost, data.runs, "p99");
     destroyers.push(a.destroy, b.destroy);
-    const rows = data.runs.map((r) => {
+    const metrics = data.runs.map((r) => {
       const s = r.summary || {}, rt = s.response_time || {};
       const impacts = r.impacts || [];
       const worstGap = impacts.reduce((m, i) => Math.max(m, i.longest_write_gap ? i.longest_write_gap.ms : 0), 0);
       const recov = impacts.filter((i) => i.recovery_seconds !== null && i.recovery_seconds !== undefined).map((i) => i.recovery_seconds);
+      return { tput: s.throughput, p50: rt.p50_us, p99: rt.p99_us, max: rt.max_us, err: s.error_rate || 0, gap: worstGap, recov: recov.length ? Math.max(...recov) : null };
+    });
+    const base = metrics[0];
+    /* Each later run shows its change against the first run; green is better, red is worse. */
+    function cell(key, text, higherIsBetter, i) {
+      const v = metrics[i][key], b = base[key];
+      const out = h("td", { class: "num" }, [text]);
+      if (i === 0 || v === null || v === undefined || b === null || b === undefined) return out;
+      if (b === 0 && v === 0) return out;
+      const change = b === 0 ? null : (v - b) / b;
+      const better = higherIsBetter ? v > b : v < b;
+      const same = change !== null && Math.abs(change) < 0.005;
+      const label = change === null ? (v > b ? "new" : "") : `${change > 0 ? "+" : ""}${F.num(change * 100, Math.abs(change) < 0.1 ? 1 : 0)}%`;
+      if (label) out.appendChild(h("span", { class: "delta " + (same ? "" : better ? "better" : "worse"), text: label, title: same ? "about the same as the first run" : (better ? "better" : "worse") + " than the first run" }));
+      return out;
+    }
+    const rows = data.runs.map((r, i) => {
+      const m = metrics[i];
       return h("tr", null, [
-        h("td", null, h("a", { class: "rowlink", href: `#/runs/${r.id}`, text: r.name })),
-        h("td", { class: "num", text: F.num(s.throughput, 0) }), h("td", { class: "num", text: F.lat(rt.p50_us) }), h("td", { class: "num", text: F.lat(rt.p99_us) }),
-        h("td", { class: "num", text: F.lat(rt.max_us) }), h("td", { class: "num", text: F.pct(s.error_rate || 0) }),
-        h("td", { class: "num", text: worstGap ? F.lat(worstGap * 1000) : "none" }), h("td", { class: "num", text: recov.length ? F.seconds(Math.max(...recov)) : "–" }),
+        h("td", null, [h("a", { class: "rowlink", href: `#/runs/${r.id}`, text: r.label }), i === 0 && data.runs.length > 1 ? h("span", { class: "xs muted", text: " baseline" }) : null]),
+        cell("tput", F.num(m.tput, 0), true, i), cell("p50", F.lat(m.p50), false, i), cell("p99", F.lat(m.p99), false, i),
+        cell("max", F.lat(m.max), false, i), cell("err", F.pct(m.err), false, i),
+        cell("gap", m.gap ? F.lat(m.gap * 1000) : "none", false, i), cell("recov", m.recov !== null ? F.seconds(m.recov) : "–", false, i),
       ]);
     });
     chartHost.appendChild(h("section", { class: "panel" }, [h("header", null, h("h2", { text: "Summary" })), h("div", { class: "body flush scroll-x" }, h("table", { class: "data" }, [

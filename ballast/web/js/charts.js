@@ -455,13 +455,13 @@
       data.push(ys);
     });
     var series = [{}].concat(runs.map(function (r, i) {
-      return { label: r.name, stroke: colors[i % colors.length], width: 1.5, dash: DASHES[i % DASHES.length], points: { show: false }, spanGaps: false };
+      return { label: r.label || r.name, stroke: colors[i % colors.length], width: 1.5, dash: DASHES[i % DASHES.length], points: { show: false }, spanGaps: false };
     }));
     var fmt = metric === "throughput" ? compactFmt : msFmt;
     var u = new uPlot({
       width: Math.max(320, container.clientWidth - 16), height: 240, legend: { show: false },
       cursor: { drag: { x: true, setScale: true }, points: { size: 6 } },
-      plugins: [readoutPluginRel(runs.map(function (r, i) { return { i: i + 1, label: r.name, fmt: fmt }; }))],
+      plugins: [readoutPluginRel(runs.map(function (r, i) { return { i: i + 1, label: r.label || r.name, fmt: fmt }; }))],
       scales: { x: { time: false }, y: metric === "throughput" ? { range: function (uu, min, max) { return [0, Math.max(10, max * 1.08)]; } } : { distr: 3, log: 10 } },
       series: series,
       axes: [

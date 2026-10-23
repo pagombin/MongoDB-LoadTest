@@ -42,5 +42,11 @@ export const api = {
   get: (p) => request("GET", p),
   post: (p, b) => request("POST", p, b === undefined ? {} : b),
   put: (p, b) => request("PUT", p, b),
+  patch: (p, b) => request("PATCH", p, b),
+  text: async (p) => {
+    const response = await fetch(p, { credentials: "same-origin" });
+    if (!response.ok) throw new ApiError(response.status, null);
+    return response.text();
+  },
   del: (p) => request("DELETE", p),
 };

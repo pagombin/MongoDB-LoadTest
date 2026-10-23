@@ -186,6 +186,7 @@ table.kv td { padding: 4px 0; vertical-align: top; }
 .chart-title { display: flex; align-items: baseline; gap: 10px; padding: 4px 8px 2px; font-size: var(--t-sm); }
 .chart-title strong { font-weight: 600; }
 .chart-title .legend { display: flex; gap: 12px; flex-wrap: wrap; color: var(--muted); font-size: var(--t-xs); margin-left: auto; }
+.legend { display: flex; gap: 12px; flex-wrap: wrap; }
 .legend .key { display: inline-flex; gap: 5px; align-items: center; }
 .legend .swatch { width: 14px; height: 0; border-top: 2px solid currentColor; display: inline-block; }
 .legend .swatch.dashed { border-top-style: dashed; }
@@ -318,3 +319,49 @@ table.kv td { overflow-wrap: anywhere; }
 .figures { margin-bottom: 12px; }
 .split.editor-wide { grid-template-columns: minmax(0, 2fr) minmax(420px, 3fr); }
 .row-actions { display: flex; flex-direction: column; gap: 4px; align-items: stretch; padding: 6px 0; }
+
+/* Sizing notes in the profile form */
+.notes { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.note { margin: 0; padding: 8px 10px; border-left: 3px solid var(--rule); background: var(--paper); font-size: var(--t-sm); line-height: var(--lh-sm); }
+.note.warn { border-left-color: var(--warn); }
+
+/* Pass/fail verdicts */
+.verdict { display: inline-block; min-width: 38px; padding: 1px 6px; border-radius: var(--radius); border: 1px solid var(--rule); font-size: var(--t-xs); font-weight: 600; text-align: center; text-transform: uppercase; letter-spacing: 0.02em; color: var(--muted); }
+.verdict.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 55%, var(--rule)); }
+.verdict.fail { color: var(--fail); border-color: color-mix(in srgb, var(--fail) 55%, var(--rule)); }
+.verdict.warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 55%, var(--rule)); }
+.verdict.big { font-size: var(--t-sm); padding: 2px 8px; vertical-align: 1px; }
+.panel.slo.ok { border-left: 3px solid var(--ok); }
+.panel.slo.fail { border-left: 3px solid var(--fail); }
+
+/* Tags and run notes */
+.tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.tags.small { margin-top: 3px; }
+.tag { display: inline-block; padding: 0 6px; border-radius: 9px; background: var(--hover); border: 1px solid var(--rule); color: var(--ink); font-size: var(--t-xs); line-height: 16px; text-decoration: none; white-space: nowrap; }
+a.tag:hover { border-color: var(--accent); color: var(--accent); }
+.meta-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: -6px 0 14px; }
+.notes-text { margin: 0; flex: 1 1 100%; white-space: pre-wrap; max-width: 90ch; color: var(--ink); font-size: var(--t-sm); }
+
+/* Live progress */
+.progress-host:empty { display: none; }
+.progress-wrap { display: flex; flex-direction: column; gap: 4px; margin: 2px 0 10px; }
+.progress-track { position: relative; }
+.progress { position: relative; height: 6px; border-radius: 3px; background: var(--hover); overflow: hidden; border: 1px solid var(--rule); }
+.progress-fill { position: absolute; inset: 0 auto 0 0; background: var(--accent); transition: width 0.9s linear; }
+.progress-fill.indeterminate { width: 100%; opacity: 0.25; }
+.progress-ticks span { position: absolute; top: -2px; width: 1px; height: 10px; background: var(--muted); }
+.guard-note { margin: 0 0 12px; padding: 6px 10px; border-left: 3px solid var(--warn); background: var(--surface); }
+
+/* Compare deltas */
+.delta { display: block; font-size: var(--t-xs); color: var(--muted); }
+.delta.better { color: var(--ok); }
+.delta.worse { color: var(--fail); }
+
+/* Command palette */
+dialog.palette { width: min(560px, calc(100vw - 32px)); margin-top: 12vh; }
+dialog.palette input { height: 44px; border: 0; border-bottom: 1px solid var(--rule); border-radius: 0; padding: 0 var(--pad); font-size: var(--t-lg); }
+dialog.palette input:focus { outline: none; box-shadow: none; }
+dialog.palette ul { list-style: none; margin: 0; padding: 6px 0; max-height: 50vh; overflow-y: auto; }
+dialog.palette li { display: flex; justify-content: space-between; gap: 12px; padding: 7px var(--pad); cursor: pointer; }
+dialog.palette li[aria-selected="true"] { background: var(--window); box-shadow: inset 3px 0 0 var(--accent); }
+dialog.palette li span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

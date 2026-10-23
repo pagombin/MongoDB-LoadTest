@@ -33,7 +33,7 @@ const ROUTES = [
   { re: /^#\/profiles$/, view: "profiles", nav: "profiles" },
   { re: /^#\/settings$/, view: "settings", nav: "settings" },
   { re: /^#\/system$/, view: "system", nav: "system" },
-  { re: /^#\/runs$/, view: "runs", nav: "runs" },
+  { re: /^#\/runs(?:\?(.*))?$/, view: "runs", nav: "runs" },
 ];
 
 export const app = { about: null, active: null, cleanup: null, route: null };
@@ -121,8 +121,57 @@ function aboutDialog() {
   });
 }
 
+/* Ctrl+K / Cmd+K: jump to any page or run by typing part of its name. */
+async function palette() {
+  if (document.querySelector("dialog[open]")) return;
+  /** @type {{ label: string, hint: string, href?: string, run?: () => void }[]} */
+  const pages = NAV.filter((n) => !n.sep).map((n) => ({ label: n.label, hint: "page", href: n.href }));
+  pages.push({ label: "Keyboard shortcuts", hint: "help", run: shortcutsDialog }, { label: "About", hint: "help", run: aboutDialog });
+  let runs = [];
+  try {
+    const data = await api.get("api/runs");
+    if (data.active) pages.unshift({ label: `Live: ${data.active.name}`, hint: data.active.status, href: `#/runs/${data.active.id}/live` });
+    runs = data.runs.slice(0, 200).map((r) => ({ label: r.name, hint: [F.dateTime(r.started_at || r.created_at), F.statusText(r.status), ...(r.tags || [])].filter(Boolean).join(" · "), href: `#/runs/${r.id}` }));
+  } catch (e) { /* pages still work */ }
+  const items = pages.concat(runs);
+  const d = h("dialog", { class: "palette", "aria-label": "Go to" });
+  const box = h("input", { type: "text", role: "combobox", "aria-expanded": "true", "aria-controls": "palette-list", "aria-autocomplete": "list", placeholder: "Go to a page or run…", autocomplete: "off", spellcheck: "false" });
+  const list = h("ul", { id: "palette-list", role: "listbox", "aria-label": "Results" });
+  d.appendChild(box);
+  d.appendChild(list);
+  document.body.appendChild(d);
+  let shown = [], active = 0;
+  const close = () => { d.close(); d.remove(); };
+  const choose = (it) => { close(); if (it.run) it.run(); else navigate(it.href); };
+  function draw() {
+    const q = box.value.trim().toLowerCase();
+    const words = q.split(/\s+/).filter(Boolean);
+    shown = items.filter((it) => words.every((w) => (it.label + " " + it.hint).toLowerCase().includes(w))).slice(0, 12);
+    active = Math.min(active, Math.max(0, shown.length - 1));
+    list.textContent = "";
+    shown.forEach((it, i) => {
+      const li = h("li", { role: "option", id: `pal-${i}`, "aria-selected": i === active ? "true" : "false" }, [h("span", { text: it.label }), h("span", { class: "xs muted", text: it.hint })]);
+      li.addEventListener("mousedown", (e) => { e.preventDefault(); choose(it); });
+      list.appendChild(li);
+    });
+    if (!shown.length) list.appendChild(h("li", { class: "muted small", text: "Nothing matches." }));
+    box.setAttribute("aria-activedescendant", shown.length ? `pal-${active}` : "");
+  }
+  box.addEventListener("input", () => { active = 0; draw(); });
+  box.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown") { e.preventDefault(); active = Math.min(shown.length - 1, active + 1); draw(); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); active = Math.max(0, active - 1); draw(); }
+    else if (e.key === "Enter" && shown[active]) { e.preventDefault(); choose(shown[active]); }
+  });
+  d.addEventListener("cancel", (e) => { e.preventDefault(); close(); });
+  d.addEventListener("click", (e) => { if (e.target === d) close(); });
+  draw();
+  d.showModal();
+  box.focus();
+}
+
 function shortcutsDialog() {
-  const rows = [["N", "New run"], ["/", "Focus the filter on this page"], ["M", "Add a marker (live run)"], ["P", "Pause or resume (live run)"], ["S", "Stop run (asks first)"], ["?", "Show this list"], ["Esc", "Close a dialog"]];
+  const rows = [["Ctrl K", "Go to a page or run"], ["N", "New run"], ["/", "Focus the filter on this page"], ["M", "Add a marker (live run)"], ["P", "Pause or resume (live run)"], ["S", "Stop run (asks first)"], ["?", "Show this list"], ["Esc", "Close a dialog"]];
   const body = h("div", { class: "shortcut-list" }, rows.flatMap(([k, v]) => [h("kbd", { text: k }), h("span", { text: v })]));
   dialog({ title: "Keyboard shortcuts", body, confirm: "Close", cancel: "Dismiss" });
 }
@@ -134,6 +183,7 @@ function typing(e) {
 
 function shortcuts() {
   document.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === "k" || e.key === "K")) { e.preventDefault(); palette(); return; }
     if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey || typing(e) || document.querySelector("dialog[open]")) return;
     if (e.key === "?") { e.preventDefault(); shortcutsDialog(); return; }
     if (e.key === "n" || e.key === "N") { e.preventDefault(); navigate("#/new"); return; }

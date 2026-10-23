@@ -215,6 +215,33 @@
     return panel("Configuration snapshot", "everything needed to reproduce this run", body);
   }
 
+  function sloValue(c, v) {
+    if (v === null || v === undefined) return "–";
+    if (c.key === "min_throughput_ratio") return F.pct(v, 1);
+    if (c.unit === "ms") return F.lat(v * 1000);
+    if (c.unit === "%") return F.num(v, 3) + "%";
+    return F.num(v, 0) + (c.unit ? " " + c.unit : "");
+  }
+
+  function sloPanel(slo) {
+    if (!slo || !slo.criteria || !slo.criteria.length) return null;
+    var verdict = slo.passed === true ? "Passed" : slo.passed === false ? "Failed" : "Not evaluated";
+    var tone = slo.passed === true ? "ok" : slo.passed === false ? "fail" : "";
+    var rows = slo.criteria.map(function (c) {
+      var mark = c.passed === true ? "pass" : c.passed === false ? "fail" : "n/a";
+      return h("tr", null, [
+        h("td", null, h("span", { class: "verdict " + (c.passed === true ? "ok" : c.passed === false ? "fail" : ""), text: mark })),
+        td(c.label),
+        td((c.kind === "max" ? "at most " : "at least ") + sloValue(c, c.limit), true),
+        td(sloValue(c, c.actual), true, c.passed === false ? "hot" : "")
+      ]);
+    });
+    return h("section", { class: "panel slo " + tone, "aria-label": "Pass/fail criteria" }, [
+      h("header", null, [h("h2", null, ["Pass/fail criteria: ", h("span", { class: "verdict big " + tone, text: verdict })]), h("span", { class: "meta", text: "over " + F.seconds(slo.measured_seconds || 0) + " measured" })]),
+      h("div", { class: "body flush" }, table([{ label: "Result" }, { label: "Criterion" }, { label: "Limit", num: true }, { label: "This run", num: true }], rows))
+    ]);
+  }
+
   function render(root, payload, opts) {
     opts = opts || {};
     root.textContent = "";
@@ -234,6 +261,9 @@
       root.appendChild(notice("warn", "Client-bound: the load generator limited this run", cb.reasons.map(function (r) { return r.detail + " (" + F.clock(r.start * 1000) + " – " + F.clock((r.end + 1) * 1000) + ")"; }).join("; "),
         "Increase generator processes, raise maxPoolSize, or run from a larger host. Treat throughput and latency in these periods as limits of the client."));
     }
+    (payload.events || []).filter(function (e) { return e.kind === "guardrail"; }).slice(0, 1).forEach(function (e) {
+      root.appendChild(notice("warn", "Stopped by a guardrail at " + F.clock(e.t_ms), (e.data.reasons || []).join("; ") + " for " + e.data.seconds + " seconds in a row.", "Everything up to the stop is kept and analysed. Change the limits under Guardrails in the profile."));
+    });
     (payload.events || []).filter(function (e) { return e.kind === "sampling_unavailable"; }).slice(0, 1).forEach(function (e) {
       root.appendChild(notice("", "Server sampling was unavailable", e.data.reason, e.data.fix));
     });
@@ -250,6 +280,8 @@
       figure("Errors", F.pct(errRate, errRate && errRate < 0.0001 ? 4 : 2), "", F.int(summary.err || 0) + " failed", errRate > 0 ? "bad" : "")
     ]));
     root.appendChild(h("p", { class: "xs muted", style: null, text: "Summary excludes warm-up, data load, pauses and the stop drain. Latency percentiles come from merged HDR-style histograms (precision 0.1%)." }));
+    var slo = sloPanel(analysis.slo);
+    if (slo) root.appendChild(slo);
 
     var chartHost = h("div", { class: "body flush" });
     var tableHost = h("div");

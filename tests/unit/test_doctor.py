@@ -32,3 +32,8 @@ def test_missing_optional_package_is_a_warning_with_the_pip_command(monkeypatch)
 def test_render_counts_failures():
     text = doctor.render([doctor.Check("a", doctor.FAIL, "broken", "do x"), doctor.Check("b", doctor.OK, "fine")], color=False)
     assert "FAIL  a: broken" in text and "fix: do x" in text and text.endswith("1 failed, 0 warnings")
+
+
+def test_pip_command_targets_the_install_site(monkeypatch, tmp_path):
+    monkeypatch.setenv("BALLAST_SITE", str(tmp_path))
+    assert doctor.pip_command("faker").endswith(f"-m pip install --target {tmp_path} faker")
