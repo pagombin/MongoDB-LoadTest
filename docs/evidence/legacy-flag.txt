@@ -1,0 +1,21 @@
+$ bin/ballast legacy run --help   (flag off)
+error: the legacy dashboard is turned off. Set features.legacy_dashboard: true to use it (see docs/DECISIONS.md D-003).
+(exit 2)
+$ bin/ballast legacy --set features.legacy_dashboard=true run --help
+                                                                                
+ Usage: python -m ballast.mongo-load-tester run [OPTIONS]                       
+                                                                                
+ Run a load test from YAML config.                                              
+                                                                                
+╭─ Options ────────────────────────────────────────────────────────────────────╮
+│ *  --config        -c      <path>  Path to YAML config. [required]           │
+│    --no-dashboard                  Run headless without dashboard.           │
+│    --load-test-id          <str>   Optional metadata load test id override   │
+│                                    (default comes from                       │
+│                                    config.metadata.load_test_id).            │
+│    --worker-id             <str>   Unique ID for this follower worker.       │
+(exit 0)
+$ bin/ballast legacy --set features.legacy_dashboard=true run -c cfg7.yaml --no-dashboard
+2026-10-23 02:56:38 | INFO    | MainThread | mongo_load_tester | Progress total_ops=200 errors=0 ops_per_sec=38.11 active_users=50 paused=False
+2026-10-23 02:56:41 | INFO    | MainThread | mongo_load_tester | Load test finished total_ops=450 success=450 errors=0 avg_latency_ms=4.32 p95_ms=7.51 active_elapsed=8.63s
+2026-10-23 02:56:41 | INFO    | MainThread | mongo_load_tester | Headless run completed total_ops=450 success=450 errors=0 p95_ms=7.51

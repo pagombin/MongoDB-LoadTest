@@ -58,7 +58,7 @@ function buildNav() {
   const ul = document.getElementById("nav");
   ul.textContent = "";
   NAV.forEach((item) => {
-    if (item.sep) { ul.appendChild(h("li", { class: "nav-sep", role: "separator" })); return; }
+    if (item.sep) { ul.appendChild(h("li", { class: "nav-sep", "aria-hidden": "true" })); return; }
     const a = h("a", { href: item.href, id: "nav-" + item.id }, [icon(item.id), h("span", { class: "label-text", text: item.label })]);
     a.setAttribute("title", item.label);
     ul.appendChild(h("li", null, a));

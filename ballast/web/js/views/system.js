@@ -34,7 +34,7 @@ export async function render(root) {
     host.appendChild(h("section", { class: "panel" }, [h("header", null, [h("h2", { text: "Effective configuration" }), h("span", { class: "meta", text: "secrets redacted; precedence flag > env > file > default" })]),
       h("div", { class: "body flush scroll-x" }, h("table", { class: "data" }, [h("thead", null, h("tr", null, ["Key", "Value", "Source"].map((x) => h("th", { scope: "col", text: x })))), h("tbody", null, cfgRows)]))]));
     const lv = segmented([{ value: "warning", label: "Warnings and errors" }, { value: "info", label: "Everything" }], level, (v) => { level = v; load(); }, "Log level");
-    const logRows = s.logs.length ? h("ul", { class: "event-list" }, s.logs.slice().reverse().map((l) => h("li", null, [h("time", { text: (l.ts || "").slice(11, 23) }), h("span", { class: "ek " + (l.level === "error" || l.level === "critical" ? "fail" : l.level === "warning" ? "warn" : ""), text: `${l.logger || ""}: ${l.msg}` })]))) : h("p", { class: "body muted small", text: "No log lines at this level." });
+    const logRows = s.logs.length ? h("ul", { class: "event-list", tabindex: "0", "aria-label": "Events" }, s.logs.slice().reverse().map((l) => h("li", null, [h("time", { text: (l.ts || "").slice(11, 23) }), h("span", { class: "ek " + (l.level === "error" || l.level === "critical" ? "fail" : l.level === "warning" ? "warn" : ""), text: `${l.logger || ""}: ${l.msg}` })]))) : h("p", { class: "body muted small", text: "No log lines at this level." });
     host.appendChild(h("section", { class: "panel" }, [h("header", null, [h("h2", { text: "Recent log lines" }), lv]), h("div", { class: "body flush" }, logRows)]));
   }
   await load();

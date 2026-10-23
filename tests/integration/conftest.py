@@ -4,12 +4,12 @@ import subprocess
 import pytest
 
 URI = os.environ.get("BALLAST_TEST_URI", "mongodb://rs1:27011,rs2:27012,rs3:27013/?replicaSet=rs0")
-PRIMARY_CONTAINER = os.environ.get("BALLAST_TEST_PRIMARY_CONTAINER", "rs1")
+MEMBERS = [(m.split(":")[0], int(m.split(":")[1])) for m in os.environ.get("BALLAST_TEST_MEMBERS", "rs1:27011,rs2:27012,rs3:27013").split(",")]
 
 
-def stepdown(container_port_pairs=(("rs1", 27011), ("rs2", 27012), ("rs3", 27013))):
-    """Step down whichever member is primary."""
-    for name, port in container_port_pairs:
+def stepdown(container_port_pairs=None):
+    """Step down whichever member is primary. Members are Docker container names with ports (BALLAST_TEST_MEMBERS)."""
+    for name, port in container_port_pairs or MEMBERS:
         out = subprocess.run(
             ["docker", "exec", name, "mongosh", "--port", str(port), "--quiet", "--eval", "db.hello().isWritablePrimary"],
             capture_output=True,

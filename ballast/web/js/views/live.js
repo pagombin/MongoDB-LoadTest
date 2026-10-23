@@ -146,7 +146,7 @@ export async function render(root, [runId]) {
     state.events.filter((e) => e.kind !== "error_sample" || true).forEach((e) => items.push({ t: e.t_ms, cls: F.eventTone(e.kind), text: F.eventText(e) }));
     items.sort((a, b) => b.t - a.t);
     if (!items.length) { eventsHost.appendChild(h("p", { class: "muted small body", style: null, text: "Nothing yet. Topology changes and pool events from the driver appear here." })); return; }
-    eventsHost.appendChild(h("ul", { class: "event-list" }, items.slice(0, 60).map((it) => h("li", null, [h("time", { text: F.clock(it.t, true) }), h("span", { class: "ek " + it.cls, text: it.text })]))));
+    eventsHost.appendChild(h("ul", { class: "event-list", tabindex: "0", "aria-label": "Events" }, items.slice(0, 60).map((it) => h("li", null, [h("time", { text: F.clock(it.t, true) }), h("span", { class: "ek " + it.cls, text: it.text })]))));
   }
 
   function drawCluster() {

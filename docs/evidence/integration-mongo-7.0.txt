@@ -1,0 +1,15 @@
+============================= test session starts ==============================
+platform linux -- Python 3.13.16, pytest-9.1.1, pluggy-1.7.0 -- /tmp/claude-0/venv/bin/python
+cachedir: .pytest_cache
+rootdir: /home/user/MongoDB-LoadTest
+configfile: pyproject.toml
+plugins: dash-4.4.1, platformdirs-4.13.5, Faker-40.43.0, asyncio-1.4.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 4 items
+
+tests/integration/test_failover.py::test_failover_is_recorded_classified_and_measured[1] PASSED [ 25%]
+tests/integration/test_failover.py::test_failover_is_recorded_classified_and_measured[2] PASSED [ 50%]
+tests/integration/test_failover.py::test_write_stall_measures_gap_latency_and_recovery PASSED [ 75%]
+tests/integration/test_secrets.py::test_password_absent_everywhere PASSED [100%]
+
+======================== 4 passed in 154.45s (0:02:34) =========================

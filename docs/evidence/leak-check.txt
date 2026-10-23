@@ -1,0 +1,13 @@
+============================= test session starts ==============================
+platform linux -- Python 3.13.16, pytest-9.1.1, pluggy-1.7.0 -- /tmp/claude-0/venv/bin/python
+cachedir: .pytest_cache
+rootdir: /home/user/MongoDB-LoadTest
+configfile: pyproject.toml
+plugins: dash-4.4.1, platformdirs-4.13.5, Faker-40.43.0, asyncio-1.4.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 1 item
+
+tests/integration/test_leaks.py::test_repeated_runs_do_not_leak threads after: ['MainThread', 'asyncio_0', 'asyncio_1', 'asyncio_2', 'asyncio_3']
+PASSED
+
+============================== 1 passed in 37.74s ==============================

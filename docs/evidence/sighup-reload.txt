@@ -1,0 +1,5 @@
+held connection, first request: b'{"status": "ok", "version": "1' cert da4ff778c5036c87
+sent SIGHUP; the running server reloads the certificate without dropping connections
+held connection after reload: 200 (same connection, cert da4ff778c5036c87 )
+new connection cert 70fe2e2af705419d
+RESULT: PASS

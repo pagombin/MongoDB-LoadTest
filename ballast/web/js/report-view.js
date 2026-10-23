@@ -106,7 +106,7 @@
     var failList = classes.length ? h("ul", { class: "bar-list" }, classes.map(function (c) {
       return h("li", null, [h("span", { class: "bar-name", text: c }), h("span", { class: "bar-n", text: F.int(imp.failed_by_class[c]) })]);
     })) : h("p", { class: "small muted", text: "No failed operations." });
-    var prim = (imp.primary_changes || []).length ? h("ul", { class: "event-list" }, imp.primary_changes.map(function (p) {
+    var prim = (imp.primary_changes || []).length ? h("ul", { class: "event-list", tabindex: "0", "aria-label": "Events" }, imp.primary_changes.map(function (p) {
       return h("li", null, [h("time", { text: F.clock(p.t_ms, true) }), h("span", { text: F.eventText({ kind: p.kind, data: p }) })]);
     })) : h("p", { class: "small muted", text: "No primary changes observed." });
     var gaps = h("table", { class: "kv" }, h("tbody", null, [
@@ -182,7 +182,7 @@
     });
     items.sort(function (a, b) { return a.t - b.t; });
     if (!items.length) return panel("Markers and events", null, h("div", { class: "body muted", text: "No markers or driver events were recorded." }));
-    return panel("Markers and events", items.length + " entries", h("div", { class: "body flush" }, h("ul", { class: "event-list" }, items.map(function (it) {
+    return panel("Markers and events", items.length + " entries", h("div", { class: "body flush" }, h("ul", { class: "event-list", tabindex: "0", "aria-label": "Events" }, items.map(function (it) {
       return h("li", null, [h("time", { text: F.clock(it.t, true) }), h("span", { class: "ek " + it.cls, text: it.text })]);
     }))));
   }
