@@ -469,6 +469,7 @@ class Generator:
                 elif cmd == "set":
                     self.apply_level(msg["level"], msg.get("phase", self.phase))
                 elif cmd == "pause" and not self.paused:
+                    self._second(int(time.time())).phase = "paused"
                     self.paused = True
                     self.paused_at = time.monotonic()
                     self.resume_event.clear()
@@ -476,6 +477,7 @@ class Generator:
                     if self.schedule is not None:
                         self.schedule.shift(time.monotonic() - self.paused_at)
                     self.paused = False
+                    self._second(int(time.time())).phase = "paused"
                     self.start_measuring()
                     self.resume_event.set()
                 elif cmd == "stop":

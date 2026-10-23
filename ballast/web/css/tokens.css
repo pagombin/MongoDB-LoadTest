@@ -1,0 +1,97 @@
+@font-face { font-family: "IBM Plex Sans"; font-weight: 400; font-style: normal; font-display: swap; src: url("../fonts/plex-sans-400.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 500; font-style: normal; font-display: swap; src: url("../fonts/plex-sans-500.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Sans"; font-weight: 600; font-style: normal; font-display: swap; src: url("../fonts/plex-sans-600.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-weight: 400; font-style: normal; font-display: swap; src: url("../fonts/plex-mono-400.woff2") format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-weight: 500; font-style: normal; font-display: swap; src: url("../fonts/plex-mono-500.woff2") format("woff2"); }
+
+:root {
+  --paper: #F6F5F1;
+  --surface: #FFFFFF;
+  --ink: #15191E;
+  --muted: #59606B;
+  --rule: #D8D5CC;
+  --accent: #0B6E77;
+  --accent-ink: #FFFFFF;
+  --ok: #2B7A4B;
+  --warn: #9A5800;
+  --fail: #B3261E;
+  --c1: #0072B2;
+  --c2: #E69F00;
+  --c3: #D55E00;
+  --c4: #009E73;
+  --c5: #CC79A7;
+  --c6: #6B6B6B;
+  --shade: rgba(216, 213, 204, 0.45);
+  --window: rgba(11, 110, 119, 0.10);
+  --hover: rgba(21, 25, 30, 0.05);
+
+  --font-sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --t-xs: 12px; --lh-xs: 16px;
+  --t-sm: 13px; --lh-sm: 18px;
+  --t-md: 14px; --lh-md: 20px;
+  --t-lg: 16px; --lh-lg: 22px;
+  --t-xl: 20px; --lh-xl: 26px;
+  --t-num: 24px; --lh-num: 28px;
+
+  --row: 36px;
+  --pad: 16px;
+  --gap: 12px;
+  --radius: 3px;
+  --rail: 208px;
+  color-scheme: light;
+}
+
+:root[data-density="compact"] {
+  --row: 28px;
+  --pad: 10px;
+  --gap: 8px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0E1114;
+    --surface: #161A1F;
+    --ink: #E7E5E0;
+    --muted: #9BA2AC;
+    --rule: #2B3139;
+    --accent: #43B3BD;
+    --accent-ink: #0E1114;
+    --ok: #5CC28A;
+    --warn: #E0A145;
+    --fail: #F07467;
+    --c1: #56B4E9;
+    --c2: #F0B840;
+    --c3: #FF8A3D;
+    --c4: #3CC79E;
+    --c5: #E39BC4;
+    --c6: #A0A0A0;
+    --shade: rgba(43, 49, 57, 0.55);
+    --window: rgba(67, 179, 189, 0.14);
+    --hover: rgba(231, 229, 224, 0.06);
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --paper: #0E1114;
+  --surface: #161A1F;
+  --ink: #E7E5E0;
+  --muted: #9BA2AC;
+  --rule: #2B3139;
+  --accent: #43B3BD;
+  --accent-ink: #0E1114;
+  --ok: #5CC28A;
+  --warn: #E0A145;
+  --fail: #F07467;
+  --c1: #56B4E9;
+  --c2: #F0B840;
+  --c3: #FF8A3D;
+  --c4: #3CC79E;
+  --c5: #E39BC4;
+  --c6: #A0A0A0;
+  --shade: rgba(43, 49, 57, 0.55);
+  --window: rgba(67, 179, 189, 0.14);
+  --hover: rgba(231, 229, 224, 0.06);
+  color-scheme: dark;
+}
