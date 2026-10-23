@@ -8,7 +8,7 @@ root=$(cd "$(dirname "$0")/.." && pwd -P)
 log() { printf '\n### %s\n' "$*"; }
 run() { printf '$ %s\n' "$*"; sh -c "$*" 2>&1; printf '(exit %s)\n' "$?"; }
 in_box() { docker exec -u bench -w /home/bench droplet sh -c "$1"; }
-box() { printf '$ [bench@droplet] %s\n' "$1"; in_box "$1" 2>&1; printf '(exit %s)\n' "$?"; }
+box() { printf '$ [bench@droplet] %s\n' "$1" | sed -E 's/Bearer [^ '"'"']+/Bearer ****/g'; in_box "$1" 2>&1; printf '(exit %s)\n' "$?"; }
 
 log "Network with no route to the internet, joined by the replica set"
 docker rm -f droplet >/dev/null 2>&1
@@ -58,7 +58,9 @@ echo "droplet_token=$(in_box 'cat ballast-1.0.0/config/token')" >> /tmp/droplet.
 
 log "Headless browser from outside the box, through the access gate"
 tok=$(in_box 'cat ballast-1.0.0/config/token')
-run "BASE=https://$ip:8443/ TOKEN='$tok' node $root/scripts/gate-check.mjs"
+printf '$ BASE=https://%s:8443/ TOKEN=**** node scripts/gate-check.mjs\n' "$ip"
+BASE="https://$ip:8443/" TOKEN="$tok" node "$root/scripts/gate-check.mjs" 2>&1
+printf '(exit %s)\n' "$?"
 
 log "A run interrupted by a crash keeps its data"
 api() { in_box "curl -sS --cacert mycerts/ballast.crt -H 'Authorization: Bearer $tok' -H 'X-Ballast-Request: 1' -H 'Content-Type: application/json' $1"; }
