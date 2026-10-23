@@ -4,12 +4,29 @@ from __future__ import annotations
 
 import random
 import string
-from datetime import UTC, datetime
-from typing import Any
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any
 
 from ballast.engine.profile import DocumentSpec
-from mongo_load_tester.config import SchemaConfig
-from mongo_load_tester.workload.schema import DocumentGenerator
+
+if TYPE_CHECKING:
+    from mongo_load_tester.workload.schema import DocumentGenerator
+
+UTC = timezone.utc
+SCHEMA_SHAPE_NEEDS = ("faker", "yaml")
+
+
+def _schema_generator(fields: list, rng: random.Random) -> DocumentGenerator:
+    """The legacy field-type schema shape reuses the legacy generator, which needs Faker and PyYAML."""
+    try:
+        from mongo_load_tester.config import SchemaConfig
+        from mongo_load_tester.workload.schema import DocumentGenerator
+    except ImportError as exc:
+        raise RuntimeError(
+            f"the 'schema' document shape needs the {exc.name} package; install it (pip install faker pyyaml) or use the 'simple' shape"
+        ) from None
+    return DocumentGenerator(SchemaConfig(fields=fields), rng)
+
 
 _PAD_ALPHABET = string.ascii_letters + string.digits
 _FIXED_OVERHEAD = 60
@@ -22,7 +39,7 @@ class DocumentFactory:
         self.rng = rng
         self._schema_gen: DocumentGenerator | None = None
         if spec.mode == "schema":
-            self._schema_gen = DocumentGenerator(SchemaConfig(fields=spec.schema_fields or []), rng)
+            self._schema_gen = _schema_generator(spec.schema_fields or [], rng)
         pad_len = max(0, spec.size_bytes - _FIXED_OVERHEAD - spec.fields * _PER_FIELD_OVERHEAD)
         self._pad_len = pad_len
         self._pad_source = "".join(rng.choice(_PAD_ALPHABET) for _ in range(max(pad_len * 2, 64)))

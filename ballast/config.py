@@ -10,15 +10,14 @@ import ipaddress
 import os
 import re
 import stat
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, Literal
 
-import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 from pydantic.fields import FieldInfo
 
-from ballast import product
+from ballast import miniyaml, product
 
 SECRET_KEYS = {"access_token", "password"}
 RESERVED_ENV = {"home", "config", "supervised", "foreground"}
@@ -205,10 +204,22 @@ def install_home() -> Path:
     return Path(__file__).resolve().parent.parent
 
 
+try:
+    import yaml as _pyyaml
+
+    YAML_ERRORS: tuple[type[Exception], ...] = (_pyyaml.YAMLError, miniyaml.YAMLError)
+    yaml_load: Callable[[str], Any] = _pyyaml.safe_load
+    YAML_READER = "PyYAML"
+except ImportError:
+    YAML_ERRORS = (miniyaml.YAMLError,)
+    yaml_load = miniyaml.safe_load
+    YAML_READER = "built-in"
+
+
 def _parse_scalar(raw: str) -> Any:
     try:
-        return yaml.safe_load(raw)
-    except yaml.YAMLError:
+        return yaml_load(raw)
+    except YAML_ERRORS:
         return raw
 
 
@@ -383,8 +394,8 @@ def load(
     sources: dict[str, str] = {}
     if config_path is not None:
         try:
-            raw = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
-        except yaml.YAMLError as exc:
+            raw = yaml_load(config_path.read_text(encoding="utf-8")) or {}
+        except YAML_ERRORS as exc:
             raise ConfigError(f"{config_path} is not valid YAML: {exc}") from None
         if not isinstance(raw, dict):
             raise ConfigError(f"{config_path} must contain a mapping of sections")

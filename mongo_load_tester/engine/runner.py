@@ -8,7 +8,8 @@ import random
 import threading
 import time
 from dataclasses import dataclass, field as dataclass_field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+UTC = timezone.utc
 
 from pymongo import MongoClient, ReturnDocument
 

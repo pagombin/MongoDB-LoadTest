@@ -8,7 +8,8 @@ import re
 import time
 from collections import OrderedDict, defaultdict
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+UTC = timezone.utc
 from threading import Lock
 
 from mongo_load_tester.models import MetricsSnapshot, OperationResult, TimelinePoint

@@ -7,21 +7,23 @@ name = "ballast"
 dynamic = ["version"]
 description = "Load testing for MongoDB clusters, built to show what a workload experiences during scale operations."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 license-files = ["LICENSE"]
 dependencies = [
-  "aiohttp>=3.10",
-  "cryptography>=43",
-  "faker>=33.0.0",
-  "pydantic>=2.10.6",
+  "aiohttp>=3.9",
+  "pydantic>=2.5",
   "pymongo>=4.13",
-  "pyyaml>=6.0.2",
 ]
 
 [project.optional-dependencies]
+yaml = ["pyyaml>=6.0"]
+schema = ["faker>=20", "pyyaml>=6.0"]
+all = ["faker>=20", "pyyaml>=6.0"]
 legacy = [
   "dash>=2.18.2",
+  "faker>=20",
   "plotly>=6.0.0",
+  "pyyaml>=6.0",
   "reportlab>=4.2.5",
   "typer>=0.15.1",
   "waitress>=3.0.0",
@@ -59,7 +61,7 @@ addopts = "--import-mode=importlib -m 'not integration and not e2e and not soak'
 
 [tool.ruff]
 line-length = 140
-target-version = "py311"
+target-version = "py310"
 extend-exclude = ["mongo_load_tester"]
 
 [tool.ruff.lint]
@@ -70,7 +72,7 @@ ignore = ["S101", "S110", "S311", "S603", "S607", "E501", "E731", "B008"]
 "tests/**" = ["S", "B"]
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.10"
 ignore_missing_imports = true
 warn_unused_ignores = true
 no_implicit_optional = true

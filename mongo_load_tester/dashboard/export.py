@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import csv
 import io
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+UTC = timezone.utc
 
 from plotly.graph_objs import Figure
 from reportlab.lib.pagesizes import landscape, letter

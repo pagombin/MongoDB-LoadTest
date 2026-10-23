@@ -11,7 +11,7 @@ import platform
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from multiprocessing.connection import Connection
 from typing import Any
 
@@ -27,6 +27,8 @@ from ballast.engine.profile import Profile
 from ballast.engine.series import SecondRecord, downsample
 from ballast.store import Store, intersect_gaps, new_id, now_ms
 from ballast.targets import MASK, client_options, explain_failure, redact_uri, secrets_in
+
+UTC = timezone.utc
 
 log = logging.getLogger("ballast.runs")
 

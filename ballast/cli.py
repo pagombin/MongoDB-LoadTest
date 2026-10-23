@@ -364,6 +364,24 @@ def cmd_version(args) -> int:
     return 0
 
 
+def cmd_doctor(args) -> int:
+    from ballast import doctor
+
+    try:
+        loaded = load(args.config, list(args.set or []))
+    except ConfigError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        loaded = None
+    checks = doctor.run(loaded, uri=args.uri, skip_process=args.quick)
+    if args.json:
+        from dataclasses import asdict
+
+        print(json.dumps([asdict(c) for c in checks], indent=2))
+    else:
+        print(doctor.render(checks))
+    return 1 if any(c.status == doctor.FAIL for c in checks) else 0
+
+
 def cmd_legacy(args) -> int:
     loaded = _loaded(args)
     if not loaded.config.features.legacy_dashboard:
@@ -445,6 +463,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("file", nargs="?")
     p.add_argument("--json", action="store_true")
     p.set_defaults(func=cmd_config)
+
+    p = sub.add_parser("doctor", help="check this host: Python, packages, optional features, directories, port, and a cluster")
+    _common(p)
+    p.add_argument("--uri", help="also connect to this cluster")
+    p.add_argument("--json", action="store_true")
+    p.add_argument("--quick", action="store_true", help="skip the process start check")
+    p.set_defaults(func=cmd_doctor)
 
     p = sub.add_parser("version", help="print version")
     p.set_defaults(func=cmd_version)

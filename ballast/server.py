@@ -25,7 +25,7 @@ from aiohttp import web
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from pymongo import AsyncMongoClient
 
-from ballast import buildinfo, logs, product, report, targets, tls
+from ballast import buildinfo, doctor, logs, product, report, targets, tls
 from ballast.config import Loaded, effective_with_sources, split_listen
 from ballast.engine.profile import Profile
 from ballast.engine.runs import ACTIVE, Hub, RunError, RunManager
@@ -374,6 +374,7 @@ class App:
                 "certificate": cert,
                 "tls_mode": self.cfg.tls.mode,
                 "warnings": list(dict.fromkeys(_warnings())),
+                "capabilities": doctor.capabilities(),
                 "logs": logs.tail(self.loaded.log_dir, lines=100, min_level=request.query.get("level", "warning")),
             }
         )

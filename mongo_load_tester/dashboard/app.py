@@ -6,7 +6,8 @@ import json
 import logging
 import threading
 from dataclasses import replace
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
+UTC = timezone.utc
 
 import plotly.graph_objects as go
 import dash
