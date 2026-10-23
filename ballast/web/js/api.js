@@ -14,6 +14,7 @@ export class ApiError extends Error {
 
 async function request(method, path, body) {
   const headers = { Accept: "application/json" };
+  /** @type {RequestInit} */
   const init = { method, headers, credentials: "same-origin" };
   if (method !== "GET") headers["X-Ballast-Request"] = "1";
   if (body !== undefined) {

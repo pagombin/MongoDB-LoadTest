@@ -13,6 +13,7 @@ import platform
 import secrets
 import shutil
 import signal
+import ssl
 import time
 import zipfile
 from pathlib import Path
@@ -135,7 +136,7 @@ class App:
         self.runs = RunManager(self.store, self.hub, loaded.data_dir)
         self.token = loaded.access_token()
         self.session_key = self._session_key()
-        self.ssl_ctx = None
+        self.ssl_ctx: ssl.SSLContext | None = None
         self.cert_path = loaded.resolve(self.cfg.tls.cert_file)
         self.key_path = loaded.resolve(self.cfg.tls.key_file)
         if self.token:
@@ -750,7 +751,7 @@ class App:
         queue = self.hub.subscribe()
         run_filter = request.query.get("run")
         try:
-            hello = {"active": self.runs.status()}
+            hello: dict[str, Any] = {"active": self.runs.status()}
             if self.runs.active and (not run_filter or run_filter in (self.runs.active.id, "active")):
                 hello["points"] = list(self.runs.active.live)[-900:]
             await response.write(_sse("hello", hello))
@@ -950,15 +951,21 @@ def startup_checks(loaded: Loaded) -> list[str]:
     return problems
 
 
+def certificate_hosts(loaded: Loaded) -> list[str]:
+    """Hosts for the self-signed certificate: the configured list plus a specific listen address."""
+    hosts = list(loaded.config.tls.self_signed_hosts)
+    host, _ = split_listen(loaded.config.server.listen)
+    if host not in ("0.0.0.0", "::") and host not in hosts:  # noqa: S104
+        hosts.append(host)
+    return hosts
+
+
 def prepare_tls(app: App) -> tuple[Any, dict | None]:
     cfg = app.cfg.tls
     if cfg.mode == "off":
         return None, None
     if cfg.mode == "self-signed":
-        hosts = list(cfg.self_signed_hosts)
-        host, _ = split_listen(app.cfg.server.listen)
-        if host not in ("0.0.0.0", "::") and host not in hosts:  # noqa: S104
-            hosts.append(host)
+        hosts = certificate_hosts(app.loaded)
         _, created = tls.ensure_self_signed(app.cert_path, app.key_path, hosts)
         if created:
             log.info("generated self-signed certificate for %s", ", ".join(hosts))
@@ -1044,7 +1051,7 @@ def serve(loaded: Loaded, ready_file: Path | None = None) -> int:
                 return
             try:
                 if cfg.tls.mode == "self-signed":
-                    tls.ensure_self_signed(app.cert_path, app.key_path, list(cfg.tls.self_signed_hosts))
+                    tls.ensure_self_signed(app.cert_path, app.key_path, certificate_hosts(loaded))
                 tls.reload_context(ssl_ctx, app.cert_path, app.key_path)
                 info = tls.describe(app.cert_path)
                 log.info("reloaded TLS certificate, fingerprint %s, expires %s", info["sha256"], info["not_after"])

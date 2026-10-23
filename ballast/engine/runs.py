@@ -12,6 +12,8 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from multiprocessing.connection import Connection
+from typing import Any
 
 import pymongo
 from pymongo import AsyncMongoClient
@@ -68,7 +70,7 @@ class Hub:
 class ProcessHandle:
     index: int
     process: multiprocessing.Process
-    conn: object
+    conn: Connection
     ready: bool = False
     drained: bool = False
     stopped: bool = False
@@ -111,7 +113,7 @@ class RunManager:
         self.store = store
         self.hub = hub
         self.data_dir = data_dir
-        self.ctx = multiprocessing.get_context(mp_context)
+        self.ctx: Any = multiprocessing.get_context(mp_context)
         self.active: ActiveRun | None = None
         self.redactions: list[str] = []
         self._lock = asyncio.Lock()
@@ -133,9 +135,9 @@ class RunManager:
         self.redactions.sort(key=len, reverse=True)
 
     def status(self) -> dict | None:
-        run = self.active
-        if run is None:
-            return None
+        return self._state(self.active) if self.active is not None else None
+
+    def _state(self, run: ActiveRun) -> dict:
         last = run.live[-1] if run.live else None
         return {
             "id": run.id,
@@ -273,7 +275,7 @@ class RunManager:
             )
             self.active = run
             run.task = asyncio.create_task(self._drive(run, pre))
-            self.hub.publish("state", self.status())
+            self.hub.publish("state", self._state(run))
             return row
 
     async def _snapshot(self, client: AsyncMongoClient, run: ActiveRun, pre: dict) -> dict:
@@ -560,7 +562,7 @@ class RunManager:
         self._send_all({"cmd": "pause"})
         self._record_event(run, now_ms(), "paused", {})
         self._set_status(run, "paused")
-        return self.status()
+        return self._state(run)
 
     def resume(self, run_id: str) -> dict:
         run = self._require(run_id)
@@ -571,7 +573,7 @@ class RunManager:
         self._send_all({"cmd": "resume"})
         self._record_event(run, now_ms(), "resumed", {})
         self._set_status(run, "running")
-        return self.status()
+        return self._state(run)
 
     def set_level(self, run_id: str, level: float) -> dict:
         run = self._require(run_id)
@@ -580,8 +582,8 @@ class RunManager:
         run.level = level
         self._send_all({"cmd": "set", "phase": run.phase, "level": level})
         self._record_event(run, now_ms(), "level_changed", {"level": level, "model": run.profile.load.model})
-        self.hub.publish("state", self.status())
-        return self.status()
+        self.hub.publish("state", self._state(run))
+        return self._state(run)
 
     async def stop(self, run_id: str, reason: str = "stopped") -> dict:
         run = self._require(run_id)
@@ -614,7 +616,7 @@ class RunManager:
         drain = run.profile.schedule.drain_timeout_seconds
         if run.status not in ("stopping",):
             run.status = "stopping"
-            self.hub.publish("state", self.status())
+            self.hub.publish("state", self._state(run))
         self._send_all({"cmd": "stop", "drain": drain})
         deadline = time.monotonic() + drain + 10
         while time.monotonic() < deadline and not all(p.stopped or not p.process.is_alive() for p in run.processes):

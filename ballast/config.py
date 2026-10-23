@@ -10,15 +10,18 @@ import ipaddress
 import os
 import re
 import stat
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Literal
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
+from pydantic.fields import FieldInfo
 
 from ballast import product
 
 SECRET_KEYS = {"access_token", "password"}
+RESERVED_ENV = {"home", "config", "supervised", "foreground"}
 
 
 class ConfigError(Exception):
@@ -196,21 +199,27 @@ def _parse_scalar(raw: str) -> Any:
         return raw
 
 
-def env_overrides(environ: dict[str, str] | None = None) -> dict[str, dict[str, Any]]:
+def _section_fields(section: str) -> dict[str, FieldInfo]:
+    model = Config.model_fields[section].annotation
+    assert model is not None
+    return model.model_fields
+
+
+def env_overrides(environ: Mapping[str, str] | None = None) -> dict[str, dict[str, Any]]:
     environ = os.environ if environ is None else environ
     out: dict[str, dict[str, Any]] = {}
     for name, raw in environ.items():
         if not name.startswith(product.ENV_PREFIX):
             continue
         rest = name[len(product.ENV_PREFIX) :].lower()
-        if rest in ("home", "config"):
+        if rest in RESERVED_ENV or rest.startswith("test_"):
             continue
         section, _, key = rest.partition("_")
         if section not in SECTIONS or not key or section == "targets":
             raise ConfigError(
                 f"unknown environment variable {name}: expected {product.ENV_PREFIX}<SECTION>_<KEY> with section one of {', '.join(s for s in SECTIONS if s != 'targets')}"
             )
-        fields = Config.model_fields[section].annotation.model_fields
+        fields = _section_fields(section)
         if key not in fields:
             raise ConfigError(f"unknown environment variable {name}: {section} has no key '{key}'")
         value = _parse_scalar(raw) if fields[key].annotation is not str else raw
@@ -227,7 +236,7 @@ def flag_overrides(pairs: list[str]) -> dict[str, dict[str, Any]]:
         section, key = dotted.split(".", 1)
         if section not in SECTIONS or section == "targets":
             raise ConfigError(f"--set {pair!r}: unknown section '{section}'")
-        fields = Config.model_fields[section].annotation.model_fields
+        fields = _section_fields(section)
         if key not in fields:
             raise ConfigError(f"--set {pair!r}: {section} has no key '{key}'")
         out.setdefault(section, {})[key] = _parse_scalar(raw) if fields[key].annotation is not str else raw
@@ -298,7 +307,7 @@ class Loaded:
                 encoded = quote(password, safe="")
                 uri = re.sub(
                     r"^(mongodb(?:\+srv)?://)([^:@/]+)(?::[^@/]*)?@",
-                    lambda m, enc=encoded: f"{m.group(1)}{m.group(2)}:{enc}@",
+                    rf"\g<1>\g<2>:{encoded}@",
                     uri,
                     count=1,
                 )
@@ -341,7 +350,7 @@ def read_secret_file(path: Path, key: str) -> str:
 
 
 def load(
-    path: str | Path | None = None, flags: list[str] | None = None, environ: dict[str, str] | None = None, home: Path | None = None
+    path: str | Path | None = None, flags: list[str] | None = None, environ: Mapping[str, str] | None = None, home: Path | None = None
 ) -> Loaded:
     home = home or install_home()
     environ = os.environ if environ is None else environ

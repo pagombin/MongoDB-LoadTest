@@ -154,3 +154,14 @@ def test_tls_off_survives_yaml_boolean_parsing(tmp_path):
     assert load(write(tmp_path, "tls:\n  mode: off\n"), [], environ={}, home=tmp_path).config.tls.mode == "off"
     assert load(None, ["tls.mode=off"], environ={}, home=tmp_path).config.tls.mode == "off"
     assert load(None, [], environ={"BALLAST_TLS_MODE": "off"}, home=tmp_path).config.tls.mode == "off"
+
+
+def test_reserved_environment_variables_are_ignored(tmp_path):
+    env = {
+        "BALLAST_HOME": "/x",
+        "BALLAST_CONFIG": "",
+        "BALLAST_SUPERVISED": "1",
+        "BALLAST_FOREGROUND": "1",
+        "BALLAST_TEST_URI": "mongodb://h/",
+    }
+    assert load(None, [], environ=env, home=tmp_path).config.server.listen == "127.0.0.1:8443"

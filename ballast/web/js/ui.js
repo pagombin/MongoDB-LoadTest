@@ -88,7 +88,10 @@ export function segmented(options, value, onChange, label) {
   return group;
 }
 
-export function dialog({ title, body, confirm, cancel = "Cancel", danger = false, typeToConfirm = null, onConfirm }) {
+/**
+ * @param {{ title: string, body: any, confirm: string, cancel?: string, danger?: boolean, typeToConfirm?: string|null, onConfirm?: (() => Promise<any>)|null }} opts
+ */
+export function dialog({ title, body, confirm, cancel = "Cancel", danger = false, typeToConfirm = null, onConfirm = null }) {
   return new Promise((resolve) => {
     const d = h("dialog", { "aria-labelledby": "dlg-title" });
     const confirmBtn = h("button", { type: "button", class: "btn " + (danger ? "danger solid" : "primary"), text: confirm });

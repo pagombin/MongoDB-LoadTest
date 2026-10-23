@@ -119,6 +119,7 @@ export async function render(root) {
 
   async function cleanup(t) {
     const db = input({ id: "c-db", value: "ballast_bench", class: "mono" });
+    /** @type {any} */
     let found = null;
     const preview = h("div", { class: "small", "aria-live": "polite" });
     const look = button("Show what would be dropped", async () => {

@@ -192,6 +192,7 @@ def downsample(records: list[SecondRecord], step: int) -> list[SecondRecord]:
     for start in sorted(buckets):
         group = buckets[start]
         merged = merge_records(group)
+        assert merged is not None
         merged.t = start
         merged.processes = group[0].processes
         merged.concurrency = max(r.concurrency for r in group)

@@ -141,8 +141,8 @@ def recovery_seconds(records: list[SecondRecord], end_s: int, baseline: dict, se
     sustain = max(1, settings.sustain_seconds)
     s = end_s
     while s + sustain <= run_end_s + 1:
-        window = [by_t.get(t) for t in range(s, s + sustain)]
-        if all(r is not None and r.phase != "paused" for r in window):
+        window = [r for t in range(s, s + sustain) if (r := by_t.get(t)) is not None and r.phase != "paused"]
+        if len(window) == sustain:
             stats = _stats(window)
             tput_ok = stats["throughput"] is not None and stats["throughput"] >= base_tput * (1 - settings.throughput_tolerance)
             lat_ok = not base_p99 or (stats["p99_us"] is not None and stats["p99_us"] <= base_p99 * (1 + settings.latency_tolerance))
@@ -176,7 +176,7 @@ def analyze_window(
     recovery = recovery_seconds(measured, end_s, baseline, settings, run_end_s)
     span_end_ms = end_ms + 1000 * (recovery if recovery is not None else settings.baseline_seconds)
     span = _between(records, start_s, -(-span_end_ms // 1000))
-    failures = {}
+    failures: dict[str, int] = {}
     first_fail = last_fail = None
     failed = 0
     for record in span:
@@ -245,14 +245,16 @@ def detect_disruptions(records: list[SecondRecord], settings: AnalysisSettings) 
 def _runs_of(flags: list[tuple[int, bool]], minimum: int) -> list[tuple[int, int]]:
     """Contiguous runs of flagged seconds lasting at least ``minimum`` seconds."""
     runs: list[tuple[int, int]] = []
-    start = previous = None
+    start: int | None = None
+    previous = 0
     for t, flag in flags:
         if flag and start is not None and t == previous + 1:
             previous = t
             continue
         if start is not None and previous - start + 1 >= minimum:
             runs.append((start, previous))
-        start = previous = t if flag else None
+        start = t if flag else None
+        previous = t
     if start is not None and previous - start + 1 >= minimum:
         runs.append((start, previous))
     return runs
@@ -264,14 +266,14 @@ CATCH_UP_SECONDS = 10
 def client_bound(records: list[SecondRecord], settings: AnalysisSettings, disruptions: list[dict] | None = None) -> dict:
     """Decide whether the generator, not the database, limited the run."""
     measured = _measured(records)
-    disturbed = set()
+    disturbed: set[int] = set()
     for window in disruptions or []:
         disturbed.update(range(window["start_ms"] // 1000, -(-window["end_ms"] // 1000) + CATCH_UP_SECONDS))
     reasons: list[dict] = []
     rate_flags = []
     for r in measured:
         attempted = r.ok + r.err
-        short = bool(r.target_rate) and attempted < r.target_rate * (1 - settings.client_bound_rate_margin) and r.t not in disturbed
+        short = bool(r.target_rate and attempted < r.target_rate * (1 - settings.client_bound_rate_margin) and r.t not in disturbed)
         rate_flags.append((r.t, short))
     for start, end in _runs_of(rate_flags, settings.client_bound_min_seconds):
         sample = [r for r in measured if start <= r.t <= end]

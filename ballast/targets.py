@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import time
-from typing import Literal
+from typing import Any, Literal
 from urllib.parse import parse_qsl, quote, unquote
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -227,7 +227,7 @@ async def test_connection(target: dict, timeout_ms: int = 8000) -> dict:
         except pe.OperationFailure:
             version = None
         description = client.topology_description
-        members = []
+        members: list[dict[str, Any]] = []
         for address, sd in description.server_descriptions().items():
             members.append(
                 {

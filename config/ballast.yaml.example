@@ -1,0 +1,33 @@
+# Copy to config/ballast.yaml and edit. Every key is optional; these are the defaults
+# unless noted. Precedence: command-line flags, then BALLAST_* environment variables,
+# then this file, then defaults. Relative paths resolve against the install directory.
+# See docs/CONFIGURATION.md for every key.
+
+server:
+  listen: 127.0.0.1:8443
+  public_url: ""
+  trust_proxy_headers: false
+  access_token_file: ""
+tls:
+  mode: self-signed
+  cert_file: certs/server.crt
+  key_file: certs/server.key
+  self_signed_hosts: ["localhost", "127.0.0.1"]
+  min_version: "1.2"
+  redirect_http_listen: ""
+paths:
+  data_dir: data
+  log_dir: logs
+  run_dir: run
+logging:
+  level: info
+  format: json
+  max_size_mb: 100
+  max_files: 10
+retention:
+  runs_max_age_days: 0
+  runs_max_count: 0
+branding:
+  product_name: Ballast
+  logo_file: ""
+  accent_color: ""

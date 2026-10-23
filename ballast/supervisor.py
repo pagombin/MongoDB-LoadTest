@@ -250,6 +250,7 @@ def stop(loaded: Loaded, timeout: int | None = None) -> tuple[int, str]:
         removed = pids.clean_stale()
         return 0, "not running" + (f" (removed stale {', '.join(removed)})" if removed else "")
     target = sup_pid or srv_pid
+    assert target is not None
     os.kill(target, signal.SIGTERM)
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:

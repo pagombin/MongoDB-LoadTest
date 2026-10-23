@@ -134,6 +134,7 @@ class ClusterMonitor:
     async def _command(self, name: str, command: dict) -> dict | None:
         if name in self.unavailable:
             return None
+        assert self.client is not None
         try:
             return await self.client.admin.command(command)
         except pe.OperationFailure as exc:

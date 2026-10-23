@@ -138,7 +138,7 @@ function shortcuts() {
     if (e.key === "?") { e.preventDefault(); shortcutsDialog(); return; }
     if (e.key === "n" || e.key === "N") { e.preventDefault(); navigate("#/new"); return; }
     if (e.key === "/") {
-      const f = document.querySelector("[data-filter]");
+      const f = /** @type {HTMLElement|null} */ (document.querySelector("[data-filter]"));
       if (f) { e.preventDefault(); f.focus(); }
       return;
     }
@@ -152,7 +152,7 @@ function applyBranding() {
   if (a.accent_color) {
     document.documentElement.style.setProperty("--accent", a.accent_color);
   }
-  const logo = document.getElementById("brand-logo");
+  const logo = /** @type {HTMLImageElement} */ (document.getElementById("brand-logo"));
   logo.alt = a.product || "Ballast";
   const dark = document.documentElement.getAttribute("data-theme") === "dark" ||
     (document.documentElement.getAttribute("data-theme") !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches);

@@ -10,6 +10,7 @@ import time
 import uuid
 import zlib
 from pathlib import Path
+from typing import overload
 
 from ballast.engine.series import SecondRecord
 
@@ -201,6 +202,10 @@ class Store:
 
     # ---- targets ----
 
+    @overload
+    def _target_row(self, row: dict) -> dict: ...
+    @overload
+    def _target_row(self, row: dict | None) -> dict | None: ...
     def _target_row(self, row: dict | None) -> dict | None:
         if row is None:
             return None
@@ -233,7 +238,9 @@ class Store:
                 "UPDATE targets SET name=?, uri=?, options_json=?, updated_at=? WHERE id=?",
                 (data["name"], data["uri"], json.dumps(options), ts, target_id),
             )
-        return self.get_target(target_id)
+        target = self.get_target(target_id)
+        assert target is not None
+        return target
 
     def set_target_test(self, target_id: str, result: dict) -> None:
         self._exec("UPDATE targets SET last_test_json=? WHERE id=?", (json.dumps(result), target_id))
@@ -243,6 +250,10 @@ class Store:
 
     # ---- profiles ----
 
+    @overload
+    def _profile_row(self, row: dict) -> dict: ...
+    @overload
+    def _profile_row(self, row: dict | None) -> dict | None: ...
     def _profile_row(self, row: dict | None) -> dict | None:
         if row is None:
             return None
@@ -268,13 +279,19 @@ class Store:
             )
         else:
             self._exec("UPDATE profiles SET name=?, body_json=?, updated_at=? WHERE id=?", (body["name"], json.dumps(body), ts, profile_id))
-        return self.get_profile(profile_id)
+        profile = self.get_profile(profile_id)
+        assert profile is not None
+        return profile
 
     def delete_profile(self, profile_id: str) -> bool:
         return self._exec("DELETE FROM profiles WHERE id=?", (profile_id,)).rowcount > 0
 
     # ---- runs ----
 
+    @overload
+    def _run_row(self, row: dict) -> dict: ...
+    @overload
+    def _run_row(self, row: dict | None) -> dict | None: ...
     def _run_row(self, row: dict | None) -> dict | None:
         if row is None:
             return None
@@ -288,7 +305,9 @@ class Store:
             "INSERT INTO runs(id,name,status,target_id,target_name,database_name,created_at,profile_json) VALUES (?,?,?,?,?,?,?,?)",
             (run_id, name, "starting", target["id"], target["name"], database, now_ms(), json.dumps(profile)),
         )
-        return self.get_run(run_id)
+        run = self.get_run(run_id)
+        assert run is not None
+        return run
 
     def update_run(self, run_id: str, **fields) -> None:
         cols, vals = [], []

@@ -94,6 +94,34 @@ Each entry: the question, the options considered, the choice, why, and how hard 
 - Choice: the first segment after `BALLAST_` is the section (section names have no underscores), the rest is the key: `BALLAST_SERVER_ACCESS_TOKEN_FILE` sets `server.access_token_file`. Unknown `BALLAST_*` variables stop startup, except `BALLAST_HOME` and `BALLAST_CONFIG`.
 - Reverse: easy.
 
+## D-017 Bundle top-level directory and contents
+
+- Question: the brief's layout starts at `ballast/`, but upgrades extract the new bundle next to the old one, which would collide.
+- Choice: archives unpack to `ballast-<version>/` with the brief's layout inside, plus `runtime/python` (private CPython 3.12 with all dependencies in its site-packages), `LICENSE`, `README.md`, `sbom.cdx.json`, and `bin/verify-host.sh`.
+- Reverse: easy (archive naming only).
+
+## D-018 macOS bundle for Apple Silicon only — **Review first**
+
+- Question: the brief asks for a darwin bundle for local development.
+- Evidence: `pip download --platform macosx_*_x86_64 cryptography==50.0.2` fails; the newest Intel macOS wheel is 48.0.1.
+- Choice: build `darwin-arm64` by default. `darwin-amd64` stays defined in `scripts/build_release.py`; building it needs a per-target lock with cryptography 48.0.1.
+- Reverse: moderate.
+
+## D-019 Legacy dependencies ship without Kaleido
+
+- Choice: the bundle includes Dash, Plotly, ReportLab, Typer and Waitress so `ballast legacy` works offline, but not Kaleido, which needs Google Chrome at runtime anyway (B8). Legacy PNG and PDF buttons keep failing as before; the new report covers both (D-007).
+- Reverse: easy.
+
+## D-020 Debug symbols stripped from Linux bundles
+
+- Evidence: `libpython3.12.so.1.0` in python-build-standalone is 200 MB with symbols; the stripped linux-amd64 bundle is 65.6 MB compressed.
+- Choice: `strip --strip-unneeded` on shared objects (cross binutils for arm64 at build time). macOS binaries are left as shipped.
+
+## D-021 Autostart writes outside the install directory
+
+- Question: brief 10.1.1 says no writing outside the extracted directory, but 10.3 asks for a systemd user unit or crontab entry, which by nature live outside it.
+- Choice: only `ballastctl autostart enable` writes outside the install directory (`~/.config/systemd/user/ballast-<hash>.service` or the user crontab), and `autostart disable` removes it. Nothing else does.
+
 ## Blocked
 
 (none yet)

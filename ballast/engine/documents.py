@@ -35,9 +35,9 @@ class DocumentFactory:
 
     def new(self, key: int) -> dict[str, Any]:
         if self._schema_gen is not None:
-            doc = self._schema_gen.generate_document()
-            doc["_id"] = key
-            return doc
+            generated = self._schema_gen.generate_document()
+            generated["_id"] = key
+            return generated
         doc: dict[str, Any] = {"_id": key, "v": self.rng.randrange(1_000_000), "n": 0, "ts": datetime.now(UTC)}
         for i in range(self.spec.fields - 3):
             doc[f"f{i}"] = self.rng.randrange(1_000_000)

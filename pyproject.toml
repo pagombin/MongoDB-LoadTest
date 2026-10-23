@@ -21,7 +21,6 @@ dependencies = [
 [project.optional-dependencies]
 legacy = [
   "dash>=2.18.2",
-  "kaleido>=1.0.0",
   "plotly>=6.0.0",
   "reportlab>=4.2.5",
   "typer>=0.15.1",
@@ -69,3 +68,14 @@ ignore = ["S101", "S110", "S311", "S603", "S607", "E501", "E731", "B008"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S", "B"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_unused_ignores = true
+no_implicit_optional = true
+
+[[tool.mypy.overrides]]
+module = "mongo_load_tester.*"
+follow_imports = "skip"
+ignore_errors = true

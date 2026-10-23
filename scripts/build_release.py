@@ -1,0 +1,395 @@
+"""Build offline release bundles: private Python, pinned wheels, the app, notices, SBOM, checksums.
+
+Usage: python scripts/build_release.py [--targets linux-amd64,linux-arm64,darwin-arm64] [--out dist]
+darwin-amd64 is defined but not built by default: cryptography publishes no Intel macOS wheels after 48.0.1.
+Needs network access to download Python builds and wheels; the resulting bundles need none.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tarfile
+import time
+import urllib.request
+import uuid
+from email.parser import Parser
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+from ballast import product  # noqa: E402
+
+ENV = dict(line.split("=", 1) for line in (ROOT / "scripts" / "python-runtime.env").read_text().split() if "=" in line)
+TARGETS = {
+    "linux-amd64": {
+        "triple": "x86_64-unknown-linux-gnu",
+        "key": "linux_x86_64",
+        "platforms": ["manylinux_2_28_x86_64", "manylinux_2_17_x86_64", "manylinux2014_x86_64", "linux_x86_64"],
+    },
+    "linux-arm64": {
+        "triple": "aarch64-unknown-linux-gnu",
+        "key": "linux_aarch64",
+        "platforms": ["manylinux_2_28_aarch64", "manylinux_2_17_aarch64", "manylinux2014_aarch64", "linux_aarch64"],
+    },
+    "darwin-arm64": {
+        "triple": "aarch64-apple-darwin",
+        "key": "darwin_aarch64",
+        "platforms": [
+            "macosx_11_0_arm64",
+            "macosx_12_0_arm64",
+            "macosx_13_0_arm64",
+            "macosx_14_0_arm64",
+            "macosx_10_9_universal2",
+            "macosx_11_0_universal2",
+        ],
+    },
+    "darwin-amd64": {
+        "triple": "x86_64-apple-darwin",
+        "key": "darwin_x86_64",
+        "platforms": ["macosx_10_9_x86_64", "macosx_10_12_x86_64", "macosx_10_13_x86_64", "macosx_11_0_x86_64", "macosx_10_9_universal2"],
+    },
+}
+PYVER = ENV["PY_VERSION"]
+PYTAG = "".join(PYVER.split(".")[:2])
+SITE = f"lib/python{'.'.join(PYVER.split('.')[:2])}/site-packages"
+CACHE = ROOT / ".cache"
+
+
+def sh(cmd: list[str], **kw) -> str:
+    print("+", " ".join(cmd), flush=True)
+    return subprocess.run(cmd, check=True, text=True, capture_output=True, **kw).stdout
+
+
+def sha256(path: Path) -> str:
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def fetch_python(target: str) -> Path:
+    t = TARGETS[target]
+    name = f"cpython-{PYVER}+{ENV['PY_RELEASE']}-{t['triple']}-install_only.tar.gz"
+    path = CACHE / name
+    if not path.exists():
+        CACHE.mkdir(exist_ok=True)
+        url = f"https://github.com/astral-sh/python-build-standalone/releases/download/{ENV['PY_RELEASE']}/{name}"
+        print("downloading", url, flush=True)
+        urllib.request.urlretrieve(url, path.with_suffix(".part"))  # noqa: S310
+        path.with_suffix(".part").rename(path)
+    expected = ENV[f"PY_SHA256_{t['key']}"]
+    if sha256(path) != expected:
+        path.unlink()
+        raise SystemExit(f"checksum mismatch for {name}")
+    return path
+
+
+def lock_lines() -> list[str]:
+    return [
+        line.strip()
+        for line in (ROOT / "requirements" / "runtime.lock").read_text().splitlines()
+        if line.strip() and not line.startswith("#")
+    ]
+
+
+def install_wheels(target: str, site: Path) -> None:
+    wheel_dir = CACHE / "wheels" / target
+    wheel_dir.mkdir(parents=True, exist_ok=True)
+    plat = sum((["--platform", p] for p in TARGETS[target]["platforms"]), [])
+    common = [
+        "--only-binary=:all:",
+        "--python-version",
+        PYTAG,
+        "--implementation",
+        "cp",
+        "--abi",
+        f"cp{PYTAG}",
+        "--abi",
+        "abi3",
+        "--abi",
+        "none",
+        *plat,
+    ]
+    sh(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "download",
+            "-q",
+            "--disable-pip-version-check",
+            "-d",
+            str(wheel_dir),
+            *common,
+            "-r",
+            str(ROOT / "requirements" / "runtime.lock"),
+        ]
+    )
+    sh(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "install",
+            "-q",
+            "--disable-pip-version-check",
+            "--no-index",
+            "--find-links",
+            str(wheel_dir),
+            "--target",
+            str(site),
+            "--no-compile",
+            *common,
+            "-r",
+            str(ROOT / "requirements" / "runtime.lock"),
+        ]
+    )
+
+
+def install_app(site: Path, commit: str, built: str) -> None:
+    for pkg in ("ballast", "mongo_load_tester"):
+        dest = site / pkg
+        if dest.exists():
+            shutil.rmtree(dest)
+        shutil.copytree(ROOT / pkg, dest, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    (site / "ballast" / "buildinfo.py").write_text(
+        f'"""Generated by scripts/build_release.py."""\n\nCOMMIT = "{commit}"\nBUILT = "{built}"\n'
+    )
+
+
+def dists(site: Path) -> list[dict]:
+    out = []
+    for meta_dir in sorted(site.glob("*.dist-info")):
+        meta = Parser().parsestr((meta_dir / "METADATA").read_text(encoding="utf-8", errors="replace"))
+        lic = meta.get("License-Expression") or ""
+        if not lic:
+            classifiers = [c.split("::")[-1].strip() for c in meta.get_all("Classifier") or [] if c.startswith("License ::")]
+            raw = (meta.get("License") or "").strip()
+            lic = ", ".join(classifiers) if classifiers else (raw.splitlines()[0] if raw else "UNKNOWN")
+        texts = []
+        for f in sorted(meta_dir.rglob("*")):
+            if f.is_file() and re.search(r"(LICEN[CS]E|COPYING|NOTICE|AUTHORS)", f.name, re.I):
+                texts.append(f.read_text(encoding="utf-8", errors="replace"))
+        out.append(
+            {
+                "name": meta["Name"],
+                "version": meta["Version"],
+                "license": lic.strip()[:200],
+                "home": meta.get("Home-page")
+                or next(
+                    (
+                        u.split(",", 1)[1].strip()
+                        for u in meta.get_all("Project-URL") or []
+                        if u.lower().startswith(("homepage", "source", "repository"))
+                    ),
+                    "",
+                ),
+                "texts": texts,
+            }
+        )
+    return out
+
+
+EXTRA = [
+    {
+        "name": "CPython (python-build-standalone)",
+        "version": PYVER,
+        "license": "PSF-2.0 (CPython), BSD-3-Clause (build scripts); bundled OpenSSL Apache-2.0, SQLite public domain, zlib, libffi MIT, XZ public domain",
+        "home": "https://github.com/astral-sh/python-build-standalone",
+        "file": None,
+    },
+    {
+        "name": "uPlot",
+        "version": "1.6.31",
+        "license": "MIT",
+        "home": "https://github.com/leeoniya/uPlot",
+        "file": "ballast/web/vendor/uplot.LICENSE",
+    },
+    {
+        "name": "IBM Plex Sans and IBM Plex Mono",
+        "version": "fontsource 5.1.1",
+        "license": "OFL-1.1",
+        "home": "https://github.com/IBM/plex",
+        "file": "ballast/web/fonts/OFL.txt",
+    },
+]
+
+
+def notices(entries: list[dict], python_root: Path) -> str:
+    lines = [
+        f"{product.NAME} {product.VERSION}: third-party notices",
+        "",
+        "This bundle contains the following third-party software. Each is used under its own license, reproduced below.",
+        "",
+    ]
+    for e in sorted(entries, key=lambda e: e["name"].lower()):
+        lines.append(f"- {e['name']} {e['version']} ({e['license']}) {e.get('home', '')}".rstrip())
+    lines.append("")
+    for e in sorted(entries, key=lambda e: e["name"].lower()):
+        lines += ["=" * 78, f"{e['name']} {e['version']}", f"License: {e['license']}", "=" * 78]
+        texts = e.get("texts") or []
+        if e.get("file"):
+            texts = [(ROOT / e["file"]).read_text(encoding="utf-8")]
+        if e["name"].startswith("CPython"):
+            lic = python_root / "lib" / f"python{'.'.join(PYVER.split('.')[:2])}" / "LICENSE.txt"
+            texts = [lic.read_text(encoding="utf-8", errors="replace")] if lic.exists() else ["See https://docs.python.org/3/license.html"]
+        lines += texts or ["(no license text shipped with the package; see the project home page)"]
+        lines.append("")
+    return "\n".join(lines)
+
+
+def sbom(entries: list[dict], target: str, commit: str) -> dict:
+    def purl(e):
+        return f"pkg:pypi/{e['name'].lower().replace('_', '-')}@{e['version']}" if "texts" in e else None
+
+    comps = []
+    for e in sorted(entries, key=lambda e: e["name"].lower()):
+        c = {
+            "type": "library",
+            "name": e["name"],
+            "version": e["version"],
+            "licenses": [{"expression": e["license"]}] if e["license"] else [],
+        }
+        if purl(e):
+            c["purl"] = purl(e)
+        comps.append(c)
+    return {
+        "bomFormat": "CycloneDX",
+        "specVersion": "1.5",
+        "serialNumber": f"urn:uuid:{uuid.uuid4()}",
+        "version": 1,
+        "metadata": {
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "component": {
+                "type": "application",
+                "name": product.NAME,
+                "version": product.VERSION,
+                "properties": [{"name": "target", "value": target}, {"name": "commit", "value": commit}],
+            },
+        },
+        "components": comps,
+    }
+
+
+def strip_binaries(pyroot: Path, target: str) -> None:
+    """Remove debug symbols from shared objects; the interpreter library alone carries about 180 MB of them."""
+    if not target.startswith("linux"):
+        return
+    tool = shutil.which("strip")
+    if target == "linux-arm64":
+        tool = shutil.which("aarch64-linux-gnu-strip") or (tool if _strip_handles(tool, "aarch64") else None)
+    if not tool:
+        print(f"warning: no strip tool for {target}; bundle keeps debug symbols", flush=True)
+        return
+    for path in list(pyroot.rglob("*.so")) + list(pyroot.rglob("*.so.*")):
+        if path.is_file() and not path.is_symlink():
+            subprocess.run([tool, "--strip-debug", str(path)], capture_output=True, check=False)
+
+
+def _strip_handles(tool: str | None, arch: str) -> bool:
+    if not tool:
+        return False
+    out = subprocess.run([tool, "--help"], capture_output=True, text=True, check=False).stdout
+    return arch in out
+
+
+def build(target: str, out: Path, commit: str, built: str) -> Path:
+    stage_root = ROOT / "build" / target
+    shutil.rmtree(stage_root, ignore_errors=True)
+    top = f"{product.SLUG}-{product.VERSION}"
+    stage = stage_root / top
+    pyroot = stage / "runtime" / "python"
+    pyroot.mkdir(parents=True)
+    with tarfile.open(fetch_python(target)) as tf:
+        members = []
+        for m in tf.getmembers():
+            if not m.name.startswith("python/"):
+                continue
+            m.name = m.name[len("python/") :]
+            if m.name:
+                members.append(m)
+        tf.extractall(pyroot, members=members, filter="tar")
+    site = pyroot / SITE
+    install_wheels(target, site)
+    install_app(site, commit, built)
+    junk = list(site.rglob("__pycache__")) + [site / "pip"] + list(site.glob("pip-*.dist-info"))
+    for pattern in (
+        "lib/python*/test",
+        "lib/python*/idlelib",
+        "lib/python*/tkinter",
+        "lib/python*/turtledemo",
+        "lib/tcl*",
+        "lib/tk*",
+        "lib/itcl*",
+        "lib/thread*",
+        "share",
+    ):
+        junk += list(pyroot.glob(pattern))
+    for path in junk:
+        if path.is_dir():
+            shutil.rmtree(path, ignore_errors=True)
+        elif path.exists():
+            path.unlink()
+    for lib in pyroot.glob("lib/libt*8.6*"):
+        lib.unlink()
+    strip_binaries(pyroot, target)
+    for d in ("bin", "config", "certs", "data", "logs", "run", "docs"):
+        (stage / d).mkdir(exist_ok=True)
+    for script in ("ballast", "ballastctl"):
+        shutil.copy2(ROOT / "bin" / script, stage / "bin" / script)
+        os.chmod(stage / "bin" / script, 0o755)  # noqa: S103
+    shutil.copy2(ROOT / "config" / "ballast.yaml.example", stage / "config" / "ballast.yaml.example")
+    for keep in ("certs", "data", "logs", "run"):
+        (stage / keep / ".keep").write_text("")
+    for doc in sorted((ROOT / "docs").glob("*.md")):
+        shutil.copy2(doc, stage / "docs" / doc.name)
+    shutil.copy2(ROOT / "README.md", stage / "README.md")
+    shutil.copy2(ROOT / "LICENSE", stage / "LICENSE")
+    shutil.copy2(ROOT / "scripts" / "verify-host.sh", stage / "bin" / "verify-host.sh")
+    (stage / "VERSION").write_text(f"{product.VERSION}\ncommit {commit}\nbuilt {built}\ntarget {target}\n")
+    entries = dists(site) + EXTRA
+    (stage / "THIRD_PARTY_NOTICES").write_text(notices(entries, pyroot), encoding="utf-8")
+    bom = sbom(entries, target, commit)
+    (stage / "sbom.cdx.json").write_text(json.dumps(bom, indent=2))
+    out.mkdir(parents=True, exist_ok=True)
+    archive = out / f"{top}-{target}.tar.gz"
+    with tarfile.open(archive, "w:gz", compresslevel=9) as tf:
+        tf.add(stage, arcname=top)
+    (out / f"{top}-{target}.sbom.cdx.json").write_text(json.dumps(bom, indent=2))
+    print(f"built {archive} ({archive.stat().st_size / 1e6:.1f} MB)", flush=True)
+    return archive
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--targets", default="linux-amd64,linux-arm64,darwin-arm64")
+    parser.add_argument("--out", default=str(ROOT / "dist"))
+    args = parser.parse_args()
+    commit = (
+        subprocess.run(["git", "-C", str(ROOT), "rev-parse", "--short", "HEAD"], capture_output=True, text=True).stdout.strip() or "unknown"
+    )
+    built = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    out = Path(args.out)
+    archives = [build(t.strip(), out, commit, built) for t in args.targets.split(",") if t.strip()]
+    sums = out / "SHA256SUMS"
+    existing = {}
+    if sums.exists():
+        for line in sums.read_text().splitlines():
+            digest, name = line.split(None, 1)
+            existing[name.strip()] = digest
+    for a in archives:
+        existing[a.name] = sha256(a)
+    sums.write_text("".join(f"{d}  {n}\n" for n, d in sorted(existing.items())))
+    print(sums.read_text())
+
+
+if __name__ == "__main__":
+    main()

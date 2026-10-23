@@ -80,6 +80,7 @@ class LocalClient:
             headers["X-Ballast-Request"] = "1"
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
+        conn: http.client.HTTPConnection
         if self.tls:
             ctx = ssl.create_default_context()
             ctx.check_hostname = False
@@ -87,7 +88,11 @@ class LocalClient:
             conn = http.client.HTTPSConnection(self.host, self.port, timeout=timeout, context=ctx)
             conn.connect()
             expected = self._pinned_fingerprint()
-            actual = hashlib.sha256(conn.sock.getpeercert(binary_form=True)).hexdigest()
+            cert = conn.sock.getpeercert(binary_form=True)
+            if cert is None:
+                conn.close()
+                raise ConnectionError(f"the server at {self.host}:{self.port} presented no certificate")
+            actual = hashlib.sha256(cert).hexdigest()
             if expected and actual != expected:
                 conn.close()
                 raise ConnectionError(
@@ -245,7 +250,7 @@ def cmd_mark(args) -> int:
     except (OSError, ConnectionError) as exc:
         print(f"error: cannot reach the server: {exc}", file=sys.stderr)
         return 1
-    if status == 201:
+    if status == 201 and isinstance(payload, dict):
         when = time.strftime("%H:%M:%S", time.gmtime(payload["t_ms"] / 1000)) + f".{payload['t_ms'] % 1000:03d}Z"
         print(f"marker added: {payload['label']} at {when} (run {payload['run_id']})")
         return 0
@@ -295,11 +300,9 @@ def cmd_gen_cert(args) -> int:
         print(f"error: tls.mode is {cfg.mode}; gen-cert only manages self-signed certificates", file=sys.stderr)
         return 2
     cert_path, key_path = loaded.resolve(cfg.cert_file), loaded.resolve(cfg.key_file)
-    hosts = list(cfg.self_signed_hosts)
-    host, _ = split_listen(loaded.config.server.listen)
-    if host not in ("0.0.0.0", "::") and host not in hosts:  # noqa: S104
-        hosts.append(host)
-    tls.generate_self_signed(cert_path, key_path, hosts)
+    from ballast.server import certificate_hosts
+
+    tls.generate_self_signed(cert_path, key_path, certificate_hosts(loaded))
     info = tls.describe(cert_path)
     print(f"wrote {cert_path} and {key_path}")
     print(f"hosts: {', '.join(info['hosts'])}")

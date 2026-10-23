@@ -22,6 +22,7 @@ import time
 
 from pymongo import AsyncMongoClient, ReturnDocument, monitoring
 from pymongo import errors as pe
+from pymongo.asynchronous.database import AsyncDatabase
 
 from ballast.engine.documents import DocumentFactory
 from ballast.engine.errors import classify
@@ -159,7 +160,7 @@ class Generator:
         self.inflight = 0
         self.seconds: dict[int, SecondRecord] = {}
         self.last_emitted: int | None = None
-        self.last_ok_ms = {"write": None, "read": None}
+        self.last_ok_ms: dict[str, int | None] = {"write": None, "read": None}
         self.kind_rate = {"write": 0.0, "read": 0.0}
         self.kind_count = {"write": 0, "read": 0}
         self.cpu_mark = (time.monotonic(), sum(os.times()[:2]))
@@ -171,7 +172,7 @@ class Generator:
         secrets = [x for x in spec.get("secrets", []) if x]
         self.redact = (lambda text: _redact(text, secrets)) if secrets else None
         self.client: AsyncMongoClient | None = None
-        self.db = None
+        self.db: AsyncDatabase | None = None
         self.colls: list = []
 
     # ---- IPC ----
@@ -362,6 +363,7 @@ class Generator:
                 await self.resume_event.wait()
                 continue
             sched = self.schedule
+            assert sched is not None
             epoch = sched.epoch
             intended = sched.take()
             delay = intended - time.monotonic()
