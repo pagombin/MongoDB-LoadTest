@@ -19,8 +19,8 @@ e2e:
 	node tests/e2e/run.mjs
 
 lint:
-	$(PY) -m ruff check ballast tests/unit tests/integration scripts
-	$(PY) -m ruff format --check ballast tests/unit tests/integration scripts
+	$(PY) -m ruff check ballast tests/unit tests/integration tests/soak scripts
+	$(PY) -m ruff format --check ballast tests/unit tests/integration tests/soak scripts
 	sh -n bin/ballast && sh -n bin/ballastctl && sh -n scripts/setup-runtime.sh && sh -n scripts/verify-host.sh
 
 format:
