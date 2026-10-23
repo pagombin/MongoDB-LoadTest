@@ -11,6 +11,7 @@ def test_fresh_store_is_owner_only_and_at_latest_version(tmp_path):
     assert stat.S_IMODE((tmp_path / "data" / "ballast.db").stat().st_mode) == 0o600
     assert stat.S_IMODE((tmp_path / "data").stat().st_mode) == 0o700
     assert store.migrated_from == 0
+    store.close()
 
 
 def test_migration_backs_up_existing_store(tmp_path):
@@ -38,7 +39,10 @@ def test_migration_from_older_version_takes_backup(tmp_path, monkeypatch):
     assert s2.schema_version() == LATEST_VERSION + 1
     backups = list((tmp_path / "backups").glob("ballast-pre-migration-v*.db"))
     assert len(backups) == 1
-    assert sqlite3.connect(backups[0]).execute("SELECT version FROM schema_meta").fetchone()[0] == LATEST_VERSION
+    s2.close()
+    backup = sqlite3.connect(backups[0])
+    assert backup.execute("SELECT version FROM schema_meta").fetchone()[0] == LATEST_VERSION
+    backup.close()
 
 
 def test_newer_schema_is_refused(tmp_path):
@@ -70,6 +74,7 @@ def test_seconds_round_trip_and_interrupt(tmp_path):
     run = store.get_run("r1")
     assert run["status"] == "interrupted" and run["ended_at"] == 101_000
     assert store.second_count("r1") == 1
+    store.close()
 
 
 def test_retention_prunes_old_and_excess_runs(tmp_path):
@@ -82,6 +87,7 @@ def test_retention_prunes_old_and_excess_runs(tmp_path):
     assert store.prune(max_age_days=30, max_count=0) == ["r0"]
     removed = store.prune(max_age_days=0, max_count=2)
     assert len(removed) == 1 and len(store.list_runs()) == 2
+    store.close()
 
 
 def test_gap_intersection_across_processes():

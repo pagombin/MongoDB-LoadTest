@@ -46,6 +46,8 @@ runtime/python/bin/python3 -m pytest tests -v -W error
 
 With `-W error`, a legacy test (`tests/legacy/test_observability.py`) installs the legacy app's global exception hook, which then logs to a closed stream at interpreter exit and prints `--- Logging error ---`. It does not fail any test and is in the legacy package, so it is left as is.
 
+With `-W error` the suite also used to print a logging error at teardown. It came from six SQLite connections the store tests left open, one of them inside the product: `Store()` did not close its connection when it refused a newer schema. Both are fixed. The legacy test `test_thread_safety_concurrent_add_remove_get` failed once in about 20 runs. Its removals could run before the matching adds, so ids it expected to be gone were legitimately present. It now adds first and then removes while reading concurrently, and passed 30 runs in a row.
+
 ## 2. Integration tests against real replica sets
 
 ```
