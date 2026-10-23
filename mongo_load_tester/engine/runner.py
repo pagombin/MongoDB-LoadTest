@@ -10,7 +10,7 @@ import time
 from dataclasses import dataclass, field as dataclass_field
 from datetime import UTC, datetime
 
-from pymongo import MongoClient
+from pymongo import MongoClient, ReturnDocument
 
 from mongo_load_tester.config import AppConfig, OperationMixConfig, RetryConfig, SchemaConfig
 from mongo_load_tester.engine.client import build_client
@@ -641,6 +641,8 @@ class LoadTestRunner:
 
             results_buffer: list = []
             _FLUSH_SIZE = 500
+            _FLUSH_INTERVAL_SECONDS = 1.0
+            last_flush = time.monotonic()
 
             def _should_stop() -> bool:
                 return self._stop_event.is_set() or assignment.dismissed.is_set()
@@ -667,10 +669,21 @@ class LoadTestRunner:
                 n_read = max(int(active_users * mix.get("read", 0)), 0)
                 n_update = max(int(active_users * mix.get("update", 0)), 0)
                 n_delete = max(int(active_users * mix.get("delete", 0)), 0)
-                remainder = active_users - n_insert - n_read - n_update - n_delete
-                n_insert += max(remainder, 0)
-
-                now_ts = datetime.now(UTC)
+                n_fam = max(int(active_users * mix.get("find_and_modify", 0)), 0)
+                remainder = active_users - n_insert - n_read - n_update - n_delete - n_fam
+                if remainder > 0:
+                    # Give leftover users to the heaviest-weighted operation instead of always to inserts.
+                    heaviest = max(mix, key=lambda name: mix.get(name, 0))
+                    if heaviest == "read":
+                        n_read += remainder
+                    elif heaviest == "update":
+                        n_update += remainder
+                    elif heaviest == "delete":
+                        n_delete += remainder
+                    elif heaviest == "find_and_modify":
+                        n_fam += remainder
+                    else:
+                        n_insert += remainder
 
                 if n_insert > 0:
                     docs = [gen.generate_document() for _ in range(n_insert)]
@@ -678,7 +691,8 @@ class LoadTestRunner:
                     try:
                         insert_result = collection.insert_many(docs, ordered=False)
                         latency = (time.perf_counter() - start) * 1000.0
-                        per_op_lat = latency / n_insert
+                        now_ts = datetime.now(UTC)
+                        per_op_lat = latency
                         for iid in insert_result.inserted_ids:
                             self._id_registry.add_id(target.database, target.collection, iid)
                         for _ in range(n_insert):
@@ -689,11 +703,12 @@ class LoadTestRunner:
                             ))
                     except Exception as exc:
                         latency = (time.perf_counter() - start) * 1000.0
+                        now_ts = datetime.now(UTC)
                         for _ in range(n_insert):
                             results_buffer.append(OperationResult(
                                 timestamp=now_ts, operation=OperationType.INSERT,
                                 database=target.database, collection=target.collection,
-                                latency_ms=latency / n_insert, success=False, error=str(exc),
+                                latency_ms=latency, success=False, error=str(exc),
                             ))
 
                 if n_read > 0:
@@ -706,7 +721,8 @@ class LoadTestRunner:
                         else:
                             list(collection.find({}).limit(min(n_read, 100)))
                         lat = (time.perf_counter() - start) * 1000.0
-                        per_lat = lat / n_read
+                        now_ts = datetime.now(UTC)
+                        per_lat = lat
                         for _ in range(n_read):
                             results_buffer.append(OperationResult(
                                 timestamp=now_ts, operation=OperationType.READ,
@@ -715,11 +731,12 @@ class LoadTestRunner:
                             ))
                     except Exception as exc:
                         lat = (time.perf_counter() - start) * 1000.0
+                        now_ts = datetime.now(UTC)
                         for _ in range(n_read):
                             results_buffer.append(OperationResult(
                                 timestamp=now_ts, operation=OperationType.READ,
                                 database=target.database, collection=target.collection,
-                                latency_ms=lat / n_read, success=False, error=str(exc),
+                                latency_ms=lat, success=False, error=str(exc),
                             ))
 
                 if n_update > 0:
@@ -734,7 +751,8 @@ class LoadTestRunner:
                         if ops:
                             collection.bulk_write(ops, ordered=False)
                         lat = (time.perf_counter() - start) * 1000.0
-                        per_lat = lat / n_update
+                        now_ts = datetime.now(UTC)
+                        per_lat = lat
                         for _ in range(n_update):
                             results_buffer.append(OperationResult(
                                 timestamp=now_ts, operation=OperationType.UPDATE,
@@ -743,11 +761,12 @@ class LoadTestRunner:
                             ))
                     except Exception as exc:
                         lat = (time.perf_counter() - start) * 1000.0
+                        now_ts = datetime.now(UTC)
                         for _ in range(n_update):
                             results_buffer.append(OperationResult(
                                 timestamp=now_ts, operation=OperationType.UPDATE,
                                 database=target.database, collection=target.collection,
-                                latency_ms=lat / n_update, success=False, error=str(exc),
+                                latency_ms=lat, success=False, error=str(exc),
                             ))
 
                 if n_delete > 0:
@@ -755,15 +774,19 @@ class LoadTestRunner:
                     start = time.perf_counter()
                     try:
                         ops = []
+                        deleted_ids = []
                         for _ in range(n_delete):
                             doc_id = self._id_registry.get_random_id(target.database, target.collection, rng)
                             if doc_id:
                                 ops.append(DeleteOne({"_id": doc_id}))
-                                self._id_registry.remove_id(target.database, target.collection, doc_id)
+                                deleted_ids.append(doc_id)
                         if ops:
                             collection.bulk_write(ops, ordered=False)
+                        for doc_id in deleted_ids:
+                            self._id_registry.remove_id(target.database, target.collection, doc_id)
                         lat = (time.perf_counter() - start) * 1000.0
-                        per_lat = lat / n_delete
+                        now_ts = datetime.now(UTC)
+                        per_lat = lat
                         for _ in range(n_delete):
                             results_buffer.append(OperationResult(
                                 timestamp=now_ts, operation=OperationType.DELETE,
@@ -772,16 +795,38 @@ class LoadTestRunner:
                             ))
                     except Exception as exc:
                         lat = (time.perf_counter() - start) * 1000.0
+                        now_ts = datetime.now(UTC)
                         for _ in range(n_delete):
                             results_buffer.append(OperationResult(
                                 timestamp=now_ts, operation=OperationType.DELETE,
                                 database=target.database, collection=target.collection,
-                                latency_ms=lat / n_delete, success=False, error=str(exc),
+                                latency_ms=lat, success=False, error=str(exc),
                             ))
 
-                if len(results_buffer) >= _FLUSH_SIZE:
+                for _ in range(n_fam):
+                    start = time.perf_counter()
+                    try:
+                        doc_id = self._id_registry.get_random_id(target.database, target.collection, rng)
+                        if doc_id is not None:
+                            collection.find_one_and_update(
+                                {"_id": doc_id},
+                                {"$set": gen.generate_update_fields()},
+                                return_document=ReturnDocument.AFTER,
+                            )
+                        fam_success, fam_error = True, None
+                    except Exception as exc:
+                        fam_success, fam_error = False, str(exc)
+                    results_buffer.append(OperationResult(
+                        timestamp=datetime.now(UTC), operation=OperationType.FIND_AND_MODIFY,
+                        database=target.database, collection=target.collection,
+                        latency_ms=(time.perf_counter() - start) * 1000.0,
+                        success=fam_success, error=fam_error,
+                    ))
+
+                if len(results_buffer) >= _FLUSH_SIZE or time.monotonic() - last_flush >= _FLUSH_INTERVAL_SECONDS:
                     self._metrics.record_batch(results_buffer)
                     results_buffer.clear()
+                    last_flush = time.monotonic()
 
                 if think_max > 0:
                     time.sleep(rng.uniform(think_min, think_max))
