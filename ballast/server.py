@@ -15,6 +15,7 @@ import re
 import secrets
 import shutil
 import signal
+import socket
 import ssl
 import time
 import zipfile
@@ -28,7 +29,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from pymongo import AsyncMongoClient
 
 from ballast import buildinfo, doctor, logs, notify, product, report, targets, tls
-from ballast.config import Loaded, effective_with_sources, split_listen
+from ballast.config import ConfigError, Loaded, effective_with_sources, split_listen
 from ballast.engine.profile import Profile
 from ballast.engine.runs import ACTIVE, Hub, RunError, RunManager
 from ballast.store import Store, intersect_gaps
@@ -1125,13 +1126,89 @@ def startup_checks(loaded: Loaded) -> list[str]:
     return problems
 
 
+WILDCARD_HOSTS = ("0.0.0.0", "::", "")  # noqa: S104
+
+
+def local_addresses() -> list[str]:
+    """This host's name and non-loopback addresses, found without extra packages. A public address behind
+    NAT (as on AWS or GCP) is not visible here; add it to tls.self_signed_hosts."""
+    found: list[str] = []
+
+    def add(value: str) -> None:
+        value = value.strip().lower()
+        if value and value not in found and value != "localhost" and not value.startswith(("127.", "::1", "fe80:")):
+            found.append(value)
+
+    name = socket.gethostname()
+    add(name)
+    try:
+        add(socket.getfqdn())
+    except OSError:
+        pass
+    try:
+        for address in socket.gethostbyname_ex(name)[2]:
+            add(address)
+    except OSError:
+        pass
+    for family, probe in ((socket.AF_INET, "192.0.2.1"), (socket.AF_INET6, "2001:db8::1")):
+        try:
+            with socket.socket(family, socket.SOCK_DGRAM) as sock:
+                sock.connect((probe, 9))  # UDP connect sends nothing; it only picks the outgoing interface
+                add(sock.getsockname()[0])
+        except OSError:
+            pass
+    return found
+
+
 def certificate_hosts(loaded: Loaded) -> list[str]:
-    """Hosts for the self-signed certificate: the configured list plus a specific listen address."""
+    """Hosts for the self-signed certificate: the configured list plus the listen address, or, when listening
+    on all interfaces, this host's name and addresses."""
     hosts = list(loaded.config.tls.self_signed_hosts)
     host, _ = split_listen(loaded.config.server.listen)
-    if host not in ("0.0.0.0", "::") and host not in hosts:  # noqa: S104
-        hosts.append(host)
+    extra = local_addresses() if host in WILDCARD_HOSTS else [host]
+    for value in extra:
+        if value not in hosts:
+            hosts.append(value)
     return hosts
+
+
+def open_urls(loaded: Loaded, scheme: str) -> list[str]:
+    """The URLs to print at startup: public_url if set, otherwise one per address the server is reachable on."""
+    cfg = loaded.config.server
+    if cfg.public_url:
+        return [cfg.public_url]
+    host, port = split_listen(cfg.listen)
+    if host not in WILDCARD_HOSTS:
+        return [f"{scheme}://{_url_host(host)}:{port}"]
+    names = [a for a in local_addresses() if not _is_ipv6(a)] if host == "0.0.0.0" else local_addresses()  # noqa: S104
+    return [f"{scheme}://127.0.0.1:{port}"] + [f"{scheme}://{_url_host(a)}:{port}" for a in names]
+
+
+def _is_ipv6(value: str) -> bool:
+    return ":" in value
+
+
+def _url_host(value: str) -> str:
+    return f"[{value}]" if _is_ipv6(value) else value
+
+
+def exposure_warnings(loaded: Loaded) -> list[str]:
+    host, _ = split_listen(loaded.config.server.listen)
+    if host.startswith("127.") or host in ("localhost", "::1"):
+        return []
+    out = []
+    try:
+        has_token = bool(loaded.access_token())
+    except ConfigError:
+        has_token = True  # a token source is configured but unreadable; startup reports that itself
+    if not has_token:
+        out.append(
+            f"listening on {host} with no access token: anyone who can reach this port can start load against your "
+            "clusters. Set server.access_token_file (see docs/OPERATIONS.md, Listening on the network)."
+        )
+    if loaded.config.tls.mode == "off":
+        out.append(f"listening on {host} with tls.mode: off; the access token and cluster passwords travel unencrypted.")
+    return out
 
 
 def prepare_tls(app: App) -> tuple[Any, dict | None]:
@@ -1182,7 +1259,7 @@ def serve(loaded: Loaded, ready_file: Path | None = None) -> int:
         cfg.logging.max_files,
         console=os.environ.get("BALLAST_FOREGROUND") == "1",
     )
-    for warning in _warnings():
+    for warning in _warnings() + exposure_warnings(loaded):
         log.warning(warning)
         print(f"warning: {warning}", flush=True)
     app = App(loaded)
@@ -1205,17 +1282,29 @@ def serve(loaded: Loaded, ready_file: Path | None = None) -> int:
             await redirect_runner.setup()
             await web.TCPSite(redirect_runner, rhost, rport).start()
             log.info("redirecting http://%s:%d to https", rhost, rport)
-        url = cfg.server.public_url or f"{scheme}://{'127.0.0.1' if host in ('0.0.0.0', '::') else host}:{port}"  # noqa: S104
+        urls = open_urls(loaded, scheme)
+        url = urls[0]
         log.info("%s %s listening on %s://%s:%d", product.NAME, product.VERSION, scheme, host, port)
-        print(f"{cfg.branding.product_name} {product.VERSION} listening on {scheme}://{host}:{port}", flush=True)
-        print(f"Open {url}", flush=True)
+        print(f"{cfg.branding.product_name} {product.VERSION} listening on {scheme}://{_url_host(host)}:{port}", flush=True)
+        for each in urls:
+            print(f"Open {each}", flush=True)
         if cert:
             print(f"TLS certificate SHA-256 fingerprint: {cert['sha256']}", flush=True)
             log.info("certificate fingerprint %s, expires %s", cert["sha256"], cert["not_after"])
         pid_file = loaded.run_dir / "ballast.pid"
         pid_file.write_text(f"{os.getpid()}\n")
         if ready_file:
-            ready_file.write_text(json.dumps({"pid": os.getpid(), "url": url, "fingerprint": cert["sha256"] if cert else None}))
+            ready_file.write_text(
+                json.dumps(
+                    {
+                        "pid": os.getpid(),
+                        "url": url,
+                        "urls": urls,
+                        "fingerprint": cert["sha256"] if cert else None,
+                        "warnings": exposure_warnings(loaded),
+                    }
+                )
+            )
         stop = asyncio.Event()
         loop = asyncio.get_running_loop()
 

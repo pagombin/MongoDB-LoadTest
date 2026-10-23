@@ -17,6 +17,7 @@ First release under the name Ballast. The previous tool (`mongo_load_tester`) is
 - Run report with offline HTML export (prints to PDF), CSV and JSON exports, and run comparison aligned at start or at a marker.
 - New UI: runs, new run, live run, report, compare, targets, profiles, settings, system; light and dark themes; comfortable and compact density; local or UTC time; keyboard shortcuts.
 - HTTPS by default with a self-signed certificate generated without openssl, `files` mode, SIGHUP reload, optional HTTP redirect listener, reverse proxy support.
+- Listening on all interfaces (`server.listen: 0.0.0.0:8443`) puts the host's name and addresses in the self-signed certificate, prints a URL for each, and warns at startup when no access token is set or TLS is off.
 - Optional access token gate; CSRF protection; strict Content-Security-Policy and security headers; schema validation and body size limits; passwords redacted everywhere.
 - Configuration file with `BALLAST_*` environment overrides and flags; `ballast config validate` and `ballast config print`.
 - `ballastctl` with a built-in supervisor (crash restart with backoff), PID files, status and health exit codes, log rotation, and autostart via systemd user unit or crontab.

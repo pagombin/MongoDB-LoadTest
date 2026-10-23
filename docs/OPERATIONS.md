@@ -97,15 +97,22 @@ ssh -L 8443:127.0.0.1:8443 you@server
 
 Then open `https://localhost:8443`.
 
-Or listen on all interfaces. Put in `config/ballast.yaml`:
+Or listen on all interfaces. Use this when your laptop can reach the server but not the cluster: Ballast connects to the cluster from the server, and your browser only talks to Ballast. Put in `config/ballast.yaml`:
 
 ```yaml
 server:
   listen: 0.0.0.0:8443
   access_token_file: config/token
+```
+
+When listening on all interfaces, the self-signed certificate automatically covers the server's host name and every address the server can see, and startup prints a URL for each one. A public IP that is mapped onto the server (an AWS Elastic IP or GCP external IP, for example) or a DNS name is not visible from the server, so add it yourself:
+
+```yaml
 tls:
   self_signed_hosts: ["localhost", "127.0.0.1", "203.0.113.10", "ballast.example.com"]
 ```
+
+Startup warns when Ballast listens beyond loopback with no access token, or with `tls.mode: off`. Open the port (8443 by default) in the host firewall and in any cloud security group.
 
 Create the token and restart:
 

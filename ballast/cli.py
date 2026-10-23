@@ -179,8 +179,12 @@ def cmd_start(args) -> int:
                 time.sleep(0.2)
                 continue
             print(f"started: {info.get('url')} (server pid {info.get('pid')}, supervisor pid {pids.live_supervisor()})")
+            for other in (info.get("urls") or [])[1:]:
+                print(f"also at: {other}")
             if info.get("fingerprint"):
                 print(f"certificate SHA-256: {info['fingerprint']}")
+            for warning in info.get("warnings") or []:
+                print(f"warning: {warning}")
             return 0
         if pids.live_supervisor() is None and time.monotonic() > deadline - args.wait + 2:
             break
