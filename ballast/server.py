@@ -17,7 +17,7 @@ import ssl
 import time
 import zipfile
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 from urllib.parse import urlsplit
 
 import pymongo
@@ -25,7 +25,7 @@ from aiohttp import web
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from pymongo import AsyncMongoClient
 
-from ballast import buildinfo, doctor, logs, product, report, targets, tls
+from ballast import buildinfo, doctor, logs, notify, product, report, targets, tls
 from ballast.config import Loaded, effective_with_sources, split_listen
 from ballast.engine.profile import Profile
 from ballast.engine.runs import ACTIVE, Hub, RunError, RunManager
@@ -87,6 +87,22 @@ class RunRequest(BaseModel):
     acknowledge_foreign: bool = False
 
 
+TAG_RE = r"^[A-Za-z0-9][A-Za-z0-9 ._:/-]{0,39}$"
+
+
+class RunMetaRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    notes: str | None = Field(default=None, max_length=5000)
+    tags: list[Annotated[str, Field(pattern=TAG_RE)]] | None = Field(default=None, max_length=20)
+
+
+class RerunRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    acknowledge_foreign: bool = False
+
+
 class PreflightRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     target_id: str = Field(min_length=1, max_length=64)
@@ -133,7 +149,7 @@ class App:
         self.started = time.time()
         self.store = Store(loaded.data_dir / "ballast.db")
         self.hub = Hub()
-        self.runs = RunManager(self.store, self.hub, loaded.data_dir)
+        self.runs = RunManager(self.store, self.hub, loaded.data_dir, notifier=notify.from_config(self.cfg))
         self.token = loaded.access_token()
         self.session_key = self._session_key()
         self.ssl_ctx: ssl.SSLContext | None = None
@@ -692,6 +708,9 @@ class App:
                 report.json_export(self.store, row, self.runs.analyze(row["id"]) if row["status"] in ACTIVE else row.get("analysis")),
                 "application/json",
             )
+        elif fmt == "md":
+            analysis_result = self.runs.analyze(row["id"]) if row["status"] in ACTIVE or not row.get("analysis") else row["analysis"]
+            body, ctype = report.markdown_export(row, analysis_result), "text/markdown"
         elif fmt == "html":
             analysis_result = self.runs.analyze(row["id"]) if row["status"] in ACTIVE or not row.get("analysis") else row["analysis"]
             body, ctype = report.html_export(self.store, row, analysis_result, self.about_data(), self.runs), "text/html"
@@ -704,6 +723,35 @@ class App:
             charset="utf-8",
             headers={"Content-Disposition": f'attachment; filename="{safe}-{row["id"]}.{fmt}"'},
         )
+
+    async def update_run_meta(self, request):
+        row = self._run(request.match_info["id"])
+        body = await read_model(request, RunMetaRequest)
+        fields = {k: v for k, v in body.model_dump().items() if v is not None}
+        if "tags" in fields:
+            fields["tags"] = sorted({t.strip() for t in fields["tags"]})
+        if fields:
+            self.store.update_run(row["id"], **fields)
+        return json_response(_run_view(self._run(row["id"])))
+
+    async def rerun(self, request):
+        row = self._run(request.match_info["id"])
+        body = await read_model(request, RerunRequest)
+        if not row.get("target_id"):
+            raise ApiError(409, "Target missing", "The run's target is no longer saved.", "Start a new run from New run.")
+        target = self._target(row["target_id"])
+        profile = Profile.model_validate(row["profile"])
+        name = body.name or row["name"]
+        new = await self.runs.start(name=name, target=target, profile=profile, acknowledge_foreign=body.acknowledge_foreign)
+        if row.get("tags"):
+            self.store.update_run(new["id"], tags=row["tags"])
+        self.store.update_run(new["id"], notes=f"Run again of {row['name']} ({row['id']}).")
+        log.info("run %s started again as %s", row["id"], new["id"])
+        return json_response(_run_view(self._run(new["id"])), 201)
+
+    async def metrics(self, request):
+        text = metrics_text(self.about_data(), self.runs.status(), self.store.run_counts())
+        return web.Response(text=text, content_type="text/plain", charset="utf-8", headers={"Cache-Control": "no-store"})
 
     async def compare(self, request):
         ids = [i for i in request.query.get("ids", "").split(",") if i][:6]
@@ -825,6 +873,10 @@ class App:
         r.add_post("/api/runs/{id}/level", self.set_level)
         r.add_post("/api/runs/{id}/markers", self.add_marker)
         r.add_get("/api/runs/{id}/export.{fmt}", self.export_run)
+        r.add_patch("/api/runs/{id}", self.update_run_meta)
+        r.add_post("/api/runs/{id}/rerun", self.rerun)
+        if self.cfg.features.prometheus_metrics:
+            r.add_get("/metrics", self.metrics)
         r.add_static("/", WEB_DIR, show_index=False, append_version=False)
         app.on_startup.append(self.on_startup)
         app.on_shutdown.append(self.on_shutdown)
@@ -926,6 +978,57 @@ def _gate_html(name: str, message: str) -> str:
 <button type="submit" class="btn primary">Continue</button></form></main></body></html>"""
 
 
+def _prom_label(value) -> str:
+    return str(value).replace("\\", "\\\\").replace("\n", " ").replace('"', '\\"')
+
+
+def metrics_text(about: dict, state: dict | None, counts: dict[str, int]) -> str:
+    """Prometheus text exposition of the active run's latest second and run counts."""
+    lines = [
+        "# HELP ballast_info Build information.",
+        "# TYPE ballast_info gauge",
+        f'ballast_info{{version="{_prom_label(about.get("version"))}"}} 1',
+        "# HELP ballast_runs Stored runs by status.",
+        "# TYPE ballast_runs gauge",
+    ]
+    for status, n in sorted(counts.items()):
+        lines.append(f'ballast_runs{{status="{_prom_label(status)}"}} {n}')
+    lines += [
+        "# HELP ballast_run_active 1 while a run is active.",
+        "# TYPE ballast_run_active gauge",
+        f"ballast_run_active {1 if state else 0}",
+    ]
+    if state:
+        labels = f'run="{_prom_label(state["id"])}",name="{_prom_label(state["name"])}"'
+        lines += [
+            "# HELP ballast_run_info Active run state.",
+            "# TYPE ballast_run_info gauge",
+            f'ballast_run_info{{{labels},status="{_prom_label(state["status"])}",phase="{_prom_label(state["phase"])}"}} 1',
+        ]
+        last = state.get("last") or {}
+        gauges = [
+            ("ballast_ops_per_second", "Successful operations in the last complete second.", last.get("ok")),
+            ("ballast_failed_ops_per_second", "Failed operations in the last complete second.", last.get("err")),
+            ("ballast_target_ops_per_second", "Open-model target rate.", last.get("target")),
+            ("ballast_backlog", "Scheduled operations not yet sent.", last.get("backlog")),
+            ("ballast_generator_cpu_percent", "Highest generator process CPU use.", last.get("cpu")),
+        ]
+        for name, help_text, value in gauges:
+            if value is not None:
+                lines += [f"# HELP {name} {help_text}", f"# TYPE {name} gauge", f"{name}{{{labels}}} {value}"]
+        lines += [
+            "# HELP ballast_response_time_seconds Response time in the last complete second.",
+            "# TYPE ballast_response_time_seconds gauge",
+        ]
+        for quantile, key in (("0.5", "p50"), ("0.99", "p99"), ("1", "max")):
+            if last.get(key) is not None:
+                lines.append(f'ballast_response_time_seconds{{{labels},quantile="{quantile}"}} {last[key] / 1e6:.6f}')
+        lines += ["# HELP ballast_errors_total Failed operations by class since the run started.", "# TYPE ballast_errors_total counter"]
+        for cls, n in sorted((state.get("errors") or {}).items()):
+            lines.append(f'ballast_errors_total{{{labels},class="{_prom_label(cls)}"}} {n}')
+    return "\n".join(lines) + "\n"
+
+
 def _run_view(row: dict) -> dict:
     return {
         k: row.get(k)
@@ -944,6 +1047,10 @@ def _run_view(row: dict) -> dict:
             "summary",
             "analysis",
             "error",
+            "notes",
+            "tags",
+            "stop_reason",
+            "slo_passed",
         )
     }
 

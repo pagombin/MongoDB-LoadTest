@@ -363,3 +363,76 @@ def full_analysis(
         "client_bound": client_bound(records, settings, disruptions),
         "settings": settings.as_dict(),
     }
+
+
+SLO_LABELS = {
+    "p50_ms": ("p50 response time", "ms", "max"),
+    "p99_ms": ("p99 response time", "ms", "max"),
+    "max_ms": ("max response time", "ms", "max"),
+    "error_percent": ("failed operations", "%", "max"),
+    "min_throughput": ("throughput", "ops/s", "min"),
+    "min_throughput_ratio": ("share of target rate achieved", "", "min"),
+}
+
+
+def evaluate_slo(summary: dict, criteria: dict, target_rate: float | None) -> dict | None:
+    """Compare the run summary with the profile's SLO criteria. None when the profile sets none."""
+    if not criteria:
+        return None
+    rt = summary.get("response_time") or {}
+    actual = {
+        "p50_ms": rt.get("p50_us", 0) / 1000,
+        "p99_ms": rt.get("p99_us", 0) / 1000,
+        "max_ms": rt.get("max_us", 0) / 1000,
+        "error_percent": summary.get("error_rate", 0) * 100,
+        "min_throughput": summary.get("throughput", 0),
+        "min_throughput_ratio": (summary.get("throughput", 0) / target_rate) if target_rate else None,
+    }
+    results = []
+    for key, limit in criteria.items():
+        label, unit, kind = SLO_LABELS[key]
+        value = actual.get(key)
+        if value is None:
+            results.append({"key": key, "label": label, "unit": unit, "limit": limit, "actual": None, "passed": None, "kind": kind})
+            continue
+        passed = value <= limit if kind == "max" else value >= limit
+        results.append(
+            {"key": key, "label": label, "unit": unit, "limit": limit, "actual": round(value, 4), "passed": passed, "kind": kind}
+        )
+    checked = [r for r in results if r["passed"] is not None]
+    return {
+        "passed": all(r["passed"] for r in checked) if checked else None,
+        "criteria": results,
+        "measured_seconds": summary.get("measured_seconds", 0),
+    }
+
+
+class GuardrailWatch:
+    """Counts consecutive measured seconds over a limit; trips once when the count reaches sustain_seconds."""
+
+    def __init__(self, max_error_percent: float | None, max_p99_ms: float | None, sustain_seconds: int):
+        self.max_error_percent = max_error_percent
+        self.max_p99_ms = max_p99_ms
+        self.sustain = sustain_seconds
+        self.streak = 0
+        self.tripped: dict | None = None
+
+    def observe(self, record: SecondRecord) -> dict | None:
+        if self.tripped is not None or record.phase in EXCLUDED_PHASES:
+            return None
+        total = record.ok + record.err
+        reasons = []
+        if self.max_error_percent is not None and total and 100 * record.err / total > self.max_error_percent:
+            reasons.append(f"{100 * record.err / total:.1f}% of operations failed (limit {self.max_error_percent:g}%)")
+        if self.max_p99_ms is not None and total:
+            p99 = record.rt().percentile(99) / 1000
+            if p99 > self.max_p99_ms:
+                reasons.append(f"p99 response time {p99:,.0f} ms (limit {self.max_p99_ms:g} ms)")
+        if not reasons:
+            self.streak = 0
+            return None
+        self.streak += 1
+        if self.streak >= self.sustain:
+            self.tripped = {"t": record.t, "seconds": self.streak, "reasons": reasons}
+            return self.tripped
+        return None

@@ -25,6 +25,7 @@ from ballast.engine.documents import DocumentFactory
 from ballast.engine.monitor import ClusterMonitor
 from ballast.engine.profile import Profile
 from ballast.engine.series import SecondRecord, downsample
+from ballast.notify import Notifier
 from ballast.store import Store, intersect_gaps, new_id, now_ms
 from ballast.targets import MASK, client_options, explain_failure, redact_uri, secrets_in
 
@@ -108,13 +109,22 @@ class ActiveRun:
     errors_live: dict = field(default_factory=dict)
     error: dict | None = None
     stop_reason: str | None = None
+    guard: analysis.GuardrailWatch | None = None
+    guardrail: dict | None = None
+    clean_seconds: int = 0
+    last_disruption_alert: float = 0.0
+    plan: list = field(default_factory=list)
+    plan_index: int = -1
+    phase_end: float | None = None
+    phase_paused_before: float = 0.0
 
 
 class RunManager:
-    def __init__(self, store: Store, hub: Hub, data_dir, mp_context: str = "spawn"):
+    def __init__(self, store: Store, hub: Hub, data_dir, mp_context: str = "spawn", notifier: Notifier | None = None):
         self.store = store
         self.hub = hub
         self.data_dir = data_dir
+        self.notifier = notifier
         self.ctx: Any = multiprocessing.get_context(mp_context)
         self.active: ActiveRun | None = None
         self.redactions: list[str] = []
@@ -156,6 +166,27 @@ class RunManager:
             if run.status == "loading"
             else None,
             "errors": run.errors_live,
+            "progress": self._progress(run),
+            "guardrail": run.guardrail,
+            "guardrails": run.profile.guardrails.model_dump() if run.guard else None,
+        }
+
+    def _progress(self, run: ActiveRun) -> dict | None:
+        if run.plan_index < 0 or not run.plan:
+            return None
+        phase_remaining = None
+        if run.phase_end is not None:
+            phase_remaining = max(0.0, run.phase_end + self._paused_seconds(run) - run.phase_paused_before - time.monotonic())
+        later = [seconds for _, seconds in run.plan[run.plan_index + 1 :]]
+        total_remaining = None if phase_remaining is None or any(s is None for s in later) else phase_remaining + sum(later)
+        planned = None if any(s is None for _, s in run.plan) else sum(s for _, s in run.plan)
+        return {
+            "phases": [{"name": n, "seconds": s} for n, s in run.plan],
+            "index": run.plan_index,
+            "phase_seconds": run.plan[run.plan_index][1],
+            "phase_remaining_s": None if phase_remaining is None else round(phase_remaining, 1),
+            "total_planned_s": planned,
+            "total_remaining_s": None if total_remaining is None else round(total_remaining, 1),
         }
 
     def _elapsed_ms(self, run: ActiveRun) -> int | None:
@@ -277,9 +308,13 @@ class RunManager:
                 settings=settings,
                 secrets=secrets_in(target["uri"]),
             )
+            g = profile.guardrails
+            if g.enabled():
+                run.guard = analysis.GuardrailWatch(g.max_error_percent, g.max_p99_ms, g.sustain_seconds)
             self.active = run
             run.task = asyncio.create_task(self._drive(run, pre))
             self.hub.publish("state", self._state(run))
+            self._notify("run_started", row, f"run '{name}' started against {target['name']} ({profile.plain_summary()})")
             return row
 
     async def _snapshot(self, client: AsyncMongoClient, run: ActiveRun, pre: dict) -> dict:
@@ -434,6 +469,9 @@ class RunManager:
         self._record_event(run, now_ms(), "phase", {"phase": phase, "level": level, "seconds": seconds})
         end = None if seconds is None else time.monotonic() + seconds
         paused_before = self._paused_seconds(run)
+        run.plan_index = next((i for i, (name, _) in enumerate(run.plan) if name == phase), run.plan_index)
+        run.phase_end, run.phase_paused_before = end, paused_before
+        self.hub.publish("state", self._state(run))
         while True:
             if run.stop_requested.is_set():
                 return False
@@ -449,6 +487,9 @@ class RunManager:
         sched = run.profile.schedule
         target = run.profile.target_level()
         first = True
+        plan: list[tuple[str, int | None]] = [("warmup", sched.warmup_seconds)] if sched.warmup_seconds > 0 else []
+        run.plan = plan + [(f"ramp {i + 1}", step.seconds) for i, step in enumerate(sched.ramp)]
+        run.plan.append(("steady", sched.steady_seconds))
         if sched.warmup_seconds > 0:
             if not await self._phase(
                 run, "warmup", run.profile.schedule.ramp[0].level if sched.ramp else target, sched.warmup_seconds, first
@@ -545,6 +586,44 @@ class RunManager:
             for cls, n in merged.errors.items():
                 run.errors_live[cls] = run.errors_live.get(cls, 0) + n
             self.hub.publish("point", {"run": run.id, "point": point})
+            self._watch_second(run, merged)
+
+    def _notify(self, event: str, run: dict, text: str) -> None:
+        if self.notifier is not None:
+            try:
+                self.notifier.notify(event, run, text)
+            except Exception:
+                log.exception("notification %s failed", event)
+
+    def _watch_second(self, run: ActiveRun, record: SecondRecord) -> None:
+        if run.status not in ("running",):
+            return
+        if run.guard is not None:
+            trip = run.guard.observe(record)
+            if trip is not None:
+                run.guardrail = trip
+                self._record_event(run, now_ms(), "guardrail", trip)
+                self._notify(
+                    "guardrail",
+                    {"id": run.id, "name": run.name, "target_name": run.target["name"]},
+                    f"run '{run.name}' stopped by a guardrail: {'; '.join(trip['reasons'])}",
+                )
+                asyncio.get_running_loop().create_task(self.stop(run.id, reason="guardrail"))
+                return
+        if record.phase in analysis.EXCLUDED_PHASES:
+            return
+        if record.err == 0:
+            run.clean_seconds += 1
+            return
+        if run.clean_seconds >= 30 and time.monotonic() - run.last_disruption_alert > 60:
+            run.last_disruption_alert = time.monotonic()
+            classes = ", ".join(f"{n} {c}" for c, n in sorted(record.errors.items(), key=lambda kv: -kv[1])[:3])
+            self._notify(
+                "disruption",
+                {"id": run.id, "name": run.name, "target_name": run.target["name"]},
+                f"run '{run.name}': operations started failing ({classes})",
+            )
+        run.clean_seconds = 0
 
     def _record_event(self, run: ActiveRun, t_ms: int, kind: str, data: dict) -> dict:
         event = self.store.add_event(run.id, t_ms, kind, data)
@@ -675,10 +754,34 @@ class RunManager:
             summary = analysis_result["summary"]
         except Exception:
             log.exception("analysis failed for run %s", run.id)
-        self.store.update_run(run.id, status=status, ended_at=ended, summary=summary, analysis=analysis_result, error=run.error)
+        slo = (analysis_result or {}).get("slo")
+        self.store.update_run(
+            run.id,
+            status=status,
+            ended_at=ended,
+            summary=summary,
+            analysis=analysis_result,
+            error=run.error,
+            stop_reason=run.stop_reason,
+            slo_passed=slo.get("passed") if slo else None,
+        )
         self.active = None
         self.hub.publish("state", {"id": run.id, "status": status, "ended_at": ended, "error": run.error})
         log.info("run %s finished with status %s", run.id, status)
+        text = f"run '{run.name}' {status}"
+        if run.stop_reason == "guardrail" and run.guardrail:
+            text += " by a guardrail (" + "; ".join(run.guardrail["reasons"]) + ")"
+        if summary:
+            rt = summary.get("response_time", {})
+            text += (
+                f": {summary.get('throughput', 0):,.0f} ops/s, p99 {rt.get('p99_us', 0) / 1000:,.1f} ms, {summary.get('err', 0):,} failed"
+            )
+        if slo and slo.get("passed") is not None:
+            text += ", SLO " + ("passed" if slo["passed"] else "failed")
+        impacts = len((analysis_result or {}).get("impacts", []))
+        if impacts:
+            text += f", {impacts} impact window(s)"
+        self._notify("run_finished", self.store.get_run(run.id) or {"id": run.id, "name": run.name}, text)
 
     async def shutdown(self) -> None:
         if self.active is not None:
@@ -706,7 +809,12 @@ class RunManager:
         markers = self.store.markers(run_id)
         if extra_window is not None:
             return analysis.analyze_window(extra_window, records, gaps, events, settings, analysis.marker_windows(markers))
-        return analysis.full_analysis(records, gaps, events, markers, settings)
+        result = analysis.full_analysis(records, gaps, events, markers, settings)
+        load = profile.get("load") or {}
+        target_rate = load.get("rate") if load.get("model", "open") == "open" else None
+        criteria = {k: v for k, v in (profile.get("slo") or {}).items() if v is not None}
+        result["slo"] = analysis.evaluate_slo(result["summary"], criteria, target_rate)
+        return result
 
     def series(self, run_id: str, max_points: int = 1500, start: int | None = None, end: int | None = None) -> dict:
         records = self.store.seconds(run_id, start, end)

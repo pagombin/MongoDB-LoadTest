@@ -162,3 +162,87 @@ document.getElementById("print-btn").addEventListener("click", function () {{ wi
 BallastReport.render(document.getElementById("report"), JSON.parse(document.getElementById("report-data").textContent), {{ standalone: true }});
 </script>
 </body></html>"""
+
+
+def _ms(us) -> str:
+    if us is None:
+        return "–"
+    ms = us / 1000
+    return f"{ms:,.0f} ms" if ms >= 100 else f"{ms:,.1f} ms" if ms >= 1 else f"{ms:,.2f} ms"
+
+
+def _when(ms) -> str:
+    return time.strftime("%Y-%m-%d %H:%M:%S UTC", time.gmtime(ms / 1000)) if ms else "–"
+
+
+def markdown_export(run: dict, analysis: dict | None) -> str:
+    """A short summary for tickets and chat: headline numbers, SLO verdict, and one line per impact window."""
+    from ballast.engine.profile import Profile
+
+    analysis = analysis or {}
+    summary = analysis.get("summary") or run.get("summary") or {}
+    rt = summary.get("response_time") or {}
+    lines = [f"## {run['name']}", ""]
+    try:
+        workload = Profile.model_validate(run.get("profile") or {}).plain_summary()
+    except Exception:
+        workload = "–"
+    duration = ""
+    if run.get("started_at") and run.get("ended_at"):
+        duration = f" ({(run['ended_at'] - run['started_at']) // 1000} s)"
+    lines += [
+        f"- **Status:** {run['status']}"
+        + (f" ({run['stop_reason'].replace('_', ' ')})" if run.get("stop_reason") not in (None, "completed", "stopped") else ""),
+        f"- **Target:** {run.get('target_name') or '–'}, database `{run.get('database_name') or '–'}`",
+        f"- **When:** {_when(run.get('started_at') or run.get('created_at'))}{duration}",
+        f"- **Workload:** {workload}",
+    ]
+    if run.get("tags"):
+        lines.append("- **Tags:** " + ", ".join(f"`{t}`" for t in run["tags"]))
+    lines += [
+        "",
+        "| Throughput | p50 | p99 | p99.9 | max | Failed |",
+        "|---|---|---|---|---|---|",
+        f"| {summary.get('throughput', 0):,.0f} ops/s | {_ms(rt.get('p50_us'))} | {_ms(rt.get('p99_us'))} | {_ms(rt.get('p999_us'))} | {_ms(rt.get('max_us'))} | "
+        f"{summary.get('err', 0):,} ({summary.get('error_rate', 0) * 100:.2f}%) |",
+    ]
+    slo = analysis.get("slo")
+    if slo:
+        verdict = {True: "passed", False: "FAILED", None: "not evaluated"}[slo.get("passed")]
+        lines += ["", f"**SLO: {verdict}**", ""]
+        for c in slo["criteria"]:
+            mark = {True: "pass", False: "FAIL", None: "n/a"}[c["passed"]]
+            op = "≤" if c["kind"] == "max" else "≥"
+            actual = "–" if c["actual"] is None else f"{c['actual']:,.4g}"
+            lines.append(f"- {mark}: {c['label']} {actual}{(' ' + c['unit']) if c['unit'] else ''} ({op} {c['limit']:g})")
+    bound = analysis.get("client_bound") or {}
+    if bound.get("client_bound"):
+        lines += ["", "> Client-bound: the load generator, not the database, limited this run. " + "; ".join(bound.get("reasons", []))]
+    impacts = analysis.get("impacts") or []
+    if impacts:
+        lines += [
+            "",
+            "| Window | Failed | Write gap | Read gap | Primary changes | p99 before → during → after | Recovery |",
+            "|---|---|---|---|---|---|---|",
+        ]
+        for imp in impacts:
+            wg = imp.get("longest_write_gap") or {}
+            rg = imp.get("longest_read_gap") or {}
+            before, during, after = imp.get("before") or {}, imp.get("during") or {}, imp.get("after") or {}
+            rec = f"{imp['recovery_seconds']} s" if imp.get("recovered") else "not within run"
+            lines.append(
+                f"| {imp.get('label') or 'window'} ({_when(imp['start_ms'])[11:19]}) | {imp.get('failed_ops', 0):,} | "
+                f"{wg.get('ms', 0) / 1000:.2f} s | {rg.get('ms', 0) / 1000:.2f} s | {len(imp.get('primary_changes') or [])} | "
+                f"{_ms(before.get('p99_us'))} → {_ms(during.get('p99_us'))} → {_ms(after.get('p99_us'))} | {rec} |"
+            )
+    errors = summary.get("errors") or {}
+    if errors:
+        lines += ["", "Failures by class: " + ", ".join(f"{cls} {n:,}" for cls, n in list(errors.items())[:8])]
+    if run.get("notes"):
+        lines += ["", run["notes"]]
+    lines += [
+        "",
+        f"_{product.NAME} run `{run['id']}`. Latency is response time from the intended start; percentiles from merged histograms._",
+        "",
+    ]
+    return "\n".join(lines)

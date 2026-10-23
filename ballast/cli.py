@@ -382,6 +382,77 @@ def cmd_doctor(args) -> int:
     return 1 if any(c.status == doctor.FAIL for c in checks) else 0
 
 
+def cmd_run(args) -> int:
+    from ballast import headless
+
+    return headless.main(_loaded(args), args)
+
+
+def cmd_backup(args) -> int:
+    import sqlite3
+
+    loaded = _loaded(args)
+    db = loaded.data_dir / "ballast.db"
+    if not db.exists():
+        print(f"error: no data store at {db}", file=sys.stderr)
+        return 1
+    dest = (
+        Path(args.file)
+        if args.file
+        else loaded.data_dir / "backups" / f"ballast-manual-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}.db"
+    )
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    old = os.umask(0o077)
+    try:
+        source = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        target = sqlite3.connect(dest)
+        try:
+            source.backup(target)
+        finally:
+            target.close()
+            source.close()
+    finally:
+        os.umask(old)
+    os.chmod(dest, 0o600)
+    print(f"backup written: {dest} ({dest.stat().st_size:,} bytes)")
+    return 0
+
+
+def cmd_restore(args) -> int:
+    import shutil
+    import sqlite3
+
+    loaded = _loaded(args)
+    from ballast import supervisor
+
+    pids = supervisor.PidFiles(loaded)
+    if pids.live_supervisor() is not None or pids.live_server() is not None:
+        print("error: Ballast is running; stop it first (bin/ballastctl stop)", file=sys.stderr)
+        return 1
+    source = Path(args.file)
+    try:
+        conn = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
+        version = conn.execute("SELECT version FROM schema_meta").fetchone()[0]
+        runs = conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
+        conn.close()
+    except sqlite3.Error as exc:
+        print(f"error: {source} is not a Ballast data store: {exc}", file=sys.stderr)
+        return 1
+    db = loaded.data_dir / "ballast.db"
+    if db.exists():
+        keep = loaded.data_dir / "backups" / f"ballast-pre-restore-{time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())}.db"
+        keep.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(db, keep)
+        os.chmod(keep, 0o600)
+        print(f"current store kept as {keep}")
+    for suffix in ("-wal", "-shm"):
+        Path(str(db) + suffix).unlink(missing_ok=True)
+    shutil.copy2(source, db)
+    os.chmod(db, 0o600)
+    print(f"restored {runs} run(s) from {source} (schema version {version}); start Ballast to use it")
+    return 0
+
+
 def cmd_legacy(args) -> int:
     loaded = _loaded(args)
     if not loaded.config.features.legacy_dashboard:
@@ -470,6 +541,34 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--json", action="store_true")
     p.add_argument("--quick", action="store_true", help="skip the process start check")
     p.set_defaults(func=cmd_doctor)
+
+    p = sub.add_parser("run", help="run one workload from the command line, without the web server (for CI)")
+    _common(p)
+    p.add_argument("--uri", help="connection string of the cluster to test")
+    p.add_argument("--target", help="saved or configured target name (or the name to save --uri under)")
+    p.add_argument("--profile", help="profile file (JSON or YAML) or the name of a saved profile; defaults if omitted")
+    p.add_argument("--name", help="run name")
+    p.add_argument("--rate", type=float, help="open model: operations per second")
+    p.add_argument("--concurrency", type=int, help="closed model: workers; open model: maximum in flight")
+    p.add_argument("--processes", type=int, help="generator processes")
+    p.add_argument("--duration", type=int, help="steady phase length in seconds")
+    p.add_argument("--warmup", type=int, help="warm-up length in seconds")
+    p.add_argument("--yes", action="store_true", help="confirm writing into a database that has other collections")
+    p.add_argument("--json", help="also write the full JSON export to this file")
+    p.add_argument("--markdown", help="also write the Markdown summary to this file")
+    p.add_argument("--interval", type=float, default=5, help="seconds between progress lines")
+    p.add_argument("--quiet", action="store_true", help="no progress lines")
+    p.set_defaults(func=cmd_run)
+
+    p = sub.add_parser("backup", help="copy the run database (safe while running)")
+    _common(p)
+    p.add_argument("file", nargs="?")
+    p.set_defaults(func=cmd_backup)
+
+    p = sub.add_parser("restore", help="replace the run database from a backup (Ballast must be stopped)")
+    _common(p)
+    p.add_argument("file")
+    p.set_defaults(func=cmd_restore)
 
     p = sub.add_parser("version", help="print version")
     p.set_defaults(func=cmd_version)

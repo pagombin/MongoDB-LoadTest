@@ -147,6 +147,28 @@ class SupervisorConfig(Section):
 
 class FeaturesConfig(Section):
     legacy_dashboard: bool = False
+    prometheus_metrics: bool = True
+
+
+NotifyEvent = Literal["run_started", "run_finished", "guardrail", "disruption"]
+
+
+def _default_events() -> list[NotifyEvent]:
+    return ["run_finished", "guardrail"]
+
+
+class NotificationsConfig(Section):
+    webhook_url: str = ""
+    events: list[NotifyEvent] = Field(default_factory=_default_events)
+    timeout_seconds: float = Field(default=5, gt=0, le=60)
+
+    @field_validator("webhook_url")
+    @classmethod
+    def _url(cls, value: str) -> str:
+        value = value.strip()
+        if value and not re.match(r"^https?://[^\s/]+", value):
+            raise ValueError("must start with https:// or http://")
+        return value
 
 
 class TargetPreset(Section):
@@ -170,6 +192,7 @@ class Config(Section):
     branding: BrandingConfig = Field(default_factory=BrandingConfig)
     supervisor: SupervisorConfig = Field(default_factory=SupervisorConfig)
     features: FeaturesConfig = Field(default_factory=FeaturesConfig)
+    notifications: NotificationsConfig = Field(default_factory=NotificationsConfig)
     targets: list[TargetPreset] = Field(default_factory=list)
 
     @model_validator(mode="after")

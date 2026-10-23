@@ -10,7 +10,7 @@ import time
 import uuid
 import zlib
 from pathlib import Path
-from typing import overload
+from typing import Any, overload
 
 from ballast.engine.series import SecondRecord
 
@@ -91,6 +91,15 @@ MIGRATIONS: list[tuple[int, str]] = [
         data_json TEXT NOT NULL
     );
     CREATE INDEX samples_run ON samples(run_id, t_ms);
+    """,
+    ),
+    (
+        2,
+        """
+    ALTER TABLE runs ADD COLUMN notes TEXT NOT NULL DEFAULT '';
+    ALTER TABLE runs ADD COLUMN tags_json TEXT NOT NULL DEFAULT '[]';
+    ALTER TABLE runs ADD COLUMN stop_reason TEXT;
+    ALTER TABLE runs ADD COLUMN slo_passed INTEGER;
     """,
     ),
 ]
@@ -302,6 +311,9 @@ class Store:
         for key in ("profile_json", "snapshot_json", "summary_json", "analysis_json", "error_json"):
             value = row.pop(key)
             row[key[:-5]] = json.loads(value) if value else None
+        row["tags"] = json.loads(row.pop("tags_json", None) or "[]")
+        if row.get("slo_passed") is not None:
+            row["slo_passed"] = bool(row["slo_passed"])
         return row
 
     def create_run(self, run_id: str, name: str, target: dict, database: str, profile: dict) -> dict:
@@ -314,14 +326,21 @@ class Store:
         return run
 
     def update_run(self, run_id: str, **fields) -> None:
-        cols, vals = [], []
+        cols: list[str] = []
+        vals: list[Any] = []
         for key, value in fields.items():
             if key in ("snapshot", "summary", "analysis", "error", "profile"):
                 cols.append(f"{key}_json=?")
                 vals.append(json.dumps(value) if value is not None else None)
-            elif key in ("status", "started_at", "ended_at", "name"):
+            elif key in ("status", "started_at", "ended_at", "name", "notes", "stop_reason"):
                 cols.append(f"{key}=?")
                 vals.append(value)
+            elif key == "tags":
+                cols.append("tags_json=?")
+                vals.append(json.dumps(value))
+            elif key == "slo_passed":
+                cols.append("slo_passed=?")
+                vals.append(None if value is None else int(bool(value)))
             else:
                 raise KeyError(key)
         vals.append(run_id)
@@ -332,7 +351,8 @@ class Store:
 
     def list_runs(self, limit: int = 500) -> list[dict]:
         rows = self._all(
-            "SELECT id,name,status,target_id,target_name,database_name,created_at,started_at,ended_at,summary_json,analysis_json FROM runs ORDER BY created_at DESC LIMIT ?",
+            "SELECT id,name,status,target_id,target_name,database_name,created_at,started_at,ended_at,summary_json,analysis_json,"
+            "notes,tags_json,stop_reason,slo_passed FROM runs ORDER BY created_at DESC LIMIT ?",
             (limit,),
         )
         out = []
@@ -342,8 +362,13 @@ class Store:
             row["summary"] = summary
             row["client_bound"] = bool(analysis and analysis.get("client_bound", {}).get("client_bound"))
             row["impact_count"] = len(analysis.get("impacts", [])) if analysis else 0
+            row["tags"] = json.loads(row.pop("tags_json") or "[]")
+            row["slo_passed"] = None if row["slo_passed"] is None else bool(row["slo_passed"])
             out.append(row)
         return out
+
+    def run_counts(self) -> dict[str, int]:
+        return {row["status"]: row["n"] for row in self._all("SELECT status, COUNT(*) AS n FROM runs GROUP BY status", ())}
 
     def delete_run(self, run_id: str) -> bool:
         with self._lock:

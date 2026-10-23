@@ -216,6 +216,31 @@ class AnalysisOverrides(Strict):
     client_bound_cpu_percent: float | None = Field(default=None, gt=0, le=100)
 
 
+class Guardrails(Strict):
+    """Stop the run by itself when the cluster is clearly being hurt. Off unless a limit is set."""
+
+    max_error_percent: float | None = Field(default=None, gt=0, le=100, description="Stop when this share of operations fail.")
+    max_p99_ms: float | None = Field(default=None, gt=0, le=3_600_000, description="Stop when p99 response time is above this.")
+    sustain_seconds: int = Field(default=10, ge=1, le=3600, description="For this many consecutive measured seconds.")
+
+    def enabled(self) -> bool:
+        return self.max_error_percent is not None or self.max_p99_ms is not None
+
+
+class SLOSpec(Strict):
+    """Pass/fail criteria for the whole measured run. Headless runs exit non-zero when one fails."""
+
+    p50_ms: float | None = Field(default=None, gt=0)
+    p99_ms: float | None = Field(default=None, gt=0)
+    max_ms: float | None = Field(default=None, gt=0)
+    error_percent: float | None = Field(default=None, ge=0, le=100)
+    min_throughput: float | None = Field(default=None, gt=0, description="Successful operations per second.")
+    min_throughput_ratio: float | None = Field(default=None, gt=0, le=1, description="Open model: achieved rate divided by the target.")
+
+    def criteria(self) -> dict[str, float]:
+        return {k: v for k, v in self.model_dump().items() if v is not None}
+
+
 class Profile(Strict):
     name: str = "default"
     description: str = Field(default="", max_length=2000)
@@ -229,6 +254,8 @@ class Profile(Strict):
     retry: RetrySpec = Field(default_factory=RetrySpec)
     sampling: SamplingSpec = Field(default_factory=SamplingSpec)
     analysis: AnalysisOverrides = Field(default_factory=AnalysisOverrides)
+    guardrails: Guardrails = Field(default_factory=Guardrails)
+    slo: SLOSpec = Field(default_factory=SLOSpec)
     seed: int = Field(default=42, ge=0, lt=2**32)
 
     @field_validator("name")
