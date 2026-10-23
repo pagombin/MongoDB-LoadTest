@@ -147,7 +147,7 @@ Each entry: the question, the options considered, the choice, why, and how hard 
 
 ## D-026 Generator processes per run
 
-- Choice: default 1 generator process; profiles can set up to 64. One process sustained 1,000 ops/s at about 27% of one core in the browser test (`docs/design/after/03-live.png`, "Generator CPU"). Client-bound detection tells you when to add more.
+- Choice: default 1 generator process; profiles can set up to 64. One process ran 400 ops/s at about 27% of one core in the browser test (`docs/design/after/03-live.png`, "Generator CPU"). Client-bound detection tells you when to add more.
 
 ## Blocked
 
