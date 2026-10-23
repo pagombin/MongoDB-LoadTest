@@ -14,11 +14,12 @@ const runs = await (await p.request.get(base + 'api/runs')).json();
 const runId = runs.runs[0] && runs.runs[0].id;
 const pages = ['#/runs', '#/new', '#/targets', '#/profiles', '#/compare', '#/settings', '#/system'];
 if (runId) pages.push(`#/runs/${runId}`, `#/runs/${runId} +details`);
-pages.push('#/runs +palette', '#/new +schedule');
+pages.push('#/runs +palette', '#/new +workload', '#/new +schedule');
 /* Routes with " +name" open a dialog or wizard step before the scan. */
 const actions = {
   palette: async () => { await p.keyboard.press('Control+k'); await p.waitForSelector('dialog.palette[open]'); await p.keyboard.type('re'); },
   details: async () => { await p.click('button:has-text("notes")'); await p.waitForSelector('dialog[open] #meta-tags'); },
+  workload: async () => { await p.click('text=Next: workload'); await p.waitForSelector('#route-preset'); },
   schedule: async () => { await p.click('text=Next: workload'); await p.waitForSelector('#rate'); await p.click('text=Next: schedule'); await p.waitForSelector('#g-err'); },
 };
 let total = 0;

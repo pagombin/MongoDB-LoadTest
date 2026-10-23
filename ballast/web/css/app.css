@@ -365,3 +365,9 @@ dialog.palette ul { list-style: none; margin: 0; padding: 6px 0; max-height: 50v
 dialog.palette li { display: flex; justify-content: space-between; gap: 12px; padding: 7px var(--pad); cursor: pointer; }
 dialog.palette li[aria-selected="true"] { background: var(--window); box-shadow: inset 3px 0 0 var(--accent); }
 dialog.palette li span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Members and node types */
+.node-type { display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: var(--radius); border: 1px solid var(--rule); background: var(--hover); font-family: var(--font-sans); font-size: 10px; font-weight: 600; letter-spacing: 0.03em; line-height: 15px; color: var(--muted); vertical-align: 1px; }
+.member.down { border-color: color-mix(in srgb, var(--fail) 55%, var(--rule)); }
+.impact-detail .impact-members { grid-column: 1 / -1; }
+.inline-fields .field.wide { grid-column: span 2; }

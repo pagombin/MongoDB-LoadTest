@@ -19,6 +19,7 @@ import os
 import random
 import signal
 import time
+from dataclasses import dataclass, field
 
 from pymongo import AsyncMongoClient, ReturnDocument, monitoring, read_preferences
 from pymongo import errors as pe
@@ -152,6 +153,50 @@ class _CommandStats(monitoring.CommandListener):
         self.gen.on_command(event.command_name, event.connection_id, event.duration_micros, False)
 
 
+@dataclass
+class Lane:
+    """A share of the workload with its own schedule and workers. Without read routing there is one lane."""
+
+    name: str
+    ops: list[str]
+    cum: list[float]
+    share: float
+    schedule: OpenSchedule | None = None
+    tasks: list = field(default_factory=list)
+    target_workers: int = 0
+    inflight: int = 0
+    busy_peak: int = 0
+
+
+def build_lanes(mix: dict[str, float], route_of: dict[str, str], isolate: bool) -> list[Lane]:
+    groups: dict[str, dict[str, float]] = {}
+    for op, weight in mix.items():
+        groups.setdefault(route_of.get(op, "default") if isolate and route_of else "all", {})[op] = weight
+    lanes = []
+    for name, ops in groups.items():
+        total = sum(ops.values())
+        acc, cum = 0.0, []
+        for op in ops:
+            acc += ops[op] / total
+            cum.append(acc)
+        lanes.append(Lane(name=name, ops=list(ops), cum=cum, share=total))
+    return lanes
+
+
+def split(total: int, shares: list[float]) -> list[int]:
+    """Whole numbers in proportion to shares, summing to total, at least 1 each when total allows."""
+    raw = [total * s for s in shares]
+    out = [max(1, int(r)) if total >= len(shares) else int(r) for r in raw]
+    order = sorted(range(len(shares)), key=lambda i: raw[i] - int(raw[i]), reverse=True)
+    i = 0
+    while sum(out) < total:
+        out[order[i % len(order)]] += 1
+        i += 1
+    while sum(out) > total and max(out) > 1:
+        out[out.index(max(out))] -= 1
+    return out
+
+
 class Generator:
     def __init__(self, conn, spec: dict):
         self.conn = conn
@@ -183,6 +228,7 @@ class Generator:
         self.has_writes = any(name in WRITE_OPS for name in self.op_names)
         self.has_reads = any(name in READ_OPS for name in self.op_names)
         self.route_kind = {op: f"read:{route.name()}" for op, route in self.profile.read_routing.items() if op in self.op_names}
+        self.lanes = build_lanes(mix, {op: kind[5:] for op, kind in self.route_kind.items()}, self.profile.load.isolate_routes)
         self.routed_colls: dict[str, list] = {}
         self.phase = "idle"
         self.running = False
@@ -190,7 +236,6 @@ class Generator:
         self.paused = False
         self.resume_event = asyncio.Event()
         self.level_event = asyncio.Event()
-        self.schedule: OpenSchedule | None = None
         self.target_workers = 0
         self.level = 0.0
         self.inflight = 0
@@ -314,9 +359,13 @@ class Generator:
         rec.cpu = self.cpu
         rec.inflight = self.inflight
         if self.profile.load.model == "open":
+            rec.saturated = rec.saturated or any(lane.tasks and lane.busy_peak >= len(lane.tasks) for lane in self.lanes)
+            for lane in self.lanes:
+                lane.busy_peak = lane.inflight
+        if self.profile.load.model == "open":
             rec.target_rate = 0.0 if self.paused or rec.phase == "paused" else self.level
             rec.concurrency = len(self.tasks)
-            rec.backlog = self.schedule.backlog(mono) if self.schedule and not self.paused else 0
+            rec.backlog = sum(lane.schedule.backlog(mono) for lane in self.lanes if lane.schedule) if not self.paused else 0
         else:
             rec.target_rate = None
             rec.concurrency = self.target_workers
@@ -353,7 +402,9 @@ class Generator:
 
     # ---- operations ----
 
-    def choose_op(self) -> str:
+    def choose_op(self, lane: Lane | None = None) -> str:
+        if lane is not None:
+            return lane.ops[bisect.bisect_left(lane.cum, self.rng.random() * lane.cum[-1])] if len(lane.ops) > 1 else lane.ops[0]
         return (
             self.op_names[bisect.bisect_left(self.op_cum, self.rng.random() * self.op_cum[-1])]
             if len(self.op_names) > 1
@@ -400,11 +451,14 @@ class Generator:
         elif op == "find_and_modify":
             await coll.find_one_and_update({"_id": keys.existing() or 0}, {"$inc": {"n": 1}}, return_document=ReturnDocument.AFTER)
 
-    async def execute(self, intended: float) -> None:
-        op = self.choose_op()
+    async def execute(self, intended: float, lane: Lane | None = None) -> None:
+        op = self.choose_op(lane)
         i = self.rng.randrange(len(self.colls)) if len(self.colls) > 1 else 0
         retry = self.profile.retry
         self.inflight += 1
+        if lane is not None:
+            lane.inflight += 1
+            lane.busy_peak = max(lane.busy_peak, lane.inflight)
         start = time.monotonic()
         info = None
         ok = False
@@ -426,17 +480,19 @@ class Generator:
                     await asyncio.sleep(delay * self.rng.uniform(0.8, 1.2))
         finally:
             self.inflight -= 1
+            if lane is not None:
+                lane.inflight -= 1
         end = time.monotonic()
         self.record(op, ok, (end - intended) * 1e6, (end - start) * 1e6, info, time.time())
 
     # ---- workers ----
 
-    async def open_worker(self) -> None:
+    async def open_worker(self, lane: Lane) -> None:
         while not self.stopping:
             if self.paused:
                 await self.resume_event.wait()
                 continue
-            sched = self.schedule
+            sched = lane.schedule
             assert sched is not None
             epoch = sched.epoch
             intended = sched.take()
@@ -447,19 +503,19 @@ class Generator:
                     stale = True
                     break
             if not stale:
-                await self.execute(intended)
+                await self.execute(intended, lane)
 
-    async def closed_worker(self, worker_id: int) -> None:
+    async def closed_worker(self, lane: Lane, worker_id: int) -> None:
         think = self.profile.load.think_time_ms / 1000.0
         while not self.stopping:
             if self.paused:
                 await self.resume_event.wait()
                 continue
-            if worker_id >= self.target_workers:
+            if worker_id >= lane.target_workers:
                 self.level_event.clear()
                 await self.level_event.wait()
                 continue
-            await self.execute(time.monotonic())
+            await self.execute(time.monotonic(), lane)
             if think > 0:
                 await asyncio.sleep(think * self.rng.uniform(0.5, 1.5))
 
@@ -477,18 +533,25 @@ class Generator:
         if self.profile.load.model == "open":
             if share <= 0:
                 share = 0.001
-            if self.schedule is None:
-                self.schedule = OpenSchedule(share, now)
+            if all(lane.schedule is None for lane in self.lanes):
                 concurrency = max(
                     1, self.profile.load.concurrency // self.count + (1 if self.index < self.profile.load.concurrency % self.count else 0)
                 )
-                self.tasks = [asyncio.create_task(self.open_worker()) for _ in range(concurrency)]
+                for lane, slots in zip(self.lanes, split(concurrency, [lane.share for lane in self.lanes]), strict=True):
+                    lane.schedule = OpenSchedule(max(share * lane.share, 0.001), now)
+                    lane.tasks = [asyncio.create_task(self.open_worker(lane)) for _ in range(max(1, slots))]
+                self.tasks = [t for lane in self.lanes for t in lane.tasks]
             else:
-                self.schedule.set_rate(share, self.paused_at if self.paused else now)
+                for lane in self.lanes:
+                    assert lane.schedule is not None
+                    lane.schedule.set_rate(max(share * lane.share, 0.001), self.paused_at if self.paused else now)
         else:
             target = int(share)
-            while len(self.tasks) < target:
-                self.tasks.append(asyncio.create_task(self.closed_worker(len(self.tasks))))
+            for lane, workers in zip(self.lanes, split(target, [lane.share for lane in self.lanes]), strict=True):
+                while len(lane.tasks) < workers:
+                    lane.tasks.append(asyncio.create_task(self.closed_worker(lane, len(lane.tasks))))
+                lane.target_workers = workers
+            self.tasks = [t for lane in self.lanes for t in lane.tasks]
             self.target_workers = target
             self.level_event.set()
 
@@ -585,8 +648,9 @@ class Generator:
                     self.paused_at = time.monotonic()
                     self.resume_event.clear()
                 elif cmd == "resume" and self.paused:
-                    if self.schedule is not None:
-                        self.schedule.shift(time.monotonic() - self.paused_at)
+                    for lane in self.lanes:
+                        if lane.schedule is not None:
+                            lane.schedule.shift(time.monotonic() - self.paused_at)
                     self.paused = False
                     self._second(int(time.time())).phase = "paused"
                     self.start_measuring()

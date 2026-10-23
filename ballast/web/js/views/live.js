@@ -259,14 +259,34 @@ export async function render(root, [runId]) {
       h("tr", null, [h("th", { text: "Primary" }), h("td", { class: "mono" + (primary === "none" ? " hot" : ""), text: primary || "–" })]),
       ss ? h("tr", null, [h("th", { text: "Connections" }), h("td", { class: "mono", text: ss.data.connections ? `${F.int(ss.data.connections.current)} current, ${F.int(ss.data.connections.available)} available` : "–" })]) : null,
     ])));
-    if (rs && rs.data.members) {
+    const snap = state.samples.members;
+    if (snap && snap.data.members && snap.data.members.length) {
+      const served = (state.last && state.last.hosts) || {};
+      state.nodeTypes = state.nodeTypes || {};
+      ((run.snapshot && run.snapshot.server && run.snapshot.server.members) || []).forEach((m) => { if (m.node_type) state.nodeTypes[m.address] = m.node_type; });
+      snap.data.members.forEach((m) => { if (m.node_type) state.nodeTypes[m.address] = m.node_type; });
+      const lagOf = {};
+      if (rs && rs.data.members) rs.data.members.forEach((m) => { lagOf[m.name] = m.lag_seconds; });
+      clusterHost.appendChild(h("div", { class: "members", style: null }, snap.data.members.map((m) => {
+        const ops = served[m.address];
+        const down = m.type === "Unknown";
+        const lag = down ? null : m.lag_seconds !== null && m.lag_seconds !== undefined ? m.lag_seconds : lagOf[m.address];
+        const nodeType = m.node_type || state.nodeTypes[m.address];
+        return h("div", { class: "member" + (down ? " down" : "") }, [
+          h("div", { class: "addr" }, [m.address, nodeType ? h("span", { class: "node-type", text: nodeType }) : null]),
+          h("div", { class: down ? "hot" : "", text: [down ? "Unreachable" : m.type.replace(/^RS/, ""), lag !== null && lag !== undefined && m.type !== "RSPrimary" ? `lag ${F.num(lag, lag < 10 ? 1 : 0)} s` : null].filter(Boolean).join(", ") }),
+          h("div", { class: "xs muted mono", text: ops ? `${F.num(ops[0], 0)} ops/s served${ops[1] ? `, ${F.num(ops[1], 0)} failed/s` : ""}` : "no operations from this run" }),
+        ]);
+      })));
+      clusterHost.appendChild(h("p", { class: "xs muted", style: null, text: `From the driver's heartbeats ${F.ago(snap.t_ms)}; needs no extra privileges.` }));
+    } else if (rs && rs.data.members) {
       clusterHost.appendChild(h("div", { class: "members", style: null }, rs.data.members.map((m) => h("div", { class: "member" }, [
         h("div", { class: "addr", text: m.name }),
         h("div", { class: m.health === 1 ? "" : "hot", text: `${m.state}${m.lag_seconds ? `, lag ${F.num(m.lag_seconds, 1)} s` : ""}` }),
       ]))));
       clusterHost.appendChild(h("p", { class: "xs muted", style: null, text: `Sampled ${F.ago(rs.t_ms)}` }));
     } else if (run.snapshot && run.snapshot.server) {
-      clusterHost.appendChild(h("div", { class: "members" }, (run.snapshot.server.members || []).map((m) => h("div", { class: "member" }, [h("div", { class: "addr", text: m.address }), h("div", { text: `${m.state} at start` })]))));
+      clusterHost.appendChild(h("div", { class: "members" }, (run.snapshot.server.members || []).map((m) => h("div", { class: "member" }, [h("div", { class: "addr" }, [m.address, m.node_type ? h("span", { class: "node-type", text: m.node_type }) : null]), h("div", { text: `${m.state} at start` })]))));
     }
   }
 
@@ -392,7 +412,7 @@ export async function render(root, [runId]) {
       drawHeader();
       drawProgress();
       drawTitle();
-      if (++ticks % 2 === 0) { drawFlags(); drawErrors(); }
+      if (++ticks % 2 === 0) { drawFlags(); drawErrors(); drawCluster(); }
     } else if (kind === "marker") {
       state.markers.push(d);
       charts.setData(state.points, { markers: state.markers });

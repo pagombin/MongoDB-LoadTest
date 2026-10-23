@@ -227,6 +227,11 @@ class LoadSpec(Strict):
     concurrency: int = Field(default=64, ge=1, le=100_000, description="Closed model: workers. Open model: maximum operations in flight.")
     think_time_ms: int = Field(default=0, ge=0, le=600_000, description="Closed model: pause between a worker's operations.")
     processes: int = Field(default=1, ge=1, le=64, description="Generator processes. Rate and concurrency are split evenly.")
+    isolate_routes: bool = Field(
+        default=True,
+        description="With read routing, each route gets its own schedule and in-flight slots in proportion to its share, "
+        "like separate applications; a stalled route then cannot hold up the others.",
+    )
 
 
 class RampStep(Strict):

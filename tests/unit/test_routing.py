@@ -109,3 +109,17 @@ def test_window_reports_members_routes_and_operations():
     assert w["members"]["a1:1"]["during"]["writes_per_s"] == 4
     assert w["operations"]["analytics"] == {"ok": 0, "err": 50} and w["operations"]["find"]["err"] == 0
     assert w["member_events"][0]["node_type"] == "ANALYTICS"
+
+
+def test_routes_become_separate_lanes_with_proportional_slots():
+    from ballast.engine.generator import build_lanes, split
+
+    mix = {"find": 0.45, "update": 0.25, "insert": 0.10, "analytics": 0.20}
+    lanes = {lane.name: lane for lane in build_lanes(mix, {"analytics": "ANALYTICS"}, True)}
+    assert set(lanes) == {"default", "ANALYTICS"}
+    assert lanes["ANALYTICS"].ops == ["analytics"] and abs(lanes["ANALYTICS"].share - 0.2) < 1e-9
+    assert lanes["default"].ops == ["find", "update", "insert"] and abs(lanes["default"].cum[-1] - 1.0) < 1e-9
+    assert [lane.name for lane in build_lanes(mix, {"analytics": "ANALYTICS"}, False)] == ["all"]
+    assert [lane.name for lane in build_lanes(mix, {}, True)] == ["all"]
+    assert split(128, [0.8, 0.2]) == [102, 26] and sum(split(7, [0.5, 0.3, 0.2])) == 7
+    assert split(1, [0.9, 0.1]) == [1, 0] and split(3, [0.98, 0.02]) == [2, 1]

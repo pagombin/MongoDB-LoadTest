@@ -1,7 +1,7 @@
 import { api } from "../api.js";
 import { navigate, setTitle } from "../app.js";
 import { h, F, pageHead, button, empty, errorBlock, loading, toast, input, select, segmented, field } from "../ui.js";
-import { mixEditor, opsLabel, sizingNotes } from "./profile-form.js";
+import { mixEditor, opsLabel, sizingNotes, ROUTE_PRESETS, parseTags, tagsText } from "./profile-form.js";
 
 const STEPS = ["Target", "Workload", "Schedule", "Review"];
 
@@ -103,6 +103,52 @@ export async function render(root) {
     ];
   }
 
+  /* Reads: one preset, applied to every read or only to aggregations and analytics queries. */
+  function routingState(p) {
+    const d = p.driver || {};
+    const rr = p.read_routing || {};
+    const routed = rr.analytics || rr.aggregate;
+    const route = routed || (d.read_preference ? { mode: d.read_preference, tags: d.read_preference_tags || [] } : null);
+    let preset = "uri";
+    if (route) {
+      const text = tagsText(route.tags);
+      preset = ROUTE_PRESETS.find((x) => x.mode === route.mode && tagsText(x.tags) === text && x.value !== "custom")?.value || "custom";
+    }
+    return { preset, scope: routed ? "aggregations" : "all", custom: route ? tagsText(route.tags) : "nodeType:ANALYTICS" };
+  }
+
+  function applyRouting(p, st) {
+    const preset = ROUTE_PRESETS.find((x) => x.value === st.preset);
+    p.driver = p.driver || {};
+    p.read_routing = {};
+    const tags = st.preset === "custom" ? parseTags(st.custom) : preset.tags || [];
+    if (st.scope === "all") {
+      p.driver.read_preference = st.preset === "uri" ? null : preset.mode;
+      p.driver.read_preference_tags = st.preset === "uri" || preset.mode === "primary" || !tags.length ? null : tags;
+    } else if (st.preset !== "uri") {
+      const route = { mode: preset.mode, tags: preset.mode === "primary" ? [] : tags };
+      p.read_routing = { aggregate: route, analytics: route };
+    }
+  }
+
+  function routingPanel(p) {
+    const st = s.routing || (s.routing = routingState(p));
+    const presetSel = select(ROUTE_PRESETS.map((x) => ({ value: x.value, label: x.label })), st.preset, { id: "route-preset" });
+    const custom = input({ id: "route-tags", value: st.custom, class: "mono", placeholder: "nodeType:ANALYTICS; region:US_EAST_1" });
+    const scopeSeg = segmented([{ value: "all", label: "All reads" }, { value: "aggregations", label: "Aggregations and analytics queries only" }], st.scope, (v) => { st.scope = v; applyRouting(p, st); draw(); }, "Which reads");
+    const help = (ROUTE_PRESETS.find((x) => x.value === st.preset) || {}).help || "";
+    presetSel.addEventListener("change", () => { st.preset = presetSel.value; applyRouting(p, st); draw(); });
+    custom.addEventListener("input", () => { st.custom = custom.value; applyRouting(p, st); });
+    const reads = ["find", "range", "aggregate", "analytics"].filter((k) => (p.operations || {})[k] > 0);
+    return h("section", { class: "panel" }, [h("header", null, [h("h2", { text: "Where reads go" }), h("span", { class: "meta", text: "writes always go to the primary" })]), h("div", { class: "body" }, [
+      h("div", { class: "inline-fields" }, [Object.assign(field("Send reads to", presetSel, help), { className: "field wide" }), st.preset === "custom" ? field("Tag sets", custom, "key:value pairs, comma-separated; separate fallback sets with ';'. An empty set means any member.") : null]),
+      h("div", { class: "field" }, scopeSeg),
+      !reads.length ? h("p", { class: "note warn", text: "The operation mix has no reads. Add find, aggregate or analytics queries to measure read nodes." }) : null,
+      st.scope === "aggregations" && !((p.operations || {}).aggregate > 0 || (p.operations || {}).analytics > 0) ? h("p", { class: "note warn", text: "No aggregate or analytics query in the mix, so nothing is routed. Add some in the operation mix." }) : null,
+      h("p", { class: "small muted", text: "The review step lists which members each route reaches before you start." }),
+    ])]);
+  }
+
   function stepWorkload() {
     const profSel = select(profiles.map((p) => ({ value: p.id, label: p.name })), s.profileId, { id: "profile-select" });
     profSel.addEventListener("change", () => {
@@ -110,6 +156,7 @@ export async function render(root) {
       const ds = s.profile.dataset;
       s.profileId = p.id;
       s.profile = clone(p.body);
+      s.routing = null;
       s.profile.dataset = Object.assign({}, s.profile.dataset, { database: ds.database, collection_prefix: ds.collection_prefix, collections: ds.collections });
       draw();
     });
@@ -146,6 +193,7 @@ export async function render(root) {
       ])]),
       h("section", { class: "panel" }, [h("header", null, h("h2", { text: "Load model" })), loadBody]),
       h("section", { class: "panel" }, [h("header", null, [h("h2", { text: "Operation mix" }), h("span", { class: "meta", text: opsLabel(p) })]), h("div", { class: "body" }, mixEditor(p, drawNotes))]),
+      routingPanel(p),
       nav("Next: schedule", () => { s.step = 2; draw(); }),
     ];
   }
@@ -251,6 +299,16 @@ export async function render(root) {
     }
     const pre = s.preflight;
     out.push(h("section", { class: "panel" }, [h("header", null, h("h2", { text: "What will happen" })), h("div", { class: "body review-text" }, reviewText(pre).map((t) => h("p", { text: t })))]));
+    (pre.routing_warnings || []).forEach((w) => out.push(window.BallastReport.notice("warn", "A read route reaches no member", w, "Check the tags in the target's connection string or under Where reads go. Atlas uses nodeType:ANALYTICS and nodeType:READ_ONLY.")));
+    if ((pre.routes || []).length) {
+      const rows = pre.routes.map((r) => h("tr", null, [
+        h("td", { text: r.operations.map((o) => F.opName(o)).join(", ") }),
+        h("td", { class: "mono", text: r.mode + (r.tags && r.tags.length ? " " + tagsText(r.tags) : "") }),
+        h("td", { class: "mono" + (r.members.length ? "" : " hot"), text: r.members.length ? r.members.join(", ") : "none right now" }),
+      ]));
+      out.push(h("section", { class: "panel", "aria-label": "Read routes" }, [h("header", null, [h("h2", { text: "Read routes" }), h("span", { class: "meta", text: "members each kind of read can reach now" })]),
+        h("div", { class: "body flush scroll-x" }, h("table", { class: "data" }, [h("thead", null, h("tr", null, ["Reads", "Read preference", "Members"].map((x) => h("th", { scope: "col", text: x })))), h("tbody", null, rows)]))]));
+    }
     const ack = h("input", { type: "checkbox", id: "ack-foreign" });
     ack.checked = s.ack;
     ack.addEventListener("change", () => { s.ack = ack.checked; });

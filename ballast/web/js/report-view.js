@@ -106,19 +106,47 @@
     var failList = classes.length ? h("ul", { class: "bar-list" }, classes.map(function (c) {
       return h("li", null, [h("span", { class: "bar-name", text: c }), h("span", { class: "bar-n", text: F.int(imp.failed_by_class[c]) })]);
     })) : h("p", { class: "small muted", text: "No failed operations." });
-    var prim = (imp.primary_changes || []).length ? h("ul", { class: "event-list", tabindex: "0", "aria-label": "Events" }, imp.primary_changes.map(function (p) {
-      return h("li", null, [h("time", { text: F.clock(p.t_ms, true) }), h("span", { text: F.eventText({ kind: p.kind, data: p }) })]);
-    })) : h("p", { class: "small muted", text: "No primary changes observed." });
+    var topo = (imp.primary_changes || []).concat(imp.member_events || []).sort(function (a, b) { return a.t_ms - b.t_ms; });
+    var prim = topo.length ? h("ul", { class: "event-list", tabindex: "0", "aria-label": "Events" }, topo.map(function (p) {
+      return h("li", null, [h("time", { text: F.clock(p.t_ms, true) }), h("span", { class: "ek " + F.eventTone(p.kind), text: F.eventText({ kind: p.kind, data: p }) })]);
+    })) : h("p", { class: "small muted", text: "No primary or member changes observed." });
+    function gapRow(label, g) {
+      return h("tr", null, [h("th", { text: label }), h("td", { class: "mono", text: g ? F.lat(g.ms * 1000) + "  (" + F.clock(g.start_ms, true) + " – " + F.clock(g.end_ms, true) + ")" : "none over the threshold" })]);
+    }
+    var routeRows = Object.keys(imp.route_gaps || {}).map(function (name) { return gapRow("Longest " + name + " read gap", imp.route_gaps[name]); });
+    var opFails = Object.keys(imp.operations || {}).filter(function (k) { return imp.operations[k].err > 0; });
+    var opsList = opFails.length ? h("ul", { class: "bar-list" }, opFails.map(function (k) {
+      var o = imp.operations[k];
+      return h("li", null, [h("span", { class: "bar-name", text: F.opName(k) }), h("span", { class: "bar-n", text: F.int(o.err) + " of " + F.int(o.ok + o.err) })]);
+    })) : null;
     var gaps = h("table", { class: "kv" }, h("tbody", null, [
       h("tr", null, [h("th", { text: "Longest write gap" }), h("td", { class: "mono", text: imp.longest_write_gap ? F.lat(imp.longest_write_gap.ms * 1000) + "  (" + F.clock(imp.longest_write_gap.start_ms, true) + " – " + F.clock(imp.longest_write_gap.end_ms, true) + ")" : "none over the threshold" })]),
       h("tr", null, [h("th", { text: "Longest read gap" }), h("td", { class: "mono", text: imp.longest_read_gap ? F.lat(imp.longest_read_gap.ms * 1000) + "  (" + F.clock(imp.longest_read_gap.start_ms, true) + " – " + F.clock(imp.longest_read_gap.end_ms, true) + ")" : "none over the threshold" })]),
+    ].concat(routeRows, [
       h("tr", null, [h("th", { text: "Analysis span" }), h("td", { class: "mono", text: F.clock(imp.start_ms) + " – " + F.clock(imp.span_end_ms) })]),
       h("tr", null, [h("th", { text: "Recovery rule" }), h("td", { class: "small", text: "Throughput within " + F.pct(settings.throughput_tolerance, 0) + " and p99 within " + F.pct(settings.latency_tolerance, 0) + " of the " + settings.baseline_seconds + " s baseline, sustained for " + settings.sustain_seconds + " s." })])
-    ]));
+    ])));
+    var memberRows = Object.keys(imp.members || {}).map(function (host) {
+      var m = imp.members[host], st = (imp.member_states || {})[host] || {};
+      var b = m.before || {}, d = m.during || {}, a = m.after || {};
+      var dropped = (b.reads_per_s || 0) > 0 && (d.reads_per_s || 0) < b.reads_per_s * 0.5;
+      return h("tr", null, [
+        h("td", { class: "mono" }, [host, st.node_type ? h("span", { class: "node-type", text: st.node_type }) : null]),
+        td(F.num(b.reads_per_s || 0, 1), true), td(F.num(d.reads_per_s || 0, 1), true, dropped ? "hot" : ""), td(F.num(a.reads_per_s || 0, 1), true),
+        td(F.num(d.writes_per_s || 0, 1), true), td(F.int((d.failed || 0)), true, d.failed ? "hot" : ""),
+        td(st.max_lag_seconds === null || st.max_lag_seconds === undefined ? "–" : F.num(st.max_lag_seconds, 1) + " s", true, st.max_lag_seconds > 10 ? "hot" : ""),
+        td(st.down_seconds ? F.num(st.down_seconds, 0) + " s" : "–", true, st.down_seconds ? "hot" : "")
+      ]);
+    });
+    var membersTable = memberRows.length ? h("div", { class: "impact-members" }, [h("h3", { text: "Members" }), table([
+      { label: "Member" }, { label: "Reads/s before", num: true }, { label: "Reads/s during", num: true }, { label: "Reads/s after", num: true },
+      { label: "Writes/s during", num: true }, { label: "Failed on member", num: true }, { label: "Max lag", num: true }, { label: "Seen down", num: true }
+    ], memberRows), h("p", { class: "xs muted", text: "Failures that never reached a member (for example no member matched the read preference) count under the operation, not under a member." })]) : null;
     return h("tr", null, h("td", { colspan: "10", style: null }, h("div", { class: "impact-detail" }, [
       h("div", null, [h("h3", { text: "Latency and throughput" }), latTable]),
-      h("div", null, [h("h3", { text: "Failed operations by class" }), failList, h("h3", { text: "Gaps", style: null }), gaps]),
-      h("div", null, [h("h3", { text: "Primary changes" }), prim])
+      h("div", null, [h("h3", { text: "Failed operations by class" }), failList, opsList ? h("h3", { text: "Failed by operation" }) : null, opsList, h("h3", { text: "Gaps", style: null }), gaps]),
+      h("div", null, [h("h3", { text: "Primary and member changes" }), prim]),
+      membersTable
     ])));
   }
 
@@ -242,6 +270,48 @@
     ]);
   }
 
+  function membersPanel(summary, analysis, run, series) {
+    var members = (summary && summary.members) || {};
+    var states = (analysis && analysis.member_states) || {};
+    var snap = ((run.snapshot || {}).server || {}).members || [];
+    var hosts = Object.keys(members);
+    snap.forEach(function (m) { if (hosts.indexOf(m.address) < 0) hosts.push(m.address); });
+    if (!Object.keys(members).length) return null;
+    var typeOf = {};
+    snap.forEach(function (m) { typeOf[m.address] = m.node_type; });
+    var totalReads = hosts.reduce(function (a, k) { return a + ((members[k] || {}).reads || 0); }, 0) || 1;
+    var rows = hosts.sort().map(function (host) {
+      var m = members[host] || { reads: 0, writes: 0, failed: 0, service_time: {} }, st = states[host] || {};
+      var type = st.node_type || typeOf[host];
+      return h("tr", null, [
+        h("td", { class: "mono" }, [host, type ? h("span", { class: "node-type", text: type }) : null]),
+        td(F.int(m.reads), true), td(F.pct(m.reads / totalReads, 0), true), td(F.int(m.writes), true), td(F.int(m.failed), true, m.failed ? "hot" : ""),
+        td(F.lat((m.service_time || {}).p50_us), true), td(F.lat((m.service_time || {}).p99_us), true),
+        td(st.max_lag_seconds === null || st.max_lag_seconds === undefined ? "–" : F.num(st.max_lag_seconds, 1) + " s", true),
+        td(st.down_seconds ? F.num(st.down_seconds, 0) + " s" : "–", true, st.down_seconds ? "hot" : "")
+      ]);
+    });
+    var routes = (((run.snapshot || {}).preflight || {}).routes || []).map(function (r) {
+      return r.operations.map(function (o) { return F.opName(o); }).join(", ") + ": " + r.mode + (r.tags && r.tags.length ? " " + r.tags.map(function (t) { return Object.keys(t).map(function (k) { return k + ":" + t[k]; }).join(",") || "any"; }).join("; ") : "");
+    });
+    var chartHost = h("div", { class: "chart-host" });
+    var section = h("section", { class: "panel", "aria-label": "Members" }, [
+      h("header", null, [h("h2", { text: "Members" }), h("span", { class: "meta", text: "operations each member answered (command monitoring); service time is time on the wire" })]),
+      routes.length ? h("p", { class: "small body", style: null, text: "Read routes: " + routes.join(" · ") }) : null,
+      h("div", { class: "body flush" }, table([
+        { label: "Member" }, { label: "Reads", num: true }, { label: "Share of reads", num: true }, { label: "Writes", num: true }, { label: "Failed", num: true },
+        { label: "p50 service", num: true }, { label: "p99 service", num: true }, { label: "Max lag", num: true }, { label: "Seen down", num: true }
+      ], rows)),
+      h("div", { class: "body" }, [h("div", { class: "chart-title" }, h("strong", { text: "Operations per member (ops/s)" })), chartHost])
+    ]);
+    section._chart = function () {
+      var pts = (series && series.points) || [];
+      if (pts.some(function (p) { return p.hosts; })) return window.BallastCharts.memberChart(chartHost, pts, Object.keys(members).sort());
+      return null;
+    };
+    return section;
+  }
+
   function render(root, payload, opts) {
     opts = opts || {};
     root.textContent = "";
@@ -309,6 +379,9 @@
     impactsHost.appendChild(impactsPanel(analysis, opts));
     root.appendChild(impactsHost);
     root.appendChild(h("div", { class: "grid-2" }, [errorsPanel(summary), eventsPanel(payload.markers, payload.events)]));
+    var membersSection = membersPanel(summary, analysis, run, payload.series);
+    var memberChartView = null;
+    if (membersSection) { root.appendChild(membersSection); memberChartView = membersSection._chart(); }
     root.appendChild(opsPanel(summary));
     root.appendChild(snapshotPanel(run));
     return {
@@ -319,7 +392,7 @@
         impactsHost.appendChild(impactsPanel(analysis, opts));
         impactsHost.scrollIntoView({ block: "start" });
       },
-      destroy: function () { charts.destroy(); }
+      destroy: function () { charts.destroy(); if (memberChartView) memberChartView.destroy(); }
     };
   }
 

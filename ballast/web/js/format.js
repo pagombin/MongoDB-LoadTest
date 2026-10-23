@@ -111,7 +111,9 @@
     primary_changed: function (d) { return "Primary changed " + (d.from || "none") + " → " + d.to; },
     primary_lost: function (d) { return "No primary (was " + (d.from || "unknown") + ")"; },
     primary_restored: function (d) { return "Primary restored on " + d.to; },
-    server_state: function (d) { return d.address + ": " + d.from + " → " + d.to + (d.error ? " (" + d.error + ")" : ""); },
+    server_state: function (d) { return d.address + (d.node_type ? " (" + d.node_type + ")" : "") + ": " + d.from + " → " + d.to + (d.error ? " (" + d.error + ")" : ""); },
+    member_added: function (d) { return "Member added: " + d.address; },
+    member_removed: function (d) { return "Member removed: " + d.address; },
     topology_changed: function (d) { return "Topology " + d.from + " → " + d.to; },
     heartbeat_failed: function (d) { return "Heartbeat failed for " + d.address; },
     heartbeat_recovered: function (d) { return "Heartbeat recovered for " + d.address; },
@@ -140,7 +142,7 @@
 
   function eventTone(kind) {
     if (kind === "primary_lost" || kind === "heartbeat_failed" || kind === "error_sample" || kind === "generator_killed") return "fail";
-    if (kind === "primary_changed" || kind === "pool_cleared" || kind === "server_state" || kind === "sampling_unavailable" || kind === "drain_forced") return "warn";
+    if (kind === "primary_changed" || kind === "pool_cleared" || kind === "server_state" || kind === "member_removed" || kind === "sampling_unavailable" || kind === "drain_forced") return "warn";
     return "";
   }
 
@@ -152,7 +154,7 @@
   function statusText(s) { return STATUS_TEXT[s] || s; }
 
   function opName(op) {
-    return { find: "Find by key", range: "Range find", insert: "Insert", update: "Update", upsert: "Upsert", "delete": "Delete", aggregate: "Aggregate", find_and_modify: "Find and modify" }[op] || op;
+    return { find: "Find by key", range: "Range find", insert: "Insert", update: "Update", upsert: "Upsert", "delete": "Delete", aggregate: "Aggregate", find_and_modify: "Find and modify", analytics: "Analytics query" }[op] || op;
   }
 
   window.BallastFormat = {

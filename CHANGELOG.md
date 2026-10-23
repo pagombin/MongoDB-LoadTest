@@ -29,6 +29,12 @@ First release under the name Ballast. The previous tool (`mongo_load_tester`) is
 - Webhook notifications, Prometheus `/metrics`, `ballastctl backup` and `restore`.
 - Run notes and tags, Run again, Copy summary (Markdown), Markdown export, tag filter and filters kept in the address, live progress bar and tab title, desktop notifications, compare deltas, a Ctrl+K command palette.
 - macOS Intel bundle (`darwin-amd64`).
+- Atlas analytics and read-only nodes: read routing per operation with tag sets and presets, an analytics query operation, per-member counts and service time, member types and replication lag without privileges, a read gap per route, per-member and per-operation figures in every impact window, preflight warnings for routes that reach no member, one schedule per route, and two built-in profiles.
+
+### Fixed
+
+- The connection string's `readPreference` and `readPreferenceTags` were overridden by the profile, so Atlas analytics and read-only connection strings could not be used (D-034).
+- A rate shortfall caused by slow answers was reported as client-bound.
 
 ### Fixed (legacy engine)
 

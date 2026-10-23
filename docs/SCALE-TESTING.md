@@ -99,6 +99,47 @@ To analyse a range without markers, zoom the charts to it (drag across a chart) 
 - **Export HTML** gives a single file with the charts, impact table and configuration snapshot. It works offline and prints to PDF.
 - **CSV** and **JSON** contain every second, with full histograms in the JSON.
 
+## Atlas analytics and read-only nodes
+
+Atlas tags every member of a cluster: `nodeType:ELECTABLE` for the members that can become primary, `nodeType:ANALYTICS` for analytics nodes and `nodeType:READ_ONLY` for read-only nodes. Analytics nodes have their own tier, so you can resize them separately; read-only nodes are usually in other regions. Both have priority 0 and no vote. Ballast reads these tags from the driver and shows them next to every member, on the target's connection test, in the live view and in the report.
+
+**Choose where reads go.** In **New run**, step Workload, **Where reads go**:
+
+| Choice | Reads go to | Use it to measure |
+|---|---|---|
+| From connection string | whatever `readPreference` and `readPreferenceTags` in the target's connection string say, else the primary | an application that connects with an Atlas analytics or read-only connection string |
+| Atlas analytics nodes | `secondary` members tagged `nodeType:ANALYTICS` | a resize of the analytics tier, or analytics nodes being added or removed |
+| Atlas read-only nodes | `secondary` members tagged `nodeType:READ_ONLY` | read-only node changes, and replication lag to other regions |
+| Custom tags | your tag sets, tried in order; an empty set means any secondary | other tag layouts |
+
+Choose **All reads**, or **Aggregations and analytics queries only** to keep point reads and writes on the primary while aggregations go to the analytics nodes. That is the usual Atlas pattern: an application on the primary, a BI tool on the analytics nodes. The built-in profile **Atlas analytics nodes** does this, with the **Analytics query** operation (an aggregation that scans 5,000 documents, groups and sorts them; change the size in the profile). **Atlas read-only nodes** sends all reads to read-only nodes.
+
+When reads are split like this, each route gets its own schedule and its own in-flight slots in proportion to its share of the operations, as separate applications would. Without that, analytics queries waiting for an unavailable node would take every slot, and the primary's operations would show seconds of latency they never had. Set `load.isolate_routes: false` in the profile to share one pool of slots instead.
+
+**Before you start**, the review step lists the members each kind of read can reach. If a route matches no member, for example because the connection string asks for `nodeType:ANALYTICS` and the cluster has no analytics nodes, it says so: those reads would wait `serverSelectionTimeoutMS` and fail.
+
+**Decide what an unavailable node should do.** With only one analytics node, a resize restarts it and no member matches for a while:
+
+- With the default `serverSelectionTimeoutMS` of 30 s, analytics queries wait and then succeed. The report shows no failures, but long analytics latency and a gap on the analytics route.
+- With a short timeout (Driver settings, `serverSelectionTimeoutMS`), they fail with `ServerSelectionTimeout`. These failures never reach a member, so they count under the operation, not under a member.
+- A fallback tag set (custom tags `nodeType:ANALYTICS; ` with an empty second set) lets reads move to any secondary while no analytics node is available. Measure that if your BI tool is configured that way.
+
+Match what your applications use.
+
+**Read the report.** Next to the usual figures:
+
+| Where | What it shows |
+|---|---|
+| Members panel | per member: node type, reads, writes and failures it answered, p50/p99 service time on the wire, the largest replication lag seen, and how long it was unreachable; a chart of operations per member over time |
+| Impact window, Gaps | a **Longest ANALYTICS read gap** (one row per route) next to the overall read and write gaps |
+| Impact window, Members | reads per second each member answered before, during and after the window, failures on it, its largest lag, and seconds seen down |
+| Impact window, Failed by operation | which operations failed, for example only the analytics queries |
+| Impact window, Primary and member changes | member state changes with their node type, members added and removed |
+
+Replication lag comes from the driver's own heartbeats (the same inputs it uses for `maxStalenessSeconds`), so it needs no `clusterMonitor` role. It is accurate to about half a second.
+
+**Verified locally, not on Atlas.** `scripts/dev-replset-atlas.sh` starts a five-member replica set tagged the way Atlas tags clusters. `tests/integration/test_atlas_nodes.py` restarts its analytics node during a run, with short and default selection timeouts. In both cases the analytics route shows a gap of about 11 s, analytics queries fail or wait, and point reads and writes on the primary are unaffected (p99 under 1 s, no write gap). It also blocks replication on the read-only node and checks the lag appears. Ballast has not been run against a real Atlas cluster in this work.
+
 ## Example: what a stepdown looks like
 
 The integration test `tests/integration/test_failover.py` runs 400 ops/s against a three-member replica set, marks "stepdown started", steps down the primary, and marks "stepdown finished". With retryable writes and reads turned off, the report shows a handful of `NotWritablePrimary` or `PrimarySteppedDown` failures, the primary change with its timestamp, and a recovery time. With retryable writes on, the same election usually shows no failures, only a latency spike and a write gap; that difference is the point of measuring.

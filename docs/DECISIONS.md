@@ -187,6 +187,20 @@ Each entry: the question, the options considered, the choice, why, and how hard 
 - Choice: Prometheus metrics are served by default (`features.prometheus_metrics: true`), behind the same access gate as everything else, and the server listens on 127.0.0.1 by default. They expose run names and error classes, nothing secret.
 - Reverse: set the flag to false.
 
+## D-033 One schedule per read route — **Review first**
+
+- Question: with aggregations routed to analytics nodes and everything else on the primary, an unavailable analytics node made the waiting aggregations take all in-flight slots. Point reads on the primary then showed 8 s p99, with 31 ms on the wire.
+- Options: (a) one shared pool of slots, as before; (b) one schedule and slot pool per route, in proportion to its share; (c) one generator process per route.
+- Choice: (b), on by default when read routing is set (`load.isolate_routes`). It models an application and a BI tool as separate clients, which is how they run against Atlas. Both still share the driver's connection pool, as they would in one process; waiting for server selection holds no connection.
+- Evidence: the integration test now requires primary point reads to keep p99 under 1 s while the analytics node restarts; it was 7.96 s before.
+- Reverse: easy (`isolate_routes: false`).
+
+## D-034 Read preference comes from the connection string unless the profile sets one
+
+- What changed: profiles used to send `readPreference=primary` always, which overrode the connection string. An Atlas analytics or read-only connection string (`readPreference=secondary&readPreferenceTags=nodeType:ANALYTICS`) made every run fail with "Read preference primary cannot be combined with tags", and `readPreference=secondary` alone was silently ignored.
+- Choice: `driver.read_preference` is empty by default and then the connection string decides. Saved profiles that set `primary` explicitly keep doing so.
+- Reverse: easy.
+
 ## Blocked
 
 (none yet)

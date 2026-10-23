@@ -1,7 +1,30 @@
 /* Workload profile editing: the operation-mix editor and the full profile form. */
 import { h, F, input, select, segmented, field, button } from "../ui.js";
 
-export const OPS = ["find", "range", "insert", "update", "upsert", "delete", "aggregate", "find_and_modify"];
+export const OPS = ["find", "range", "insert", "update", "upsert", "delete", "aggregate", "find_and_modify", "analytics"];
+export const READ_OPS = ["find", "range", "aggregate", "analytics"];
+
+/* Where reads go: presets for Atlas node types. "tags" are tried in order; {} means any member. */
+export const ROUTE_PRESETS = [
+  { value: "uri", label: "From connection string", help: "Use readPreference and readPreferenceTags from the target's connection string, or the primary if it sets none." },
+  { value: "primary", label: "Primary", mode: "primary", tags: [] },
+  { value: "secondary", label: "Any secondary", mode: "secondary", tags: [] },
+  { value: "analytics", label: "Atlas analytics nodes", mode: "secondary", tags: [{ nodeType: "ANALYTICS" }], help: "Atlas tags analytics nodes nodeType:ANALYTICS. They have their own tier, which you can resize separately." },
+  { value: "readonly", label: "Atlas read-only nodes", mode: "secondary", tags: [{ nodeType: "READ_ONLY" }], help: "Atlas tags read-only nodes nodeType:READ_ONLY. They usually sit in other regions to serve local reads." },
+  { value: "custom", label: "Custom tags", mode: "secondary", tags: [] },
+];
+
+export function parseTags(text) {
+  return text.split(";").map((set) => set.trim()).filter((set, i, all) => set || all.length > 1).map((set) => {
+    const out = {};
+    set.split(",").map((p) => p.trim()).filter(Boolean).forEach((pair) => { const i = pair.indexOf(":"); if (i > 0) out[pair.slice(0, i).trim()] = pair.slice(i + 1).trim(); });
+    return out;
+  });
+}
+
+export function tagsText(tags) {
+  return (tags || []).map((set) => Object.entries(set).map(([k, v]) => `${k}:${v}`).join(",")).join("; ");
+}
 
 export function opsLabel(p) {
   const mix = p.operations || {};
@@ -129,6 +152,13 @@ export function profileForm(p) {
   p.slo = p.slo || {};
   const sizing = sizingBox(p);
   const d = p.driver, wc = d.write_concern;
+  const tagInput = input({ id: "pf-rptags", class: "mono", value: tagsText(d.read_preference_tags || []), placeholder: "nodeType:ANALYTICS" });
+  tagInput.addEventListener("input", () => { d.read_preference_tags = tagInput.value.trim() ? parseTags(tagInput.value) : null; });
+  p.read_routing = p.read_routing || {};
+  const routing = h("textarea", { id: "pf-routing", rows: "4", spellcheck: "false" });
+  routing.value = JSON.stringify(p.read_routing, null, 2);
+  const routingProblem = h("div", { class: "problem" });
+  routing.addEventListener("input", () => { try { p.read_routing = JSON.parse(routing.value || "{}"); routingProblem.textContent = ""; } catch (e) { routingProblem.textContent = "Not valid JSON yet: " + e.message; } });
   const wSel = select([{ value: "majority", label: "majority" }, { value: "1", label: "1" }, { value: "0", label: "0 (unacknowledged)" }, { value: "2", label: "2" }, { value: "3", label: "3" }], String(wc.w ?? "majority"), { id: "pf-w" });
   wSel.addEventListener("change", () => { wc.w = wSel.value === "majority" ? "majority" : Number(wSel.value); });
   const jSel = select([{ value: "", label: "server default" }, { value: "true", label: "true" }, { value: "false", label: "false" }], wc.j === null || wc.j === undefined ? "" : String(wc.j), { id: "pf-j" });
@@ -157,6 +187,7 @@ export function profileForm(p) {
       field("Distribution", choose(p.keys, "distribution", ["uniform", "zipfian", "sequential"], { id: "pf-dist" }), "Zipfian concentrates load on a few hot keys."),
       field("Zipf exponent", num(p.keys, "zipf_theta", { id: "pf-theta", step: "0.01", min: "0.01" })),
       field("Range size", num(p.keys, "range_size", { id: "pf-range", min: "1" }), "Documents per range find or aggregate."),
+      field("Analytics scan (documents)", num(p.keys, "analytics_docs", { id: "pf-adocs", min: "1" }), "Documents each analytics query reads, groups and sorts."),
     ])]),
     section("Dataset", [h("div", { class: "inline-fields" }, [
       field("Database", text(p.dataset, "database", { id: "pf-db", class: "mono" })), field("Collections", num(p.dataset, "collections", { id: "pf-colls", min: "1" })),
@@ -167,12 +198,14 @@ export function profileForm(p) {
     section("Driver", [h("div", { class: "inline-fields" }, [
       field("Write concern w", wSel), field("Journal (j)", jSel), field("wtimeout (ms)", num(wc, "wtimeout_ms", { id: "pf-wt", min: "0" })),
       field("Read concern", choose(d, "read_concern", [{ value: "", label: "server default" }, "local", "available", "majority", "linearizable", "snapshot"], { id: "pf-rc" })),
-      field("Read preference", choose(d, "read_preference", ["primary", "primaryPreferred", "secondary", "secondaryPreferred", "nearest"], { id: "pf-rp" })),
+      field("Read preference", choose(d, "read_preference", [{ value: "", label: "from connection string" }, "primary", "primaryPreferred", "secondary", "secondaryPreferred", "nearest"], { id: "pf-rp" }), "Empty keeps the connection string's readPreference and readPreferenceTags."),
+      field("Read preference tags", tagInput, "For example nodeType:ANALYTICS. Separate fallback sets with ';'."),
       field("maxPoolSize", num(d, "max_pool_size", { id: "pf-maxpool", min: "1" })), field("minPoolSize", num(d, "min_pool_size", { id: "pf-minpool", min: "0" })),
       field("serverSelectionTimeoutMS", num(d, "server_selection_timeout_ms", { id: "pf-sst", min: "100" })), field("connectTimeoutMS", num(d, "connect_timeout_ms", { id: "pf-ct", min: "100" })),
       field("socketTimeoutMS", num(d, "socket_timeout_ms", { id: "pf-st", min: "0" }), "0 means no limit."), field("Operation timeout (ms)", num(d, "operation_timeout_ms", { id: "pf-ot", min: "1" }), "timeoutMS; empty means none."),
       field("heartbeatFrequencyMS", num(d, "heartbeat_frequency_ms", { id: "pf-hb", min: "500" })),
-    ]), bool(d, "retry_writes", "Retryable writes"), bool(d, "retry_reads", "Retryable reads")]),
+    ]), bool(d, "retry_writes", "Retryable writes"), bool(d, "retry_reads", "Retryable reads"), bool(d, "track_members", "Count operations per member (command monitoring)"),
+      field("Read routing per operation (JSON)", routing, 'Overrides the read preference for find, range, aggregate or analytics. For example {"analytics": {"mode": "secondary", "tags": [{"nodeType": "ANALYTICS"}]}}.'), routingProblem]),
     section("Load", [h("div", { class: "inline-fields" }, [
       field("Model", choose(p.load, "model", [{ value: "open", label: "open (target rate)" }, { value: "closed", label: "closed (workers)" }], { id: "pf-model" })),
       field("Rate (ops/s)", num(p.load, "rate", { id: "pf-rate", min: "1" }), "Open model."), field("Concurrency", num(p.load, "concurrency", { id: "pf-conc", min: "1" }), "Workers, or max in flight."),

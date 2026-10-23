@@ -10,7 +10,7 @@ function testView(r) {
   return h("div", { class: "notice ok" }, h("div", null, [
     h("div", { class: "notice-title", text: `Connected: MongoDB ${r.server_version || "(version hidden)"}, ${r.topology}${r.set_name ? ", replica set " + r.set_name : ""}` }),
     h("div", { class: "small", text: `Primary ${r.primary || "none visible"}. Tested ${F.ago(r.tested_at)} in ${F.int(r.elapsed_ms)} ms.` }),
-    h("div", { class: "members", style: null }, (r.members || []).map((m) => h("div", { class: "member" }, [h("div", { class: "addr", text: m.address }), h("div", { text: m.state + (m.round_trip_ms !== null && m.round_trip_ms !== undefined ? `, ${F.num(m.round_trip_ms, 1)} ms` : "") })]))),
+    h("div", { class: "members", style: null }, (r.members || []).map((m) => h("div", { class: "member" }, [h("div", { class: "addr" }, [m.address, m.node_type ? h("span", { class: "node-type", text: m.node_type }) : null]), h("div", { text: m.state + (m.round_trip_ms !== null && m.round_trip_ms !== undefined ? `, ${F.num(m.round_trip_ms, 1)} ms` : "") })]))),
   ]));
 }
 

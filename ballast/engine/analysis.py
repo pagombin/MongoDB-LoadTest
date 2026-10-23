@@ -162,6 +162,7 @@ def analyze_window(
     events: list[dict],
     settings: AnalysisSettings,
     exclude_windows: list[dict] | None = None,
+    samples: list[dict] | None = None,
 ) -> dict:
     start_ms, end_ms = int(window["start_ms"]), int(window["end_ms"])
     start_s, end_s = start_ms // 1000, max(start_ms // 1000 + 1, -(-end_ms // 1000))
@@ -217,6 +218,7 @@ def analyze_window(
         "primary_changes": primary_changes,
         "member_events": member_events,
         "members": _members(before, during, after),
+        "member_states": member_states(samples or [], start_ms, span_end_ms),
         "operations": _op_totals(span),
         "before": baseline,
         "during": _stats(during),
@@ -244,6 +246,28 @@ def _members(before: list[SecondRecord], during: list[SecondRecord], after: list
         for host, (reads, writes, failed) in totals.items():
             row = out.setdefault(host, {})
             row[name] = {"reads_per_s": round(reads / seconds, 2), "writes_per_s": round(writes / seconds, 2), "failed": failed}
+    return dict(sorted(out.items()))
+
+
+def member_states(samples: list[dict], start_ms: int | None = None, end_ms: int | None = None) -> dict:
+    """Per member from the monitor's snapshots: node type, largest replication lag, and seconds seen down."""
+    out: dict[str, dict] = {}
+    previous_t: int | None = None
+    for sample in samples:
+        t = sample["t_ms"]
+        if (start_ms is not None and t < start_ms) or (end_ms is not None and t > end_ms):
+            previous_t = t
+            continue
+        step = (t - previous_t) / 1000 if previous_t is not None else 0
+        previous_t = t
+        for m in sample["data"].get("members", []):
+            row = out.setdefault(m["address"], {"node_type": m.get("node_type"), "max_lag_seconds": None, "down_seconds": 0.0})
+            row["node_type"] = row["node_type"] or m.get("node_type")
+            lag = m.get("lag_seconds")
+            if lag is not None and (row["max_lag_seconds"] is None or lag > row["max_lag_seconds"]):
+                row["max_lag_seconds"] = lag
+            if m.get("type") == "Unknown":
+                row["down_seconds"] = round(row["down_seconds"] + step, 1)
     return dict(sorted(out.items()))
 
 
@@ -342,7 +366,13 @@ def client_bound(records: list[SecondRecord], settings: AnalysisSettings, disrup
     rate_flags = []
     for r in measured:
         attempted = r.ok + r.err
-        short = bool(r.target_rate and attempted < r.target_rate * (1 - settings.client_bound_rate_margin) and r.t not in disturbed)
+        # Every in-flight slot of a lane busy means operations were slow to answer; the open model measures that wait as latency.
+        short = bool(
+            r.target_rate
+            and attempted < r.target_rate * (1 - settings.client_bound_rate_margin)
+            and r.t not in disturbed
+            and not r.saturated
+        )
         rate_flags.append((r.t, short))
     for start, end in _runs_of(rate_flags, settings.client_bound_min_seconds):
         sample = [r for r in measured if start <= r.t <= end]
@@ -430,19 +460,21 @@ def full_analysis(
     markers: list[dict],
     settings: AnalysisSettings,
     summary: dict | None = None,
+    samples: list[dict] | None = None,
 ) -> dict:
     windows = marker_windows(markers)
     disruptions = detect_disruptions(records, settings)
-    impacts = [analyze_window(w, records, gaps, events, settings, windows) for w in windows]
+    impacts = [analyze_window(w, records, gaps, events, settings, windows, samples) for w in windows]
     for d in disruptions:
         covered = any(w["start_ms"] - 5000 <= d["start_ms"] <= w["end_ms"] + 60_000 for w in windows)
-        result = analyze_window(d, records, gaps, events, settings, windows)
+        result = analyze_window(d, records, gaps, events, settings, windows, samples)
         result["overlaps_marker_window"] = covered
         impacts.append(result)
     return {
         "summary": summary if summary is not None else summarize(records),
         "impacts": impacts,
         "client_bound": client_bound(records, settings, disruptions),
+        "member_states": member_states(samples or []),
         "settings": settings.as_dict(),
     }
 

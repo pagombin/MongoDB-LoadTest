@@ -83,6 +83,7 @@ class SecondRecord:
     span: int = 1
     hosts: dict[str, HostSecond] = field(default_factory=dict)
     op_counts: dict[str, list[int]] = field(default_factory=dict)
+    saturated: bool = False
 
     @property
     def ok(self) -> int:
@@ -126,6 +127,7 @@ class SecondRecord:
         if other.target_rate is not None:
             self.target_rate = (self.target_rate or 0.0) + other.target_rate
         self.processes += other.processes
+        self.saturated = self.saturated or other.saturated
         for host, entry in other.hosts.items():
             self.hosts.setdefault(host, HostSecond()).merge(entry)
         for name, (ok, err) in other.op_counts.items():
@@ -155,6 +157,7 @@ class SecondRecord:
             "processes": self.processes,
             "span": self.span,
             "hosts": {host: entry.to_json() for host, entry in self.hosts.items()},
+            "saturated": self.saturated,
         }
 
     @classmethod
@@ -191,6 +194,7 @@ class SecondRecord:
             span=data.get("span", 1),
             hosts={host: HostSecond.from_json(entry, not collapse) for host, entry in (data.get("hosts") or {}).items()},
             op_counts={name: [op.get("ok", 0), op.get("err", 0)] for name, op in (data.get("ops") or {}).items()} if collapse else {},
+            saturated=bool(data.get("saturated", False)),
         )
 
     def collapsed(self) -> SecondRecord:

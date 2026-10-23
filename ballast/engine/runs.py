@@ -883,9 +883,10 @@ class RunManager:
         gaps = intersect_gaps(self.store.gaps(run_id), processes)
         events = self.store.events(run_id)
         markers = self.store.markers(run_id)
+        member_samples = self.store.samples(run_id, "members")
         if extra_window is not None:
-            return analysis.analyze_window(extra_window, records, gaps, events, settings, analysis.marker_windows(markers))
-        result = analysis.full_analysis(records, gaps, events, markers, settings, summary=summary)
+            return analysis.analyze_window(extra_window, records, gaps, events, settings, analysis.marker_windows(markers), member_samples)
+        result = analysis.full_analysis(records, gaps, events, markers, settings, summary=summary, samples=member_samples)
         load = profile.get("load") or {}
         target_rate = load.get("rate") if load.get("model", "open") == "open" else None
         criteria = {k: v for k, v in (profile.get("slo") or {}).items() if v is not None}

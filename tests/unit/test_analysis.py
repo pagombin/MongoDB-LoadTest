@@ -172,3 +172,13 @@ def test_detected_windows_are_capped_keeping_the_worst():
     found = detect_disruptions(records, settings)
     assert len(found) == 5 and any(w["start_ms"] == 200_000 for w in found)
     assert [w["start_ms"] for w in found] == sorted(w["start_ms"] for w in found)
+
+
+def test_rate_shortfall_while_in_flight_slots_are_full_is_not_client_bound():
+    records = [second(t, ok=1_000, target=2_000.0) for t in range(0, 60)]
+    for r in records:
+        r.saturated = True
+    assert client_bound(records, AnalysisSettings())["client_bound"] is False
+    for r in records[10:30]:
+        r.saturated = False
+    assert client_bound(records, AnalysisSettings())["client_bound"] is True

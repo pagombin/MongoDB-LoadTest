@@ -25,6 +25,7 @@ Environment: Linux x86-64, 4 CPUs, 15.7 GB RAM; Docker 29.9.1; MongoDB 8.0.34 an
 | Install on Ubuntu 22.04 without `python3-venv` (pip 22, `pip --target`) | install, doctor and 21 of 21 host checks including a load run | `docs/evidence/install-ubuntu22-no-venv.log` |
 | Offline kit on Ubuntu 22.04 with no network | install, doctor 0 failures, start, health | `docs/evidence/install-offline-kit.log` |
 | Headless `ballast run` exit codes | 2 integration tests passed (SLO pass and fail, guardrail stop) | `tests/integration/test_headless.py` |
+| Atlas analytics and read-only nodes (local replica set tagged like Atlas) | 3 integration tests passed: analytics node restart with short and default selection timeouts, read-only node lag; browser test 4 of 4 | `tests/integration/test_atlas_nodes.py`, `docs/evidence/e2e-atlas.txt` |
 | Release bundles (10.2) | linux-amd64, linux-arm64, darwin-arm64 with SHA-256, notices and SBOM | section 8 |
 
 ## 1. Unit tests

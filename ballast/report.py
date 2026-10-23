@@ -32,11 +32,13 @@ def csv_chunks(store: Store, run: dict, rows_per_chunk: int = 500) -> Iterator[s
     memory stays flat however long the run was."""
     ops_set: set[str] = set()
     classes_set: set[str] = set()
+    hosts_set: set[str] = set()
     for blob in store.second_blobs(run["id"]):
         data = json.loads(blob)
         ops_set.update(data.get("ops") or {})
         classes_set.update(data.get("errors") or {})
-    ops, classes = sorted(ops_set), sorted(classes_set)
+        hosts_set.update(data.get("hosts") or {})
+    ops, classes, hosts = sorted(ops_set), sorted(classes_set), sorted(hosts_set)
     out = io.StringIO()
     writer = csv.writer(out)
     header = [
@@ -61,6 +63,7 @@ def csv_chunks(store: Store, run: dict, rows_per_chunk: int = 500) -> Iterator[s
         "generator_cpu_pct",
     ]
     header += [f"ops_{op}" for op in ops] + [f"p99_ms_{op}" for op in ops] + [f"errors_{c}" for c in classes]
+    header += [f"member_ops_{h}" for h in hosts] + [f"member_failed_{h}" for h in hosts]
     writer.writerow(header)
     for n, r in enumerate(store.iter_seconds(run["id"]), 1):
         rt = r.rt()
@@ -91,6 +94,8 @@ def csv_chunks(store: Store, run: dict, rows_per_chunk: int = 500) -> Iterator[s
         row += [(r.ops[op].ok + r.ops[op].err) if op in r.ops else 0 for op in ops]
         row += [r.ops[op].rt.percentile(99) / 1000 if op in r.ops else "" for op in ops]
         row += [r.errors.get(c, 0) for c in classes]
+        row += [(r.hosts[h].reads + r.hosts[h].writes) if h in r.hosts else 0 for h in hosts]
+        row += [r.hosts[h].failed if h in r.hosts else 0 for h in hosts]
         writer.writerow(row)
         if n % rows_per_chunk == 0:
             yield out.getvalue()
@@ -265,6 +270,28 @@ def markdown_export(run: dict, analysis: dict | None) -> str:
                 f"| {imp.get('label') or 'window'} ({_when(imp['start_ms'])[11:19]}) | {imp.get('failed_ops', 0):,} | "
                 f"{wg.get('ms', 0) / 1000:.2f} s | {rg.get('ms', 0) / 1000:.2f} s | {len(imp.get('primary_changes') or [])} | "
                 f"{_ms(before.get('p99_us'))} → {_ms(during.get('p99_us'))} → {_ms(after.get('p99_us'))} | {rec} |"
+            )
+    for imp in impacts:
+        for name, gap in (imp.get("route_gaps") or {}).items():
+            if gap:
+                lines.append(f"- {imp.get('label') or 'window'}: longest {name} read gap {gap['ms'] / 1000:.2f} s")
+        failing = {k: v for k, v in (imp.get("operations") or {}).items() if v.get("err")}
+        if failing:
+            lines.append(
+                f"- {imp.get('label') or 'window'}: failed by operation "
+                + ", ".join(f"{k} {v['err']:,} of {v['ok'] + v['err']:,}" for k, v in failing.items())
+            )
+    members = summary.get("members") or {}
+    if members:
+        states = analysis.get("member_states") or {}
+        types = {m["address"]: m.get("node_type") for m in ((run.get("snapshot") or {}).get("server") or {}).get("members", [])}
+        lines += ["", "| Member | Type | Reads | Writes | Failed | p99 service | Max lag |", "|---|---|---|---|---|---|---|"]
+        for host, m in members.items():
+            st = states.get(host) or {}
+            lag = st.get("max_lag_seconds")
+            lines.append(
+                f"| {host} | {st.get('node_type') or types.get(host) or '–'} | {m['reads']:,} | {m['writes']:,} | {m['failed']:,} | "
+                f"{_ms((m.get('service_time') or {}).get('p99_us'))} | {'–' if lag is None else f'{lag:.1f} s'} |"
             )
     errors = summary.get("errors") or {}
     if errors:

@@ -95,6 +95,14 @@ For each window (a pair of begin and end markers, a range you select in the repo
 
 All thresholds can be changed per profile in `analysis` (see the profile JSON).
 
+## Members and read routes
+
+Every read and write command the generator sends is also seen through the driver's command monitoring, which says which member answered and how long it took on the wire. Ballast counts, per member and second, the reads, writes and failures each member answered, and keeps a histogram of their service time. Retries count once per attempt, on the member that answered it. Operations that fail before reaching any member, such as a server selection timeout when no member matches the read preference, appear in the operation's failures but under no member. `driver.track_members: false` turns this off.
+
+A read route is a read preference applied to some read operations (`read_routing` in the profile), or to all of them (`driver.read_preference`, else the connection string). Each route has its own read gap, computed like the overall read gap from that route's successful reads only. With routes, the open model runs one schedule per route, with the route's share of the rate and of the in-flight slots (`load.isolate_routes`).
+
+Every 5 seconds the monitor records each member's type, tags, round-trip time and replication lag, from the heartbeats of its own client (500 ms interval). Lag is `(S.lastUpdate − S.lastWrite) − (P.lastUpdate − P.lastWrite)`, the driver's staleness estimate without the heartbeat term.
+
 ## Guardrails and pass/fail criteria
 
 A guardrail looks at each measured second as it is written (warm-up, data load, pauses and the stop drain do not count). A second breaches when its failed share is above `max_error_percent`, or its p99 response time (from that second's merged histogram) is above `max_p99_ms`. After `sustain_seconds` breaching seconds in a row, the run stops with reason `guardrail`; one good second resets the count.
@@ -105,7 +113,7 @@ Pass/fail criteria are evaluated once, on the run summary described above (merge
 
 A load test only measures the database if the generator keeps up. Ballast flags a run as **client-bound** when, for at least 10 consecutive measured seconds:
 
-- **rate**: operations attempted were more than 5% below the open-model target, outside detected disruptions and the 10 seconds after them (a database stall legitimately lowers achieved rate); or
+- **rate**: operations attempted were more than 5% below the open-model target, outside detected disruptions and the 10 seconds after them (a database stall legitimately lowers achieved rate), and while some of the generator's in-flight slots were still free (when every slot of a route is waiting for a response, the shortfall comes from slow answers and the open model measures it as latency); or
 - **cpu**: a generator process used at least 90% of one CPU core; or
 - **pool**: p99 connection-pool checkout wait was at least 5 ms outside disruptions, which means `maxPoolSize` is too small for the concurrency.
 

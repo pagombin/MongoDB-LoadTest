@@ -234,6 +234,8 @@ async def test_connection(target: dict, timeout_ms: int = 8000) -> dict:
                     "address": f"{address[0]}:{address[1]}",
                     "state": sd.server_type_name,
                     "round_trip_ms": round(sd.round_trip_time * 1000, 1) if sd.round_trip_time is not None else None,
+                    "node_type": (sd.tags or {}).get("nodeType"),
+                    "tags": dict(sd.tags or {}),
                 }
             )
         members.sort(key=lambda m: m["address"])

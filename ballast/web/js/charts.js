@@ -525,5 +525,28 @@
     return wrap;
   }
 
-  window.BallastCharts = { runCharts: runCharts, compareChart: compareChart, pointsTable: pointsTable, theme: theme, msFmt: msFmt };
+  /* Operations each member answered per second (from driver command monitoring), one line per member. */
+  function memberChart(container, points, hosts) {
+    var t = theme();
+    var colors = [t.c1, t.c2, t.c3, t.c4, t.c5, t.c6];
+    container.textContent = "";
+    var xs = points.map(function (p) { return p.t; });
+    var data = [xs].concat(hosts.map(function (host) {
+      return points.map(function (p) { var v = p.hosts && p.hosts[host]; return v ? v[0] : 0; });
+    }));
+    var series = [{}].concat(hosts.map(function (host, i) {
+      return { label: host, stroke: colors[i % colors.length], width: 1.5, dash: DASHES[i % DASHES.length], points: { show: false } };
+    }));
+    var u = new uPlot({
+      width: Math.max(320, container.clientWidth - 16), height: 200, legend: { show: false },
+      cursor: { drag: { x: true, setScale: true }, points: { size: 6 } },
+      plugins: [readoutPlugin(hosts.map(function (host, i) { return { i: i + 1, label: host, fmt: compactFmt }; }))],
+      scales: { x: { time: true }, y: { range: function (uu, min, max) { return [0, Math.max(10, max * 1.08)]; } } },
+      series: series,
+      axes: [axisX(t), axisY(t, "ops/s", compactFmt)]
+    }, data, container);
+    return { destroy: function () { u.destroy(); } };
+  }
+
+  window.BallastCharts = { memberChart: memberChart, runCharts: runCharts, compareChart: compareChart, pointsTable: pointsTable, theme: theme, msFmt: msFmt };
 })();

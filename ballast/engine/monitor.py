@@ -110,7 +110,7 @@ class _TopologyEvents(monitoring.TopologyListener, monitoring.ServerListener, mo
                 if kind:
                     data["node_type"] = kind
                 if new.error is not None:
-                    data["error"] = str(new.error).split("\n")[0][:200]
+                    data["error"] = str(new.error).split(", full error")[0].split("\n")[0][:160]
                 self.emit("server_state", data)
 
     def succeeded(self, event):

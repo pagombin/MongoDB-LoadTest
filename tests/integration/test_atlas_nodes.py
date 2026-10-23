@@ -67,7 +67,8 @@ async def run_scenario(tmp_path: Path, profile: dict, disrupt, label: str):
     return store, store.get_run(row["id"])
 
 
-async def test_analytics_node_restart_affects_only_analytics_reads(tmp_path):
+@pytest.mark.parametrize("selection_timeout_ms", [2000, None])
+async def test_analytics_node_restart_affects_only_analytics_reads(tmp_path, selection_timeout_ms):
     """Aggregations go to the analytics node, point reads and writes to the primary. Restarting the
     analytics node (what a rolling resize of the analytics tier does to it) must show as a gap and failures
     on the analytics route only."""
@@ -76,10 +77,11 @@ async def test_analytics_node_restart_affects_only_analytics_reads(tmp_path):
         "operations": {"find": 40, "update": 30, "analytics": 30},
         "keys": {"analytics_docs": 500},
         "read_routing": {"analytics": {"mode": "secondary", "tags": [{"nodeType": "ANALYTICS"}]}},
-        "driver": {"server_selection_timeout_ms": 2000},
         "load": {"model": "open", "rate": 200, "concurrency": 128},
         "schedule": {"warmup_seconds": 3, "steady_seconds": 45},
     }
+    if selection_timeout_ms:
+        profile["driver"] = {"server_selection_timeout_ms": selection_timeout_ms}
     store, run = await run_scenario(tmp_path, profile, lambda: docker(ANALYTICS.split(":")[0], "restart"), "analytics resize")
     try:
         assert run["status"] == "completed", run["error"]
@@ -91,11 +93,22 @@ async def test_analytics_node_restart_affects_only_analytics_reads(tmp_path):
         assert members[primary]["writes"] > 0 and members[primary]["reads"] > 0
         w = next(i for i in run["analysis"]["impacts"] if i["source"] == "markers")
         assert w["route_gaps"]["ANALYTICS"] and w["route_gaps"]["ANALYTICS"]["ms"] >= 1500, w["route_gaps"]
-        assert w["operations"]["analytics"]["err"] > 0, "analytics reads fail while no analytics node is available"
+        if selection_timeout_ms:
+            assert w["operations"]["analytics"]["err"] > 0, (
+                "with a short timeout, analytics reads fail while no analytics node is available"
+            )
+        else:
+            analytics_max = summary["operations"]["analytics"]["response_time"]["max_us"]
+            assert w["operations"]["analytics"]["err"] == 0, "with the default 30 s timeout, analytics reads wait for the node"
+            assert analytics_max >= 2_000_000, f"waiting shows as analytics latency (max {analytics_max} us)"
         assert w["operations"]["find"]["err"] == 0 and w["operations"]["update"]["err"] == 0, w["operations"]
         assert w["longest_write_gap"] is None or w["longest_write_gap"]["ms"] < 1000
+        assert not run["analysis"]["client_bound"]["client_bound"], "waiting on an unavailable node is not a client limit"
+        find_p99 = summary["operations"]["find"]["response_time"]["p99_us"]
+        assert find_p99 < 1_000_000, f"primary reads must not queue behind waiting analytics queries (p99 {find_p99} us)"
         assert any(e["kind"] == "server_state" and e.get("node_type") == "ANALYTICS" for e in w["member_events"]), w["member_events"]
-        assert w["members"][ANALYTICS]["during"]["reads_per_s"] < w["members"][ANALYTICS]["before"]["reads_per_s"]
+        if selection_timeout_ms:
+            assert w["members"][ANALYTICS]["during"]["reads_per_s"] < w["members"][ANALYTICS]["before"]["reads_per_s"]
         routes = run["snapshot"]["preflight"]["routes"]
         assert any(r["name"] == "ANALYTICS" and r["members"] == [ANALYTICS] for r in routes), routes
     finally:
