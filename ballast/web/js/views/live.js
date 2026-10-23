@@ -53,7 +53,25 @@ export async function render(root, [runId]) {
 
   /* ---- charts ---- */
   const chartHost = h("div", { class: "body flush" });
-  const winSeg = segmented(WINDOWS, state.windowSeconds, (v) => { state.windowSeconds = Number(v); charts.setWindow(state.windowSeconds); }, "Time window");
+  let allTimer = null;
+  async function loadAll() {
+    try {
+      const full = await api.get(`api/runs/${runId}/series?max_points=1500`);
+      if (state.windowSeconds === 0) charts.setData(full.points, { step: full.step, markers: state.markers, events: state.events, gaps: state.gaps });
+    } catch (e) { /* keep showing the live window */ }
+  }
+  const winSeg = segmented(WINDOWS, state.windowSeconds, (v) => {
+    state.windowSeconds = Number(v);
+    if (allTimer) { clearInterval(allTimer); allTimer = null; }
+    if (state.windowSeconds === 0) {
+      charts.setWindow(0);
+      loadAll();
+      allTimer = setInterval(loadAll, 15000);
+    } else {
+      charts.setData(state.points, { step: 1 });
+      charts.setWindow(state.windowSeconds);
+    }
+  }, "Time window");
   const levelInput = input({ type: "number", min: "1", step: "1", class: "num-input", style: null, "aria-label": model === "open" ? "Target rate in operations per second" : "Workers" });
   levelInput.value = state.level ? String(Math.round(state.level)) : "";
   const levelBtn = button("Apply", async () => {
@@ -279,7 +297,7 @@ export async function render(root, [runId]) {
       state.elapsed = (state.elapsed || 0) + 1000;
       Object.entries(p.errors || {}).forEach(([k, v]) => { state.errors[k] = (state.errors[k] || 0) + v; });
       if (p.phase === "steady" && p.p99) state.baseP99 = state.baseP99 ? state.baseP99 * 0.98 + p.p99 * 0.02 : p.p99;
-      charts.setData(state.points, { markers: state.markers, events: state.events, gaps: state.gaps });
+      if (state.windowSeconds !== 0) charts.setData(state.points, { markers: state.markers, events: state.events, gaps: state.gaps });
       drawHeader();
       if (++ticks % 2 === 0) { drawFlags(); drawErrors(); }
     } else if (kind === "marker") {
@@ -305,5 +323,5 @@ export async function render(root, [runId]) {
     }
   });
 
-  return () => { unsub(); charts.destroy(); app.keyHandler = null; if (markerOpen) markerOpen.remove(); };
+  return () => { unsub(); if (allTimer) clearInterval(allTimer); charts.destroy(); app.keyHandler = null; if (markerOpen) markerOpen.remove(); };
 }

@@ -8,7 +8,7 @@ Environment: Linux x86-64, 4 CPUs, 15.7 GB RAM; Docker 29.9.1; MongoDB 8.0.34 an
 
 | Check (brief section) | Result | Evidence |
 |---|---|---|
-| Unit tests (12.1) | 139 passed, also with `-W error` | `docs/evidence/unit-tests.txt` |
+| Unit tests (12.1) | 141 passed, also with `-W error` | `docs/evidence/unit-tests.txt` |
 | Integration on MongoDB 8.0, including failover (12.2) | 5 passed | `docs/evidence/integration-mongo-8.0.txt` |
 | Integration on MongoDB 7.0 (12.2, 16.4) | 5 passed | `docs/evidence/integration-mongo-7.0.txt` |
 | Leak checks (12.3) | passed on both versions | `tests/integration/test_leaks.py` in the two files above |
@@ -29,7 +29,7 @@ Environment: Linux x86-64, 4 CPUs, 15.7 GB RAM; Docker 29.9.1; MongoDB 8.0.34 an
 runtime/python/bin/python3 -m pytest tests -v -W error
 ```
 
-139 tests in `tests/unit` (new code) and `tests/legacy` (the original suite, all still passing). What they cover, by brief item:
+141 tests in `tests/unit` (new code) and `tests/legacy` (the original suite, all still passing). What they cover, by brief item:
 
 | Brief 12.1 item | Tests |
 |---|---|
@@ -40,6 +40,7 @@ runtime/python/bin/python3 -m pytest tests -v -W error
 | Error classification | `tests/unit/test_errors.py`: code, code name and labels for NotWritablePrimary, PrimarySteppedDown, DuplicateKey, network classes, bulk write errors, redaction |
 | Impact analysis on synthetic series | `tests/unit/test_analysis.py`: a 300-second series with a known disruption; asserts exact first and last failure times, failed count by class, 6,600 ms write gap, 400 ms read gap, primary change, baseline p99 2 ms, recovery 6 s, disruption detection bounds, client-bound rate and CPU rules, warm-up exclusion |
 | Storage | `tests/unit/test_store.py`: 0600/0700 permissions, migrations with backup, refusal of a newer schema, interrupted runs keep data, retention, cross-process gap intersection |
+| Server sampling without privileges | `tests/unit/test_monitor.py`: `serverStatus` and `replSetGetStatus` answering `Unauthorized` are recorded once each with the fix, never retried, while `hello` keeps being sampled |
 | HTTP security | `tests/unit/test_server_security.py`: CSP and headers, custom header required, cross-origin requests blocked, schema validation, body size limit, password never returned, access gate and cookie flags, profile CRUD/export/import |
 
 With `-W error`, a legacy test (`tests/legacy/test_observability.py`) installs the legacy app's global exception hook, which then logs to a closed stream at interpreter exit and prints `--- Logging error ---`. It does not fail any test and is in the legacy package, so it is left as is.
@@ -148,4 +149,5 @@ Licensing of shipped components: no GPL, AGPL or SSPL package is included (`THIR
 - A real DigitalOcean droplet. Run `bin/verify-host.sh --uri '<connection string>'` there.
 - The systemd user unit autostart path (no systemd in the simulation).
 - Execution of the ARM64 and macOS bundles.
+- Server sampling against a cluster with authentication enforced. The local replica sets run without `--auth`, so the "privileges missing" path is covered by a unit test with a stub client only, and the password test exercises redaction, not server-side authentication.
 - Behavior against sharded clusters and MongoDB Atlas; the tool connects to them, but the tests used replica sets only.

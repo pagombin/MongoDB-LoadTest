@@ -33,7 +33,7 @@ State colors (used only for state):
 | `--warn` | `#9A5800` | `#E0A145` | paused, client-bound, degraded |
 | `--fail` | `#B3261E` | `#F07467` | failed, errors, interrupted |
 
-Contrast checks (WCAG 2.2, normal text needs 4.5:1), computed with the WCAG relative luminance formula: `--ink` on `--paper` 16.2:1 light, 15.0:1 dark; `--muted` on `--paper` 5.8:1 light, 7.4:1 dark; `--accent` on `--surface` 6.0:1 light, 7.0:1 dark; `--fail` on `--surface` 6.5:1 light, 6.2:1 dark; `--warn` 5.6:1 and `--ok` 5.3:1 on white; white text on `--accent` 6.0:1. The accent color can be replaced by `branding.accent_color`; the server rejects colors that fall under 4.5:1 against white and logs a warning.
+Contrast checks (WCAG 2.2, normal text needs 4.5:1), computed with the WCAG relative luminance formula: `--ink` on `--paper` 16.2:1 light, 15.0:1 dark; `--muted` on `--paper` 5.8:1 light, 7.4:1 dark; `--accent` on `--surface` 6.0:1 light, 7.0:1 dark; `--fail` on `--surface` 6.5:1 light, 6.2:1 dark; `--warn` 5.6:1 and `--ok` 5.3:1 on white; white text on `--accent` 6.0:1. The accent color can be replaced by `branding.accent_color`; colors under 4.5:1 against white are accepted but produce a warning at startup, in `ballast config validate`, and on the System page.
 
 ### 2.2 Chart palette
 

@@ -22,6 +22,15 @@ from ballast import product
 
 SECRET_KEYS = {"access_token", "password"}
 RESERVED_ENV = {"home", "config", "supervised", "foreground"}
+PERMISSION_WARNINGS: list[str] = []
+
+
+def contrast_with_white(hex_color: str) -> float:
+    """WCAG contrast ratio of a #RRGGBB color against white."""
+    channels = [int(hex_color[i : i + 2], 16) / 255 for i in (1, 3, 5)]
+    linear = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+    luminance = 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+    return 1.05 / (luminance + 0.05)
 
 
 class ConfigError(Exception):
@@ -114,6 +123,10 @@ class BrandingConfig(Section):
     def _color(cls, value: str) -> str:
         if value and not re.match(r"^#[0-9a-fA-F]{6}$", value):
             raise ValueError("accent_color must be a hex color like #0B6E77")
+        if value and contrast_with_white(value) < 4.5:
+            PERMISSION_WARNINGS.append(
+                f"branding.accent_color {value} has a contrast ratio of {contrast_with_white(value):.1f}:1 against white; text on buttons needs at least 4.5:1. Choose a darker color."
+            )
         return value
 
     @field_validator("product_name")
@@ -334,9 +347,6 @@ class Loaded:
                 preset["password"] = "****"  # noqa: S105
             preset["uri"] = redact_uri(preset["uri"])
         return data
-
-
-PERMISSION_WARNINGS: list[str] = []
 
 
 def read_secret_file(path: Path, key: str) -> str:

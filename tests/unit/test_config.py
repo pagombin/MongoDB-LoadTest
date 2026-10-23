@@ -165,3 +165,14 @@ def test_reserved_environment_variables_are_ignored(tmp_path):
         "BALLAST_TEST_URI": "mongodb://h/",
     }
     assert load(None, [], environ=env, home=tmp_path).config.server.listen == "127.0.0.1:8443"
+
+
+def test_low_contrast_accent_color_warns(tmp_path):
+    from ballast import config as cfgmod
+
+    cfgmod.PERMISSION_WARNINGS.clear()
+    load(None, ["branding.accent_color=#F0E442"], environ={}, home=tmp_path)
+    assert any("contrast ratio" in w for w in cfgmod.PERMISSION_WARNINGS)
+    cfgmod.PERMISSION_WARNINGS.clear()
+    load(None, ["branding.accent_color=#0B6E77"], environ={}, home=tmp_path)
+    assert cfgmod.PERMISSION_WARNINGS == []
