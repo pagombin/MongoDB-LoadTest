@@ -8,19 +8,23 @@ Environment: Linux x86-64, 4 CPUs, 15.7 GB RAM; Docker 29.9.1; MongoDB 8.0.34 an
 
 | Check (brief section) | Result | Evidence |
 |---|---|---|
-| Unit tests (12.1) | 148 passed, also with `-W error` | `docs/evidence/unit-tests.txt` |
+| Unit tests (12.1) | 198 passed, also with `-W error` | `docs/evidence/unit-tests.txt` |
 | Integration on MongoDB 8.0, including failover (12.2) | 5 passed | `docs/evidence/integration-mongo-8.0.txt` |
 | Integration on MongoDB 7.0 (12.2, 16.4) | 5 passed | `docs/evidence/integration-mongo-7.0.txt` |
 | Leak checks (12.3) | passed on both versions | `tests/integration/test_leaks.py` in the two files above |
 | Soak, 2 hours (12.4) | see section 5 | `docs/evidence/soak.csv`, `docs/evidence/soak.svg` |
-| Browser end-to-end (12.5) | 17 of 17 checks passed | `docs/evidence/e2e-browser.txt` |
-| Accessibility scan, WCAG 2.2 A/AA rules (7.3.3) | 0 violations, 16 page and theme combinations | `docs/evidence/a11y-axe.txt` |
+| Browser end-to-end (12.5) | 20 of 20 checks passed | `docs/evidence/e2e-browser.txt` |
+| Accessibility scan, WCAG 2.2 A/AA rules (7.3.3) | 0 violations, 22 page, dialog and theme combinations | `docs/evidence/a11y-axe.txt` |
 | Lint, format, type checks (12.6) | 0 errors, 0 warnings | `docs/evidence/static-checks.txt` |
 | Dependency vulnerabilities (11.9) | No known vulnerabilities in 53 pinned packages | `docs/evidence/pip-audit.txt` |
 | Simulated fresh host (12.7) | 23 of 23 host checks passed, plus the steps in section 7 | `docs/evidence/fresh-host.log` |
 | Install from git (10.1.2) | passed | `docs/evidence/git-install.txt` |
 | Certificate reload on SIGHUP (9.3) | passed | `docs/evidence/sighup-reload.txt` |
 | Legacy dashboard behind its flag (2.3) | refused when off, runs when on | `docs/evidence/legacy-flag.txt` |
+| Python 3.10 with only the three required packages | 93 unit tests passed, 1 skipped (the PyYAML comparison) | section 1 |
+| Install on Ubuntu 22.04 without `python3-venv` (pip 22, `pip --target`) | install, doctor and 21 of 21 host checks including a load run | `docs/evidence/install-ubuntu22-no-venv.log` |
+| Offline kit on Ubuntu 22.04 with no network | install, doctor 0 failures, start, health | `docs/evidence/install-offline-kit.log` |
+| Headless `ballast run` exit codes | 2 integration tests passed (SLO pass and fail, guardrail stop) | `tests/integration/test_headless.py` |
 | Release bundles (10.2) | linux-amd64, linux-arm64, darwin-arm64 with SHA-256, notices and SBOM | section 8 |
 
 ## 1. Unit tests
@@ -29,7 +33,7 @@ Environment: Linux x86-64, 4 CPUs, 15.7 GB RAM; Docker 29.9.1; MongoDB 8.0.34 an
 runtime/python/bin/python3 -m pytest tests -v -W error
 ```
 
-148 tests in `tests/unit` (new code) and `tests/legacy` (the original suite, all still passing). What they cover, by brief item:
+198 tests in `tests/unit` (new code) and `tests/legacy` (the original suite, all still passing). What they cover, by brief item:
 
 | Brief 12.1 item | Tests |
 |---|---|
@@ -40,6 +44,8 @@ runtime/python/bin/python3 -m pytest tests -v -W error
 | Error classification | `tests/unit/test_errors.py`: code, code name and labels for NotWritablePrimary, PrimarySteppedDown, DuplicateKey, network classes, bulk write errors, redaction |
 | Impact analysis on synthetic series | `tests/unit/test_analysis.py`: a 300-second series with a known disruption; asserts exact first and last failure times, failed count by class, 6,600 ms write gap, 400 ms read gap, primary change, baseline p99 2 ms, recovery 6 s, disruption detection bounds, client-bound rate and CPU rules, warm-up exclusion, ramp steps and lowered levels not flagged as disruptions |
 | Engine keys and merging | `tests/unit/test_keys_runs.py`: upsert keys never collide with insert keys; a generator process's second that arrives after the straggler timeout is merged into the stored second |
+| Install without optional packages | `tests/unit/test_tls.py` (pure-Python certificate: TLS handshake, signature checked with `cryptography`, foreign certificates parsed), `tests/unit/test_miniyaml.py` (built-in YAML reader against PyYAML), `tests/unit/test_doctor.py` |
+| Guardrails, SLO, exports, API additions | `tests/unit/test_features.py`: guardrail streaks and warm-up exclusion, SLO verdicts, webhook payloads, Markdown summary, Prometheus text, PATCH validation and CSRF, backup and restore |
 | Storage | `tests/unit/test_store.py`: 0600/0700 permissions, migrations with backup, refusal of a newer schema, interrupted runs keep data, retention, cross-process gap intersection |
 | Server sampling without privileges | `tests/unit/test_monitor.py`: `serverStatus` and `replSetGetStatus` answering `Unauthorized` are recorded once each with the fix, never retried, while `hello` keeps being sampled |
 | HTTP security | `tests/unit/test_server_security.py`: CSP and headers, custom header required, cross-origin requests blocked, schema validation, body size limit, password never returned, access gate and cookie flags, profile CRUD/export/import |

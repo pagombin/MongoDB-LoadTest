@@ -1,5 +1,5 @@
 PY ?= runtime/python/bin/python3
-TARGETS ?= linux-amd64,linux-arm64,darwin-arm64
+TARGETS ?= linux-amd64,linux-arm64,darwin-arm64,darwin-amd64
 
 .PHONY: build dev test integration e2e lint format typecheck audit release clean
 

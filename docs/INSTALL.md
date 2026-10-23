@@ -2,7 +2,17 @@
 
 Every method below runs as a normal user. None needs root, `sudo`, or system packages, and the installed app needs no internet access except to your MongoDB cluster.
 
-Supported hosts: Linux on x86-64 or ARM64 with glibc 2.17 or later (any current distribution), and macOS 11 or later on Apple Silicon for local use.
+Supported hosts: Linux on x86-64 or ARM64 with glibc 2.17 or later (any current distribution), and macOS 11 or later on Apple Silicon or Intel for local use.
+
+There are three ways in. Pick the first one your server allows:
+
+| Your server | Use |
+|---|---|
+| Can receive a file you copy to it | **Release bundle** below. Brings its own Python; nothing is installed on the host. |
+| Has Python 3.10 or later and `pip` reaches PyPI | **With the host's Python and pip** below. Works without `python3-venv`. |
+| Has Python 3.10 or later but no internet | **Offline kit** below. Built on another machine, installed with no network. |
+
+Whichever you use, `bin/ballast doctor` checks the host afterwards and prints the exact command for anything missing.
 
 ## From a release bundle
 
@@ -66,6 +76,56 @@ ballast-1.0.0/
 ```
 
 `runtime/python` is a private Python 3.12 with every dependency already installed. Ballast does not use any Python on the host.
+
+## With the host's Python and pip
+
+Ballast needs only three packages: `aiohttp`, `pydantic` and `pymongo`. Everything else is optional:
+
+| Package | Adds | Without it |
+|---|---|---|
+| `pyyaml` | Every YAML feature in the config file | A built-in reader handles plain mappings, lists and scalars, which is all the shipped example uses |
+| `faker` | The `schema` document shape | Only the `simple` document shape |
+| `dnspython` | `mongodb+srv://` connection strings | List the hosts in a `mongodb://` string (it comes with `pymongo` in normal installs) |
+| `zstandard`, `python-snappy` | zstd and snappy wire compression | zlib compression |
+
+Neither `cryptography` nor `openssl` is needed: the self-signed certificate is generated in pure Python.
+
+From a checkout or an unpacked source archive:
+
+```
+sh scripts/install.sh --prefix ~/ballast
+~/ballast/bin/ballastctl start
+```
+
+The script:
+
+1. Finds Python 3.10 or later (`--python /path/to/python3` to choose one) and checks it has `sqlite3` and `ssl`.
+2. Makes a virtual environment in `~/ballast/runtime/venv`. If `venv` or `ensurepip` is missing (common on Debian and Ubuntu without `python3-venv`), it installs with `pip --target ~/ballast/runtime/site` instead.
+3. Installs the three required packages. If one has no wheel for this host and there is no compiler, it retries the aiohttp family in pure-Python mode.
+4. Installs each optional package on its own. A failure only disables what that package adds.
+5. Copies Ballast itself in. It is pure Python, so nothing is built and setuptools is not needed.
+6. Runs `bin/ballast doctor`.
+
+`--minimal` skips the optional packages. Everything lives under the prefix; remove the directory to uninstall.
+
+On a recent pip (23 or later) `pip install .` and `pip install ".[all]"` from a checkout also work. The installer does not build a package on purpose: Ubuntu 22.04's pip 22 with `--target` builds it with the system setuptools 59, which cannot read `pyproject.toml` and produces an empty package named `UNKNOWN`.
+
+## Offline kit
+
+On a machine with internet access and the same architecture family, build a kit for the server's Python version:
+
+```
+sh scripts/make-wheelhouse.sh --python-version 3.10 --arch x86_64
+```
+
+It writes `dist/ballast-1.0.0-offline-py310-x86_64.tar.gz` with the source and prebuilt wheels. Use a Python of the target version to build it if you can (`PYTHON=python3.10`); otherwise the script adds the version-specific dependencies itself. Copy the kit to the server and run:
+
+```
+tar -xzf ballast-1.0.0-offline-py310-x86_64.tar.gz
+sh ballast-1.0.0-offline/scripts/install.sh --wheelhouse ballast-1.0.0-offline/wheelhouse --prefix ~/ballast
+```
+
+`docs/evidence/install-offline-kit.log` shows this on Ubuntu 22.04 with no network, and `docs/evidence/install-ubuntu22-no-venv.log` shows the online route on the same system without `python3-venv`.
 
 ## From git
 

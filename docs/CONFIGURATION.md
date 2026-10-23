@@ -132,6 +132,17 @@ Retention runs at startup and then hourly. It never deletes an active run.
 | Key | Default | Environment variable | Meaning |
 |---|---|---|---|
 | `features.legacy_dashboard` | `false` | `BALLAST_FEATURES_LEGACY_DASHBOARD` | Allow `bin/ballast legacy run -c FILE`, the original Dash dashboard. See `docs/LEGACY.md`. |
+| `features.prometheus_metrics` | `true` | `BALLAST_FEATURES_PROMETHEUS_METRICS` | Serve `GET /metrics` (behind the access gate when one is set). See `docs/OPERATIONS.md`. |
+
+### `notifications`
+
+| Key | Default | Environment variable | Meaning |
+|---|---|---|---|
+| `notifications.webhook_url` | `""` | `BALLAST_NOTIFICATIONS_WEBHOOK_URL` | URL to POST Slack-compatible JSON to. Empty turns notifications off. |
+| `notifications.events` | `["run_finished", "guardrail"]` | `BALLAST_NOTIFICATIONS_EVENTS` | Any of `run_started`, `run_finished`, `guardrail`, `disruption`. |
+| `notifications.timeout_seconds` | `5` | `BALLAST_NOTIFICATIONS_TIMEOUT_SECONDS` | How long one delivery may take. |
+
+The configuration file is read with PyYAML when it is installed. Without it a built-in reader handles mappings, lists, flow lists such as `["a", "b"]`, quoted and plain scalars, comments and block text. It refuses anchors, aliases, tags and multiple documents with a message saying so.
 
 ### `targets`
 

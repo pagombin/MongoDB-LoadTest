@@ -1,7 +1,7 @@
 """Build offline release bundles: private Python, pinned wheels, the app, notices, SBOM, checksums.
 
 Usage: python scripts/build_release.py [--targets linux-amd64,linux-arm64,darwin-arm64] [--out dist]
-darwin-amd64 is defined but not built by default: cryptography publishes no Intel macOS wheels after 48.0.1.
+darwin-amd64 is built too since 1.0.0 dropped the cryptography dependency (see D-018).
 Needs network access to download Python builds and wheels; the resulting bundles need none.
 """
 
@@ -370,7 +370,7 @@ def build(target: str, out: Path, commit: str, built: str) -> Path:
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--targets", default="linux-amd64,linux-arm64,darwin-arm64")
+    parser.add_argument("--targets", default="linux-amd64,linux-arm64,darwin-arm64,darwin-amd64")
     parser.add_argument("--out", default=str(ROOT / "dist"))
     args = parser.parse_args()
     commit = (

@@ -36,7 +36,7 @@ Screenshots of every page are in `docs/design/after/`, with the old app in `docs
 - **D-002**: kept Python and replaced Dash with a plain HTML/JS front end, instead of a Go rewrite.
 - **D-003**: the old dashboard is kept, off by default, as `ballast legacy`.
 - **D-006**: how marker labels pair into impact windows ("... started" with "... finished").
-- **D-018**: the macOS bundle is Apple Silicon only. Intel Mac needs an older `cryptography` pin.
+- **D-027**: self-signed certificates are now generated in pure Python, so `cryptography` is no longer needed. Tested against `ssl`, `cryptography` and `openssl`, but not externally reviewed.
 - **D-023**: one commit accidentally added about 250 MB of downloads, removed in the next commit. **Merge with squash** so the default branch never contains them.
 
 ## Blocked

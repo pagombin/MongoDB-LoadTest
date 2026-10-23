@@ -95,6 +95,12 @@ For each window (a pair of begin and end markers, a range you select in the repo
 
 All thresholds can be changed per profile in `analysis` (see the profile JSON).
 
+## Guardrails and pass/fail criteria
+
+A guardrail looks at each measured second as it is written (warm-up, data load, pauses and the stop drain do not count). A second breaches when its failed share is above `max_error_percent`, or its p99 response time (from that second's merged histogram) is above `max_p99_ms`. After `sustain_seconds` breaching seconds in a row, the run stops with reason `guardrail`; one good second resets the count.
+
+Pass/fail criteria are evaluated once, on the run summary described above (merged histograms over all measured seconds). `min_throughput_ratio` divides the mean successful throughput by the open-model target rate; in the closed model it is reported as not evaluated. A criterion that cannot be evaluated does not fail the run.
+
 ## Client-bound runs
 
 A load test only measures the database if the generator keeps up. Ballast flags a run as **client-bound** when, for at least 10 consecutive measured seconds:

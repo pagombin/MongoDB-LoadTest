@@ -135,15 +135,33 @@ kill -HUP "$(cat run/supervisor.pid)"
 
 The supervisor passes the signal on. New connections use the new certificate; open connections are not dropped. A failed reload keeps the previous certificate and logs why.
 
+## Checking the host
+
+```
+bin/ballast doctor
+bin/ballast doctor --uri 'mongodb://user:password@host:27017/?replicaSet=rs0'
+```
+
+`doctor` checks the Python version, `sqlite3` and `ssl`, the required and optional packages and their compiled speedups, that generator processes can start, that `data/`, `logs/` and `run/` are writable, and that the listen port is free. With `--uri` it also connects and checks whether server sampling is allowed. Each WARN or FAIL line comes with the command that fixes it, and the exit code is 1 if anything failed. `--json` prints the same as JSON. The System page shows the same list under **Installed components**.
+
 ## Backup and restore
 
-Everything Ballast stores is in `data/`. A consistent copy while it is running:
+Everything Ballast stores is in `data/`. A consistent copy, safe while it is running:
 
 ```
-runtime/python/bin/python3 -c "import sqlite3; s=sqlite3.connect('data/ballast.db'); d=sqlite3.connect('backup.db'); s.backup(d)"
+bin/ballastctl backup
+bin/ballastctl backup /path/to/ballast-backup.db
 ```
 
-Or stop Ballast and copy the directory:
+Without a file name it writes `data/backups/ballast-manual-<time>.db`. To restore one, stop Ballast first. The current store is kept as `data/backups/ballast-pre-restore-<time>.db`:
+
+```
+bin/ballastctl stop
+bin/ballastctl restore /path/to/ballast-backup.db
+bin/ballastctl start
+```
+
+Or stop Ballast and copy the whole directory:
 
 ```
 bin/ballastctl stop
@@ -152,6 +170,46 @@ bin/ballastctl start
 ```
 
 To restore, stop Ballast, replace `data/` with the copy, keep `data/` at mode 0700 and `data/ballast.db` at 0600, and start it. `data/session.key` signs access-gate cookies; if it is lost, users enter the token again.
+
+## Metrics for Prometheus
+
+`GET /metrics` returns the active run's latest second in Prometheus text format: successful and failed operations per second, target rate, backlog, generator CPU, p50/p99/max response time, failures by class since the run started, and the number of stored runs by status. With an access token configured, scrape with a bearer token:
+
+```yaml
+scrape_configs:
+  - job_name: ballast
+    scheme: https
+    bearer_token_file: /etc/prometheus/ballast.token
+    tls_config:
+      ca_file: /etc/prometheus/ballast.crt
+    static_configs:
+      - targets: ["ballast.example.com:8443"]
+```
+
+Turn it off with `features.prometheus_metrics: false`.
+
+## Notifications
+
+Set `notifications.webhook_url` to a Slack incoming webhook, or any URL that accepts a JSON POST. Ballast posts `{"text": ..., "event": ..., "run": {...}}` for the events listed in `notifications.events`: `run_started`, `run_finished` (with throughput, p99, failures, the SLO verdict and the number of impact windows), `guardrail`, and `disruption` (operations started failing after at least 30 clean seconds, at most once a minute). With `server.public_url` set, each message links to the report. A failed delivery is logged and never affects the run.
+
+## Running from scripts and CI
+
+`bin/ballast run` runs one workload without the web server and exits when it ends:
+
+```
+bin/ballast run --uri "$MONGODB_URI" --profile ci.yaml --duration 300 --json result.json --markdown result.md
+```
+
+`--profile` takes a JSON or YAML profile file or the name of a saved profile. `--rate`, `--concurrency`, `--processes`, `--duration` and `--warmup` override the profile. It prints a progress line every 5 seconds to stderr and a Markdown summary to stdout. Pass `--yes` to confirm writing into a database that already has other collections. The run is saved in `data/`, so it appears in the UI later.
+
+| Exit code | Meaning |
+|---|---|
+| 0 | Completed, and the profile's pass/fail criteria passed or none were set |
+| 1 | Completed, but a pass/fail criterion failed |
+| 2 | Could not start (connection, confirmation needed, invalid profile) |
+| 3 | The run failed |
+| 4 | Stopped by a guardrail |
+| 130 | Interrupted with Ctrl-C (the first Ctrl-C drains and keeps the results) |
 
 ## Troubleshooting
 

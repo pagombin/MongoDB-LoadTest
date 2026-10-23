@@ -22,6 +22,13 @@ First release under the name Ballast. The previous tool (`mongo_load_tester`) is
 - `ballastctl` with a built-in supervisor (crash restart with backoff), PID files, status and health exit codes, log rotation, and autostart via systemd user unit or crontab.
 - Self-contained release bundles for Linux x86-64, Linux ARM64 and macOS Apple Silicon, with checksums, third-party notices and a CycloneDX SBOM.
 - Local storage in SQLite under `data/` with backed-up schema migrations; runs active during a restart are marked interrupted and keep their data.
+- Installs with the host's Python 3.10 or later and pip, needing only `aiohttp`, `pydantic` and `pymongo`: `scripts/install.sh` works without `python3-venv`, and `scripts/make-wheelhouse.sh` builds an offline kit. PyYAML and Faker are optional; `cryptography` and `openssl` are not used.
+- `ballast doctor` checks a host and prints the command for anything missing; the System page lists the same.
+- Guardrails that stop a run when failures or p99 stay over a limit, and pass/fail criteria (SLO) per profile.
+- `ballast run` for headless runs in CI, with exit codes for pass, fail, guardrail and errors.
+- Webhook notifications, Prometheus `/metrics`, `ballastctl backup` and `restore`.
+- Run notes and tags, Run again, Copy summary (Markdown), Markdown export, tag filter and filters kept in the address, live progress bar and tab title, desktop notifications, compare deltas, a Ctrl+K command palette.
+- macOS Intel bundle (`darwin-amd64`).
 
 ### Fixed (legacy engine)
 

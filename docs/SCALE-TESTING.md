@@ -26,6 +26,13 @@ Settings worth deciding before you start:
 | Data load | Load enough documents that the working set resembles production. |
 | Steady duration | "Until I stop it" is easiest for scale tests. |
 
+Two optional settings matter when the cluster serves real traffic:
+
+- **Guardrails** stop the run by itself when more than a given share of operations fail, or p99 stays above a limit, for a number of measured seconds in a row (10 by default). Use them when testing against production, so a bad change does not keep adding load. A guardrail stop is shown on the report with its reason, and everything up to the stop is kept.
+- **Pass/fail criteria** (SLO) are checked against the whole measured run: p50, p99 and max response time, share of failed operations, throughput, and share of the target rate achieved. The report shows a verdict per criterion, the runs list has an SLO column, and `bin/ballast run` exits with code 1 when one fails.
+
+Both are in the profile and in the **Schedule** step of **New run**.
+
 ## 3. Start the run and wait for a baseline
 
 Start the run from **New run**. Let it reach the steady phase and run for at least the baseline length (60 seconds by default) before you change anything, so the impact analysis has a clean "before" to compare against.
@@ -86,7 +93,9 @@ To analyse a range without markers, zoom the charts to it (drag across a chart) 
 
 ## 7. Compare and share
 
-- **Compare with...** puts runs on the same axes, aligned at their start or at a marker such as "resize started", so you can compare two resize methods or two driver settings.
+- **Run again** on the report starts the same workload against the same target, so a before/after pair takes one click. Notes and tags help find runs later: add them on the report, and filter the runs list by tag. Filtered lists keep their filters in the address, so you can bookmark or share them.
+- **Copy summary** puts a Markdown summary on the clipboard (headline numbers, pass/fail verdict, one line per impact window) for a ticket or a chat message. **Markdown** downloads the same text.
+- **Compare with...** puts runs on the same axes, aligned at their start or at a marker such as "resize started", so you can compare two resize methods or two driver settings. The summary table shows each run's change against the first one, green when better and red when worse.
 - **Export HTML** gives a single file with the charts, impact table and configuration snapshot. It works offline and prints to PDF.
 - **CSV** and **JSON** contain every second, with full histograms in the JSON.
 

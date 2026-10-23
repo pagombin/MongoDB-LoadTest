@@ -100,12 +100,12 @@ Each entry: the question, the options considered, the choice, why, and how hard 
 - Choice: archives unpack to `ballast-<version>/` with the brief's layout inside, plus `runtime/python` (private CPython 3.12 with all dependencies in its site-packages), `LICENSE`, `README.md`, `sbom.cdx.json`, and `bin/verify-host.sh`.
 - Reverse: easy (archive naming only).
 
-## D-018 macOS bundle for Apple Silicon only — **Review first**
+## D-018 macOS bundles (resolved by D-027)
 
 - Question: the brief asks for a darwin bundle for local development.
 - Evidence: `pip download --platform macosx_*_x86_64 cryptography==50.0.2` fails; the newest Intel macOS wheel is 48.0.1.
-- Choice: build `darwin-arm64` by default. `darwin-amd64` stays defined in `scripts/build_release.py`; building it needs a per-target lock with cryptography 48.0.1.
-- Reverse: moderate.
+- First choice: build `darwin-arm64` only.
+- Update: since D-027 removed `cryptography`, `darwin-amd64` builds from the same lock and is a default target. Its interpreter and compiled extensions were checked to be x86-64 Mach-O; it was not run on a Mac.
 
 ## D-019 Legacy dependencies ship without Kaleido
 
@@ -148,6 +148,44 @@ Each entry: the question, the options considered, the choice, why, and how hard 
 ## D-026 Generator processes per run
 
 - Choice: default 1 generator process; profiles can set up to 64. One process ran 400 ops/s at about 27% of one core in the browser test (`docs/design/after/03-live.png`, "Generator CPU"). Client-bound detection tells you when to add more.
+
+## D-027 Self-signed certificates in pure Python — **Review first**
+
+- Question: `cryptography` was the only compiled dependency that is hard to install on locked-down hosts, and it was used only to make and read the self-signed certificate.
+- Options: (a) keep it required; (b) call the `openssl` command when present; (c) generate RSA-2048 keys and DER-encode the certificate in Python.
+- Choice: (c), in `ballast/tls.py` (about 250 lines). RSA-2048 with SHA-256, SAN, key usage, server-auth EKU, 397-day validity. Certificates from files (`tls.mode: files`) can be any key type; only their fields are read.
+- Evidence: `tests/unit/test_tls.py` completes a TLS handshake with Python's `ssl`, verifies the signature with `cryptography`, and parses a certificate made by `cryptography`; `openssl x509 -text`, `openssl rsa -check` and `openssl verify` accept the output; Chromium loads the UI over it in the browser test.
+- Cost: an RSA key takes about 1 s to generate instead of milliseconds for EC; this happens once per certificate. Key generation uses `secrets` (the OS random source); the code has not had an external cryptography review.
+- Reverse: easy; the module keeps its interface.
+
+## D-028 Built-in reader for the YAML subset the config uses
+
+- Question: PyYAML is usually installable, but not always.
+- Choice: use PyYAML when present; otherwise `ballast/miniyaml.py` reads mappings, lists, flow collections, scalars with YAML 1.1 resolution (so `off` is false, as with PyYAML), comments and block text, and refuses anchors, tags and multiple documents with a message naming PyYAML.
+- Evidence: `tests/unit/test_miniyaml.py` compares it with PyYAML on the shipped example and on edge cases.
+- Reverse: easy.
+
+## D-029 Python 3.10 floor
+
+- Question: Ubuntu 22.04 and other common servers ship Python 3.10; the code required 3.11.
+- Choice: `requires-python >= 3.10`. Only `datetime.UTC` needed replacing. Unit tests pass on 3.10 with only the three required packages.
+- Reverse: easy.
+
+## D-030 The pip installer copies Ballast instead of building it
+
+- Question: on Ubuntu 22.04, `pip install --target` with pip 22 builds packages with the system setuptools 59, which ignores `pyproject.toml` and installs an empty `UNKNOWN` package.
+- Choice: `scripts/install.sh` installs only dependencies with pip and copies the pure-Python `ballast` and `mongo_load_tester` packages into `runtime/site`. `bin/ballast` starts Python with `-I` through `bin/ballast-launch.py`, so the current directory and `PYTHON*` variables cannot change what is imported.
+- Reverse: easy.
+
+## D-031 Guardrails and SLO criteria are off unless set
+
+- Choice: profiles start with no guardrail and no criteria, because sensible limits depend on the cluster. The wizard shows both in the Schedule step. Guardrails count only measured seconds, so warm-up and data load cannot trip them.
+- Reverse: easy.
+
+## D-032 `/metrics` on by default
+
+- Choice: Prometheus metrics are served by default (`features.prometheus_metrics: true`), behind the same access gate as everything else, and the server listens on 127.0.0.1 by default. They expose run names and error classes, nothing secret.
+- Reverse: set the flag to false.
 
 ## Blocked
 

@@ -4,7 +4,7 @@ Ballast is a load testing tool for MongoDB clusters. It sends a steady, controll
 
 ![Live run view](docs/design/after/03-live.png)
 
-It runs as a normal user with no root access, ships as one archive with its own Python runtime, serves its UI over HTTPS, and makes no network requests other than to your cluster.
+It runs as a normal user with no root access, ships as one archive with its own Python runtime, serves its UI over HTTPS, and makes no network requests other than to your cluster. If you cannot copy an archive to the server, it also installs with the host's Python 3.10+ and pip, needing only `aiohttp`, `pydantic` and `pymongo` and no virtual environment (`sh scripts/install.sh`), or from an offline kit. Runs can stop themselves with guardrails, pass or fail against SLO criteria, run headless in CI (`bin/ballast run`), post to a webhook and expose Prometheus metrics.
 
 ## Five-minute quick start
 

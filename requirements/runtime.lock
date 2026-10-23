@@ -8,11 +8,9 @@ annotated-types==0.8.0
 attrs==26.1.0
 blinker==1.9.0
 certifi==2026.10.19
-cffi==2.1.1
 charset-normalizer==3.5.2
 click==8.5.0
 comm==0.2.3
-cryptography==50.0.2
 dash==4.4.1
 dnspython==2.9.0
 Faker==40.43.0
@@ -33,7 +31,6 @@ packaging==26.3
 pillow==13.0.0
 plotly==7.1.0
 propcache==0.5.4
-pycparser==3.12
 pydantic==2.14.1
 pydantic_core==2.50.1
 Pygments==2.21.0
