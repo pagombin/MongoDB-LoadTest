@@ -1,8 +1,10 @@
 // End-to-end browser test: create a target, start a run, add markers, pause, stop, export the report.
 // Also captures screenshots of every page in light and dark themes when SHOTS is set.
+// Set E2E_DISRUPT_CMD to a shell command to run right after the "resize started" marker (for example an fsyncLock).
 // Usage: BASE=https://127.0.0.1:8443/ BALLAST_TEST_URI=mongodb://... node tests/e2e/run.mjs
 import { createRequire } from 'node:module';
 import { mkdirSync, statSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 
 const require = createRequire(import.meta.url);
 let playwright;
@@ -39,7 +41,13 @@ async function step(name, fn) {
 async function shot(name, full = true) {
   if (!shots) return;
   await page.waitForTimeout(400);
-  await page.screenshot({ path: `${shots}/${name}.png`, fullPage: full });
+  await page.evaluate(() => document.querySelectorAll('.toast').forEach((t) => t.remove()));
+  if (!full) { await page.screenshot({ path: `${shots}/${name}.png` }); return; }
+  const height = await page.evaluate(() => document.documentElement.scrollHeight);
+  await page.setViewportSize({ width: 1440, height: Math.max(900, height) });
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: `${shots}/${name}.png` });
+  await page.setViewportSize({ width: 1440, height: 900 });
 }
 
 let runId = null;
@@ -107,6 +115,7 @@ await step('add markers with keyboard shortcut', async () => {
   await page.fill('#marker-label', 'resize started');
   await page.keyboard.press('Enter');
   await page.waitForSelector('text=Marker: resize started', { timeout: 10000 });
+  if (process.env.E2E_DISRUPT_CMD) spawn('sh', ['-c', process.env.E2E_DISRUPT_CMD], { stdio: 'ignore' });
   await page.waitForTimeout(8000);
   await page.keyboard.press('m');
   await page.fill('#marker-label', 'resize finished');

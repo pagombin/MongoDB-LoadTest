@@ -304,6 +304,9 @@ class App:
                 return web.FileResponse(path, headers={"Cache-Control": "no-cache"})
         return web.FileResponse(WEB_DIR / "img" / "wordmark.svg", headers={"Cache-Control": "no-cache"})
 
+    async def favicon(self, request: web.Request) -> web.StreamResponse:
+        return web.FileResponse(WEB_DIR / "img" / "favicon-32.png", headers={"Content-Type": "image/png", "Cache-Control": "max-age=86400"})
+
     # ---- meta ----
 
     async def health(self, request: web.Request) -> web.Response:
@@ -779,6 +782,7 @@ class App:
         r.add_get("/", self.index)
         r.add_route("*", "/auth", self.auth_page)
         r.add_get("/branding/logo", self.logo)
+        r.add_get("/favicon.ico", self.favicon)
         r.add_get("/api/health", self.health)
         r.add_get("/api/about", self.about)
         r.add_get("/api/system", self.system)

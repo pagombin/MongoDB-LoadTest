@@ -82,6 +82,8 @@
             if (showLabels) {
               c.fillStyle = t.muted;
               c.font = t.font;
+              c.textAlign = "left";
+              c.textBaseline = "alphabetic";
               c.fillText(span.label, Math.max(x0, u.bbox.left) + 4 * devicePixelRatio, top + h - 6 * devicePixelRatio);
             }
           });
@@ -151,7 +153,7 @@
       hooks: {
         draw: [function (u) {
           var c = u.ctx, t = ctx.theme, dpr = devicePixelRatio;
-          var rowH = LANE_ROW_H * dpr;
+          var rowH = u.bbox.height / LANE_ROWS.length;
           var left = u.bbox.left, right = u.bbox.left + u.bbox.width, top = u.bbox.top;
           c.save();
           c.font = t.font;
@@ -369,7 +371,7 @@
       { label: "marker", color: t.accent, style: "bar" }, { label: "topology event", color: t.warn, style: "bar" },
       { label: "errors", color: t.fail, style: "bar" }, { label: "write gap", color: t.c3 }, { label: "read gap", color: t.c1 }
     ]);
-    var lane = new uPlot(Object.assign(common(LANE_ROWS.length * LANE_ROW_H + 34, [lanePlugin(ctx)]), {
+    var lane = new uPlot(Object.assign(common(LANE_ROWS.length * LANE_ROW_H + 44, [lanePlugin(ctx)]), {
       series: [{}, { label: "", stroke: "transparent", points: { show: false } }],
       axes: [axisX(t), { show: true, size: Y_AXIS, stroke: "transparent", grid: { show: false }, ticks: { show: false }, values: function () { return []; } }],
       scales: { x: { time: true }, y: { range: [0, 1] } }

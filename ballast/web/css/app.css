@@ -62,7 +62,7 @@ main.view { min-width: 0; padding: 20px 28px 48px; }
 .panel > header .meta { color: var(--muted); font-size: var(--t-sm); }
 .panel > .body { padding: var(--pad); }
 .panel > .body.flush { padding: 0; }
-.grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: start; }
 .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 .split { display: grid; grid-template-columns: minmax(0, 3fr) minmax(320px, 2fr); gap: 16px; align-items: start; }
 .stack > * + * { margin-top: var(--gap); }
@@ -309,3 +309,6 @@ body.report-export { max-width: 1280px; margin: 0 auto; padding: 0 24px 48px; }
   main.view { padding: 0; }
 }
 table.data td.hot { color: var(--fail); font-weight: 500; }
+table.impact-table td { white-space: normal; padding-top: 6px; padding-bottom: 6px; }
+table.impact-table th { white-space: normal; line-height: 16px; }
+span.hot { color: var(--fail); font-weight: 500; }

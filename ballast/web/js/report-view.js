@@ -76,14 +76,13 @@
     var btn = h("button", { class: "btn quiet small", "aria-expanded": expanded ? "true" : "false", onclick: toggle, text: expanded ? "Hide" : "Details" });
     var row = h("tr", null, [
       h("td", { class: "wrap" }, [h("strong", { text: imp.label || "Window" }), h("div", { class: "xs muted", text: imp.source === "markers" ? "marker pair" : imp.source === "detected" ? (imp.overlaps_marker_window ? "detected, in marker window" : "detected") : "selected range" })]),
-      td(F.clock(imp.start_ms, true) + " – " + F.clock(imp.end_ms, true), false),
-      td(imp.first_failure_ms ? F.clock(imp.first_failure_ms, true) : "none", true),
-      td(imp.last_failure_ms ? F.clock(imp.last_failure_ms, true) : "none", true),
+      h("td", { class: "mono xs" }, [F.clock(imp.start_ms, true), h("br"), F.clock(imp.end_ms, true)]),
+      h("td", { class: "num xs" }, imp.first_failure_ms ? [F.clock(imp.first_failure_ms, true), h("br"), F.clock(imp.last_failure_ms, true)] : "none"),
       td(F.int(imp.failed_ops), true, imp.failed_ops ? "hot" : ""),
       td(gapText(imp.longest_write_gap), true),
       td(gapText(imp.longest_read_gap), true),
       td(String(primaryCount), true),
-      td(F.lat(before.p99_us) + " / " + F.lat(during.p99_us) + " / " + F.lat(after.p99_us), true),
+      h("td", { class: "num" }, [F.lat(before.p99_us), " / ", h("span", { class: during.p99_us > (before.p99_us || 0) * 2 ? "hot" : "", text: F.lat(during.p99_us) }), " / ", F.lat(after.p99_us)]),
       td(recovery, true, imp.recovered ? "" : "hot"),
       h("td", null, btn)
     ]);
@@ -116,7 +115,7 @@
       h("tr", null, [h("th", { text: "Analysis span" }), h("td", { class: "mono", text: F.clock(imp.start_ms) + " – " + F.clock(imp.span_end_ms) })]),
       h("tr", null, [h("th", { text: "Recovery rule" }), h("td", { class: "small", text: "Throughput within " + F.pct(settings.throughput_tolerance, 0) + " and p99 within " + F.pct(settings.latency_tolerance, 0) + " of the " + settings.baseline_seconds + " s baseline, sustained for " + settings.sustain_seconds + " s." })])
     ]));
-    return h("tr", null, h("td", { colspan: "11", style: null }, h("div", { class: "impact-detail" }, [
+    return h("tr", null, h("td", { colspan: "10", style: null }, h("div", { class: "impact-detail" }, [
       h("div", null, [h("h3", { text: "Latency and throughput" }), latTable]),
       h("div", null, [h("h3", { text: "Failed operations by class" }), failList, h("h3", { text: "Gaps", style: null }), gaps]),
       h("div", null, [h("h3", { text: "Primary changes" }), prim])
@@ -142,8 +141,8 @@
       });
     }
     render();
-    var headers = ["Window", "Start – end", "First failure", "Last failure", "Failed ops", "Write gap", "Read gap", "Primary changes", "p99 before / during / after", "Recovery", ""];
-    var t = h("table", { class: "data" }, [h("thead", null, h("tr", null, headers.map(function (x, i) { return h("th", { class: i >= 2 && i <= 9 ? "num" : "", scope: "col", text: x }); }))), tbody]);
+    var headers = ["Window", "Start / end", "First / last failure", "Failed ops", "Write gap", "Read gap", "Primary changes", "p99 before / during / after", "Recovery", ""];
+    var t = h("table", { class: "data impact-table" }, [h("thead", null, h("tr", null, headers.map(function (x, i) { return h("th", { class: i >= 2 && i <= 8 ? "num" : "", scope: "col", text: x }); }))), tbody]);
     return panel("Impact analysis", impacts.length + " window" + (impacts.length === 1 ? "" : "s"), h("div", { class: "body flush scroll-x" }, t), "impacts");
   }
 
