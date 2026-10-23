@@ -1,0 +1,68 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Private Python runtime
+        run: make build
+      - name: Dev tools
+        run: runtime/python/bin/python3 -m pip install -q -r requirements/dev.txt
+      - name: Lint and format
+        run: make lint
+      - name: Type check
+        run: make typecheck
+      - name: Unit tests
+        run: make test
+      - name: Dependency vulnerabilities
+        run: make audit
+
+  integration:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        mongo: ["7.0", "8.0"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Replica set
+        run: |
+          echo "127.0.0.1 rs1 rs2 rs3" | sudo tee -a /etc/hosts
+          sh scripts/dev-replset.sh ${{ matrix.mongo }}
+      - name: Runtime
+        run: make build && runtime/python/bin/python3 -m pip install -q -r requirements/dev.txt
+      - name: Integration tests
+        run: make integration
+      - name: Browser tests
+        run: |
+          npm install --no-save playwright@1.56.1
+          npx playwright install --with-deps chromium
+          make e2e
+
+  bundles:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cross binutils for stripping arm64
+        run: sudo apt-get install -y binutils-aarch64-linux-gnu
+      - name: Runtime
+        run: make build
+      - name: Build bundles
+        run: make release
+      - name: Smoke test linux-amd64 bundle
+        run: |
+          mkdir -p /tmp/smoke && tar -xzf dist/ballast-*-linux-amd64.tar.gz -C /tmp/smoke
+          cd /tmp/smoke/ballast-* && bin/ballast version && bin/ballastctl start && bin/ballastctl health && bin/ballastctl stop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundles
+          path: |
+            dist/*.tar.gz
+            dist/*.sbom.cdx.json
+            dist/SHA256SUMS

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+import zlib
 from threading import Lock
 
 from mongo_load_tester.config import SchemaConfig
@@ -21,12 +22,13 @@ class SchemaRegistry:
         self._base_seed = base_seed
         self._generators: dict[tuple[str, str], DocumentGenerator] = {}
         self._schemas: dict[tuple[str, str], SchemaConfig] = {}
+        self._default_generators: dict[tuple[str, str], DocumentGenerator] = {}
         self._lock = Lock()
 
     def register(self, database: str, collection: str, schema: SchemaConfig) -> None:
         """Register a per-collection schema override."""
         key = (database, collection)
-        seed = self._base_seed + hash(key) % (2**31)
+        seed = self._base_seed + zlib.crc32(f"{database}.{collection}".encode()) % (2**31)
         with self._lock:
             self._schemas[key] = schema
             self._generators[key] = DocumentGenerator(schema, random.Random(seed))
@@ -37,7 +39,11 @@ class SchemaRegistry:
         gen = self._generators.get(key)
         if gen is not None:
             return gen
-        return DocumentGenerator(self._default_schema, rng)
+        default_gen = self._default_generators.get(key)
+        if default_gen is None:
+            default_gen = DocumentGenerator(self._default_schema, rng)
+            self._default_generators[key] = default_gen
+        return default_gen
 
     def get_schema(self, database: str, collection: str) -> SchemaConfig:
         """Get the schema for a specific namespace, falling back to the default."""

@@ -1,0 +1,32 @@
+#!/bin/sh
+set -e
+self=$0
+while [ -h "$self" ]; do
+  link=$(ls -ld "$self" | sed 's/.* -> //')
+  case $link in
+    /*) self=$link ;;
+    *) self=$(dirname "$self")/$link ;;
+  esac
+done
+bin_dir=$(cd "$(dirname "$self")" && pwd -P)
+BALLAST_HOME=$(dirname "$bin_dir")
+export BALLAST_HOME
+python="$BALLAST_HOME/runtime/python/bin/python3"
+PYTHONNOUSERSITE=1
+export PYTHONNOUSERSITE
+unset PYTHONHOME
+if [ -x "$python" ]; then
+  unset PYTHONPATH
+  exec "$python" -I -m ballast "$@"
+fi
+if [ -f "$BALLAST_HOME/runtime/python.env" ]; then
+  BALLAST_PYTHON=""
+  BALLAST_SITE=""
+  . "$BALLAST_HOME/runtime/python.env"
+  unset PYTHONPATH
+  export BALLAST_SITE
+  exec "$BALLAST_PYTHON" -I "$bin_dir/ballast-launch.py" "$@"
+fi
+echo "ballast: no Python runtime at $python" >&2
+echo "ballast: in a git checkout, run 'make build' or 'sh scripts/install.sh --prefix .'; in a release bundle, re-extract the archive" >&2
+exit 1

@@ -1,314 +1,134 @@
-# MongoDB Load Tester
+# Ballast
 
-A production-grade, config-driven MongoDB load and stress testing application with a live dashboard, designed for OLTP-like workloads at scale.
+Ballast is a load testing tool for MongoDB clusters. It sends a steady, controlled workload, and while it runs you resize nodes, add or remove members, or trigger a failover. Ballast records what the workload experienced, second by second: throughput, latency percentiles from intended start, every failed operation by error class, topology changes seen by the driver, and the longest stretch without a successful write. For each scale operation it reports how long the disruption lasted and how long the workload took to recover.
 
-## Key Features
+![Live run view](docs/design/after/03-live.png)
 
-- **5 operation types**: read, insert, update, delete, and findAndModify with customizable query targeting
-- **14 field types**: string (with prefix/suffix/UUID composites), int, float, decimal, bool, choice, datetime (4 modes), objectid, uuid, faker (25+ providers), object (embedded documents), array, null
-- **Per-collection schemas**: different document structures for different collections, all configurable from the UI
-- **Schema Builder**: visual field-by-field schema editor with type selection, rules, and per-database/collection targeting
-- **Operation Targeting**: configure per-operation filter fields, projections, sort order, and update operators ($set, $inc, $unset, $push, $currentDate)
-- **Live dashboard**: real-time charts, KPIs, controls, and exports — all in browser
-- **Distributed mode**: run multiple worker processes for 25-40K+ ops/sec with a unified dashboard view
-- **Metadata persistence**: all configuration, runs, events, and per-collection schemas stored in MongoDB
+It runs as a normal user with no root access, serves its UI over HTTPS, and makes no network requests other than to your cluster. It also measures Atlas analytics and read-only nodes: reads can be routed by node type, and the report shows what each member served, its replication lag, and a separate read gap for each route.
 
-## Architecture
+## Quick start
 
-```text
-mongo_load_tester/
-  config.py               # Typed config models + YAML loader
-  models.py               # Shared metric/result data classes
-  cli.py                  # Commands: run, validate, init-config
-  observability.py        # Logging setup + in-memory UI log buffer
-  engine/
-    client.py             # MongoClient factory
-    executor.py           # Operation execution (read/insert/update/delete/findAndModify)
-    id_registry.py        # Thread-safe O(1) document _id cache (swap-and-pop, per-namespace locks)
-    metrics.py            # Lock-safe rolling aggregation with reservoir sampling + batch recording
-    retry.py              # Retry controller (exponential backoff + symmetric jitter)
-    runner.py             # Concurrency orchestration + ramp-up + seeding + worker scaling
-    control.py            # Thread-aware control facade for dashboard
-    distributed.py        # Multi-process metrics publishing + aggregation via MongoDB
-  workload/
-    schema.py             # Document generation with faker, nested structures, composites
-    selection.py          # Namespace and weighted operation selectors (with findAndModify)
-    registry.py           # Per-collection SchemaRegistry with default fallback
-  metadata/
-    store.py              # MongoDB-backed config, run, event, and per-collection schema persistence
-    sync.py               # Background config sync service
-  dashboard/
-    app.py                # Dash UI + callbacks + Schema Builder modal
-    figures.py            # Chart builders (11 charts)
-    export.py             # CSV/PNG/PDF export helpers
+### 1. Install
+
+Pick the first option your server allows. None needs root or `sudo`.
+
+**A. Release bundle.** Brings its own Python, so nothing is installed on the host. Build the bundles on any machine with internet access (or use ones your team has published), then copy one to the server:
+
+```
+git clone https://github.com/pagombin/MongoDB-LoadTest.git ballast-src
+cd ballast-src
+make build
+make release
+scp dist/ballast-1.0.0-linux-amd64.tar.gz you@server:
 ```
 
-## Installation
+On the server:
 
-### Prerequisites
-
-- Python 3.10+
-- Network access to a MongoDB cluster
-- A valid MongoDB connection string
-
-### Install with pip (no virtual environment)
-
-```bash
-pip install dash faker kaleido plotly pydantic pymongo pyyaml reportlab typer
-cd MongoDB-LoadTest
-pip install .
+```
+tar -xzf ballast-1.0.0-linux-amd64.tar.gz
+cd ballast-1.0.0
 ```
 
-### Install with virtual environment (recommended)
+Bundles are built for `linux-amd64`, `linux-arm64`, `darwin-arm64` and `darwin-amd64`. Check them with `sha256sum -c SHA256SUMS --ignore-missing`.
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
+**B. The server's own Python 3.10+ and pip.** Ballast needs only `aiohttp`, `pydantic` and `pymongo`. It works without `python3-venv`, `cryptography` or `openssl`:
+
+```
+git clone https://github.com/pagombin/MongoDB-LoadTest.git ballast-src
+sh ballast-src/scripts/install.sh --prefix ~/ballast
+cd ~/ballast
 ```
 
-## Quick Start
+The installer uses a virtual environment if it can, otherwise `pip --target`. It installs optional packages (PyYAML, Faker) one at a time; if one fails, only the feature that needs it is off. Add `--python /path/to/python3` to choose the interpreter, or `--minimal` to skip the optional packages.
 
-### 1. Generate a config file
+**C. No internet on the server.** Build an offline kit on a connected machine, for the server's Python version and architecture:
 
-```bash
-mongo-load-tester init-config --output config/loadtest.yaml
+```
+sh scripts/make-wheelhouse.sh --python-version 3.10 --arch x86_64
+scp dist/ballast-1.0.0-offline-py310-x86_64.tar.gz you@server:
 ```
 
-Or copy and edit `config/loadtest.sample.yaml`.
+On the server:
 
-### 2. Set your MongoDB URI
-
-```yaml
-mongo:
-  uri: "mongodb+srv://<user>:<pass>@<cluster>.mongodb.net/?retryWrites=true&w=majority"
-  tls: null
+```
+tar -xzf ballast-1.0.0-offline-py310-x86_64.tar.gz
+sh ballast-1.0.0-offline/scripts/install.sh --wheelhouse ballast-1.0.0-offline/wheelhouse --prefix ~/ballast
+cd ~/ballast
 ```
 
-### 3. Validate
+### 2. Check the host
 
-```bash
-mongo-load-tester validate --config config/loadtest.yaml
+```
+bin/ballast doctor
+bin/ballast doctor --uri 'mongodb+srv://user:password@cluster0.example.mongodb.net/'
 ```
 
-### 4. Run with dashboard
+It checks Python, the required and optional packages, that worker processes can start, the directories and the port, and optionally the cluster. For anything missing it prints the exact command to fix it.
 
-```bash
-mongo-load-tester run --config config/loadtest.yaml
+### 3. Start and open the UI
+
+```
+bin/ballastctl start
 ```
 
-Open `http://127.0.0.1:8050` in your browser. The test does **not** auto-start — configure settings in the UI, then click **Start**.
+The first start creates a self-signed certificate and prints its SHA-256 fingerprint. Ballast listens on `127.0.0.1:8443`, so open an SSH tunnel from your laptop:
 
-### 5. Run headless
-
-```bash
-mongo-load-tester run --config config/loadtest.yaml --no-dashboard
+```
+ssh -L 8443:127.0.0.1:8443 you@server
 ```
 
-### 6. Run distributed (25-40K+ ops/sec)
+Then open `https://localhost:8443` and accept the certificate after comparing the fingerprint.
 
-```bash
-# Terminal 1-3: headless workers (each gets its own Python GIL)
-mongo-load-tester run -c config/loadtest.yaml --no-dashboard \
-  --worker-id w1 --load-test-id perf-test
-mongo-load-tester run -c config/loadtest.yaml --no-dashboard \
-  --worker-id w2 --load-test-id perf-test
-mongo-load-tester run -c config/loadtest.yaml --no-dashboard \
-  --worker-id w3 --load-test-id perf-test
+### 4. Run a test
 
-# Terminal 4: dashboard (unified view of all workers)
-mongo-load-tester run -c config/loadtest.yaml --load-test-id perf-test
+1. **Targets**: add your connection string and press **Test connection**. It lists every member, with its Atlas node type if it has one.
+2. **New run**: pick the target, a database for benchmark data, and a workload. Under **Where reads go**, choose the primary, any secondary, **Atlas analytics nodes** or **Atlas read-only nodes**. Optionally set guardrails and pass/fail criteria, then start.
+3. Mark the scale operation. Press **M** in the live view, or run this on the server next to your scale command:
+
+   ```
+   bin/ballastctl mark "resize started"
+   bin/ballastctl mark "resize finished"
+   ```
+
+4. Stop the run (**S**). The report shows each marked window: failures by class, write and read gaps (one per read route), primary and member changes, p99 before, during and after, recovery time, and what each member served.
+
+To reach the UI without a tunnel, set `server.listen: 0.0.0.0:8443` in `config/ballast.yaml`, add the server's address to `tls.self_signed_hosts`, and set an access token (`server.access_token_file`). See `docs/OPERATIONS.md`.
+
+## Without the UI
+
+Run one workload from a script or CI job. The exit code is 0 for pass, 1 when a pass/fail criterion failed, 4 when a guardrail stopped the run:
+
+```
+bin/ballast run --uri "$MONGODB_URI" --profile ci.yaml --duration 300 --json result.json --markdown result.md
 ```
 
-The dashboard shows a **Distributed Workers** panel with per-worker ops/sec, total ops, p95 latency, and aggregate throughput.
+Other commands: `bin/ballastctl status | stop | restart | logs | health | backup | restore | autostart enable`. `GET /metrics` serves Prometheus metrics, and `notifications.webhook_url` posts run events to Slack or any JSON endpoint.
 
-## Dashboard
+## Documentation
 
-### KPIs (10)
+| Document | Contents |
+|---|---|
+| `docs/INSTALL.md` | All install routes in detail, upgrade, uninstall |
+| `docs/CONFIGURATION.md` | Every configuration key, its default, and its environment variable |
+| `docs/OPERATIONS.md` | Start, stop, logs, autostart, certificates, doctor, backup, metrics, webhooks, CI runs, troubleshooting |
+| `docs/SCALE-TESTING.md` | Running a workload around scale operations, including Atlas analytics and read-only nodes, and reading the report |
+| `docs/METHODOLOGY.md` | How latency is measured, percentiles, coordinated omission, members and routes, client-bound runs |
+| `docs/ENHANCEMENTS.md` | Changes since the first rebuild, each with how it was checked |
+| `docs/VERIFICATION.md` | Test results, soak test, fresh-host test |
+| `docs/DECISIONS.md` | Design decisions and their trade-offs |
+| `docs/AUDIT.md` | Audit of the previous version of this tool |
+| `docs/LEGACY.md` | The original dashboard, still available behind a flag |
 
-Total ops, ops/sec, error rate, success rate, p50/avg/p95/p99 latency, retry rate, active users.
+## Development
 
-### Charts (11)
-
-| Chart | Description |
-|-------|-------------|
-| Operations Throughput | Total, read, and write ops/sec over time |
-| Users Ramp View | Active vs target virtual users with pause overlays |
-| Latency Percentiles | p50, avg, p95, p99 bands over time |
-| Errors & Retries | Error/retry counts + error rate % (dual axis) |
-| Throughput by Operation Type | Stacked area: read/insert/update/delete/findAndModify |
-| Latency by Operation Type | Per-operation average latency over time |
-| Operation Mix | Donut chart of cumulative operation distribution |
-| Error Breakdown | Categorized errors: timeout, network, primary_stepdown, etc. |
-| Latency Distribution | Histogram with cumulative % overlay |
-| Operation Breakdown | Table: count, share, avg/p95/p99 latency per operation |
-| Smart Insights | Automated health analysis with thresholds |
-
-Every chart title has a **(?)** tooltip with a detailed explanation.
-
-### Controls
-
-- **Start / Pause / Resume / Stop / Restart** — full lifecycle control
-- **Live controls** (apply immediately): virtual users, worker threads, think time, operation mix, retry policy, log level
-- **Run Configuration** (apply before start or staged for next run): namespace, databases, collections, seeding, ramp-up, schema
-- **Schema Builder** — visual modal for field-by-field schema creation with per-collection targeting
-- **Operation Targeting** — configure per-operation filter fields, update operators, projections, sort
-- **Reset to defaults** — resets Run Configuration, Schema Builder, and per-collection schema overrides
-- **Exports**: CSV, PNG, PDF
-
-### Worker Scaling
-
-- **Scale down**: excess workers are dismissed immediately (within one operation cycle)
-- **Scale up**: new workers are staggered 0.5s apart to avoid thundering-herd connections
-- **Hard limit**: `max_worker_threads` (default 500) caps worker count; requests above the limit are clamped with a visible warning
-- **Error monitoring**: if error rate exceeds 10% after scaling up, a red alert banner appears for 8 seconds
-
-## Schema Configuration
-
-### Field Types
-
-| Type | Properties | Example |
-|------|-----------|---------|
-| `string` | `length`, `prefix`, `suffix`, `composite` | `{"name":"id","field_type":"string","length":8,"prefix":"ORD-"}` |
-| `int` | `min_value`, `max_value` | `{"name":"qty","field_type":"int","min_value":1,"max_value":100}` |
-| `float` | `min_value`, `max_value` | `{"name":"price","field_type":"float","min_value":0.01,"max_value":999}` |
-| `decimal` | `min_value`, `max_value` | `{"name":"amount","field_type":"decimal"}` |
-| `bool` | — | `{"name":"active","field_type":"bool"}` |
-| `choice` | `choices[]` | `{"name":"status","field_type":"choice","choices":["new","paid"]}` |
-| `datetime` | `date_mode`, `date_range_days` | `{"name":"ts","field_type":"datetime","date_mode":"random_past"}` |
-| `objectid` | — | `{"name":"ref","field_type":"objectid"}` |
-| `uuid` | — | `{"name":"trace","field_type":"uuid"}` |
-| `faker` | `faker_provider` | `{"name":"email","field_type":"faker","faker_provider":"email"}` |
-| `object` | `fields[]` | Embedded documents with sub-fields |
-| `array` | `items`, `min_items`, `max_items` | Arrays of primitives or embedded documents |
-| `null` | — | Always null (sparse fields) |
-
-### Nested Structures
-
-```json
-{"name": "address", "field_type": "object", "fields": [
-  {"name": "street", "field_type": "faker", "faker_provider": "street_address"},
-  {"name": "city", "field_type": "faker", "faker_provider": "city"}
-]}
+```
+make build
+make test
+make lint
 ```
 
-```json
-{"name": "tags", "field_type": "array",
- "items": {"field_type": "string", "length": 10},
- "min_items": 1, "max_items": 5}
-```
-
-```json
-{"name": "line_items", "field_type": "array",
- "items": {"field_type": "object", "fields": [
-   {"name": "sku", "field_type": "string", "length": 12},
-   {"name": "qty", "field_type": "int", "min_value": 1, "max_value": 10}
- ]}, "min_items": 1, "max_items": 8}
-```
-
-### Date Modes
-
-- `now` — current UTC timestamp
-- `random_past` — random within `date_range_days` ago
-- `random_future` — random within `date_range_days` ahead
-- `increment` — starts from now, adds `date_increment_seconds` per document
-
-### String Composites
-
-- `prefix_uuid` — `"ORD-" + UUID`
-- `uuid_suffix` — `UUID + "-US"`
-- `prefix_uuid_suffix` — `"ORD-" + UUID + "-US"`
-- `prefix_random` — `"ORD-" + random(length)`
-- `random_suffix` — `random(length) + "-US"`
-
-### Faker Providers
-
-`name`, `first_name`, `last_name`, `email`, `phone_number`, `company`, `address`, `city`, `country`, `zipcode`, `url`, `ipv4`, `user_agent`, `job`, `text`, `sentence`, `paragraph`, `word`, `credit_card_number`, `iban`, `ssn`, `license_plate`, `color_name`, `currency_code`, `file_name`
-
-## Operation Targeting
-
-Configure how each operation type finds and modifies documents:
-
-```json
-{
-  "enabled": true,
-  "read": {
-    "filter_fields": ["tenant_id", "status"],
-    "projection_fields": ["order_total", "status"],
-    "sort_field": "updated_at",
-    "sort_direction": "desc"
-  },
-  "update": {
-    "filter_fields": ["tenant_id"],
-    "operators": {
-      "set_fields": ["status"],
-      "inc_fields": ["priority"],
-      "current_date_fields": ["updated_at"]
-    }
-  },
-  "delete": {"filter_fields": ["status"]},
-  "find_and_modify": {
-    "filter_fields": ["tenant_id"],
-    "operators": {"set_fields": ["status"], "current_date_fields": ["updated_at"]},
-    "sort_field": "priority",
-    "sort_direction": "asc",
-    "return_updated": true,
-    "upsert": false
-  },
-  "create_indexes": true
-}
-```
-
-### Update Operators
-
-- `set_fields` — `$set` with generated values from your schema
-- `inc_fields` — `$inc` by random 1-10
-- `unset_fields` — `$unset` to remove fields
-- `push_fields` — `$push` generated values onto arrays
-- `current_date_fields` — `$currentDate` for timestamps
-
-## Metadata
-
-All state is persisted in MongoDB under the `loader_metadata` database (configurable):
-
-| Collection | Purpose |
-|-----------|---------|
-| `load_test_configs` | Configuration per `load_test_id` with versioning |
-| `load_test_runs` | Run lifecycle records with full metrics summaries |
-| `load_test_events` | Audit trail for config changes and control actions |
-| `collection_schemas` | Per-collection schema overrides |
-| `load_test_live_metrics` | Distributed worker metrics (for multi-process mode) |
-
-All collections are indexed. Queries use projections and hints for optimal performance.
-
-## Performance Tuning
-
-| Setup | Expected ops/sec |
-|-------|-----------------|
-| Single process, default config | 5-7K |
-| Single process, tuned (no faker, no think time) | 12-15K |
-| 2 headless + 1 dashboard | 25-35K |
-| 3 headless + 1 dashboard | 35-50K |
-| 4 headless (no dashboard) | 45-60K |
-
-### Tips
-
-- Set `think_time_ms_min` and `think_time_ms_max` to 0 for maximum throughput
-- Use simple schemas (avoid faker) for throughput tests
-- Disable operation targeting for `_id`-only lookups (fastest)
-- Increase `mongo.max_pool_size` to match concurrency
-- Per-thread metric batching reduces lock contention by 50x (built-in)
-- For 25K+ ops/sec, use distributed mode with multiple `--worker-id` processes
-
-## Testing
-
-```bash
-pip install -e ".[dev]"
-pytest tests/ -v
-```
-
-66 tests covering: config validation, metrics aggregation, executor operations, id registry, schema generation, retry logic, runner controls, dashboard helpers, and more.
+`make build` puts a private Python runtime in `runtime/`; nothing is installed system-wide. `make release` builds the bundles. Integration tests need a local replica set: `scripts/dev-replset.sh` starts a plain one, and `scripts/dev-replset-atlas.sh` starts one tagged like an Atlas cluster with analytics and read-only nodes. Both need Docker.
 
 ## License
 
-See repository for license details.
+Copyright Paul Agombin. All rights reserved. See `LICENSE`. Third-party components are listed in `THIRD_PARTY_NOTICES` inside each bundle.

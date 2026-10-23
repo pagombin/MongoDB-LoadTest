@@ -1,0 +1,6 @@
+ok   target shows Atlas node types
+ok   wizard routes analytics queries and lists the members they reach
+ok   live view shows member types and what each serves
+ok   report shows the analytics gap and reads per member
+ok   no console errors
+all passed

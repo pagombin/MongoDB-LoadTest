@@ -1,0 +1,67 @@
+$ python3 --version; python3 -m pip --version; python3 -m venv /tmp/v
+Python 3.10.12
+pip 22.0.2 from /usr/lib/python3/dist-packages/pip (python 3.10)
+Error: [Errno 13] Permission denied: '/tmp/v/pyvenv.cfg'
+
+$ sh src/scripts/install.sh --prefix ~/ballast
+Python: /usr/bin/python3.10 (3.10.12)
+Environment: no working venv here, installing into /home/bench/ballast/runtime/site with pip --target
+Installing the required packages (aiohttp, pydantic, pymongo)
+Copying Ballast into /home/bench/ballast/runtime/site
+  optional pyyaml: installed
+  optional faker: installed
+
+Installed in /home/bench/ballast
+PASS  python: Python 3.10.12 at /usr/bin/python3.10
+PASS  sqlite3: local run storage: 3.37.2
+PASS  ssl: HTTPS and TLS connections to MongoDB: OpenSSL 3.0.2 15 Mar 2022
+PASS  aiohttp: 3.14.5 (web server)
+PASS  pydantic: 2.14.1 (configuration and profile validation)
+PASS  pymongo: 4.18.3 (MongoDB driver)
+PASS  pyyaml: 6.0.3 (config file reader)
+PASS  faker: 40.43.0 ('schema' document shape)
+PASS  dnspython: 2.8.0 (mongodb+srv:// connection strings)
+INFO  zstandard: not installed: only needed if a profile sets compressors to zstd; zlib works without it
+INFO  python-snappy: not installed: only needed if a profile sets compressors to snappy; zlib works without it
+PASS  PyMongo C extension: compiled extension in use
+PASS  aiohttp C parser: compiled extension in use
+PASS  multidict C extension: compiled extension in use
+PASS  certificates: self-signed certificates are generated in pure Python; openssl and cryptography are not needed
+PASS  data directory: /home/bench/ballast/data is writable
+PASS  logs directory: /home/bench/ballast/logs is writable
+PASS  run directory: /home/bench/ballast/run is writable
+WARN  listen address: 127.0.0.1:8443 is not free (Address already in use); fine if Ballast is already running
+      fix: set server.listen to another port
+
+0 failed, 1 warnings. Ballast can run on this host.
+
+Start it with:  /home/bench/ballast/bin/ballastctl start
+
+$ bin/verify-host.sh --uri mongodb://rs1:27011,rs2:27012,rs3:27013/?replicaSet=rs0
+Ballast host check in /home/bench/ballast
+PASS  running as a normal user (bench)
+PASS  bin/ballast runs: Ballast 1.0.0 (commit unknown, built unknown, PyMongo 4.18.3, Python 3.10.12)
+PASS  configuration is valid
+PASS  data/ is writable
+PASS  logs/ is writable
+PASS  run/ is writable
+PASS  certs/ is writable
+started: https://127.0.0.1:9631 (server pid 2882, supervisor pid 2881)
+certificate SHA-256: A6:2A:4F:6F:6A:52:93:FC:EC:07:FF:0B:2A:78:2B:79:17:A8:B4:B4:B1:D3:90:50:36:3B:82:79:06:76:5C:0E
+PASS  ballastctl start
+PASS  ballastctl status exits 0 while running
+PASS  a second start does not start a second copy
+PASS  ballastctl health exits 0
+PASS  HTTPS page served with CSP via curl (https://127.0.0.1:9631)
+PASS  target saved
+PASS  connection test: ok 8.0.34
+PASS  run started (ffb83ed8f5cb)
+PASS  ballastctl mark
+PASS  run completed
+PASS  offline HTML report exported (262685 bytes)
+PASS  supervisor restarted the server after kill -9 (pid 2882 -> 3002)
+stopped (sent SIGTERM to pid 2881, exited cleanly)
+PASS  ballastctl stop
+PASS  status exits 3 when stopped
+
+21 passed, 0 failed

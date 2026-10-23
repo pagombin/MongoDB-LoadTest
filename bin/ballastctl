@@ -1,0 +1,37 @@
+#!/bin/sh
+set -e
+self=$0
+while [ -h "$self" ]; do
+  link=$(ls -ld "$self" | sed 's/.* -> //')
+  case $link in
+    /*) self=$link ;;
+    *) self=$(dirname "$self")/$link ;;
+  esac
+done
+bin_dir=$(cd "$(dirname "$self")" && pwd -P)
+usage() {
+  cat <<USAGE
+usage: ballastctl <command> [options]
+
+  start               start in the background under the supervisor
+  stop                stop gracefully (forced after a timeout)
+  restart             stop, then start
+  status              show state; exit 0 running, 1 dead, 3 stopped, 4 restarting
+  logs [-f] [-n N]    show the server log
+  health              exit 0 if the server answers
+  mark "<label>"      add a marker to the active run (--phase begin|end, --note TEXT)
+  gen-cert            make a new self-signed certificate and reload it
+  autostart enable    start after reboot (systemd user unit, else crontab)
+  autostart disable   undo autostart
+  doctor [--uri URI]  check this host and say how to fix what is missing
+  backup [FILE]       copy the run database while running
+  restore FILE        replace the run database from a backup (while stopped)
+
+Options shared by every command: --config FILE, --set section.key=value
+USAGE
+}
+case ${1:-} in
+  start|stop|restart|status|logs|health|mark|gen-cert|autostart|version|config|doctor|backup|restore) exec "$bin_dir/ballast" "$@" ;;
+  -h|--help|help|"") usage; [ -n "${1:-}" ] && exit 0; exit 2 ;;
+  *) echo "ballastctl: unknown command '$1'" >&2; usage >&2; exit 2 ;;
+esac

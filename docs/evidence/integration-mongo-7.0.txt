@@ -1,0 +1,76 @@
+============================= test session starts ==============================
+platform linux -- Python 3.13.16, pytest-9.1.1, pluggy-1.7.0 -- /tmp/claude-0/venv/bin/python
+cachedir: .pytest_cache
+rootdir: /home/user/MongoDB-LoadTest
+configfile: pyproject.toml
+plugins: dash-4.4.1, platformdirs-4.13.5, Faker-40.43.0, asyncio-1.4.0
+asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 10 items
+
+tests/integration/test_atlas_nodes.py::test_analytics_node_restart_affects_only_analytics_reads[2000] PASSED [ 10%]
+tests/integration/test_atlas_nodes.py::test_analytics_node_restart_affects_only_analytics_reads[None] PASSED [ 20%]
+tests/integration/test_atlas_nodes.py::test_read_only_node_lag_is_measured_without_privileges PASSED [ 30%]
+tests/integration/test_failover.py::test_failover_is_recorded_classified_and_measured[1] PASSED [ 40%]
+tests/integration/test_failover.py::test_failover_is_recorded_classified_and_measured[2] PASSED [ 50%]
+tests/integration/test_failover.py::test_write_stall_measures_gap_latency_and_recovery FAILED [ 60%]
+tests/integration/test_headless.py::test_slo_pass_and_fail_set_the_exit_code PASSED [ 70%]
+tests/integration/test_headless.py::test_guardrail_stops_the_run PASSED  [ 80%]
+tests/integration/test_leaks.py::test_repeated_runs_do_not_leak PASSED   [ 90%]
+tests/integration/test_secrets.py::test_password_absent_everywhere PASSED [100%]
+
+=================================== FAILURES ===================================
+______________ test_write_stall_measures_gap_latency_and_recovery ______________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-108/test_write_stall_measures_gap_0')
+uri = 'mongodb://r71:27021,r72:27022,r73:27023/?replicaSet=rs0'
+
+    async def test_write_stall_measures_gap_latency_and_recovery(tmp_path, uri):
+        """fsyncLock blocks writes on the primary for 3 s; reads keep working."""
+        import subprocess
+    
+        store = Store(tmp_path / "data" / "ballast.db")
+        target = store.save_target({"name": "rs", "uri": uri, "tls": "off"})
+        manager = RunManager(store, Hub(), tmp_path / "data")
+        db = f"ballast_stall_{int(time.time())}"
+        profile = Profile.model_validate(
+            {
+                "name": "stall",
+                "operations": {"find": 50, "update": 50},
+                "load": {"model": "open", "rate": 300, "concurrency": 256},
+                "schedule": {"warmup_seconds": 3, "steady_seconds": 40},
+                "dataset": {"database": db, "collections": 1, "load": {"documents": 2000}},
+            }
+        )
+        row = await manager.start(name="stall", target=target, profile=profile, acknowledge_foreign=True)
+        while manager.active is None or manager.active.status != "running":
+            await asyncio.sleep(0.2)
+        await asyncio.sleep(15)
+        name, port = primary_container()
+        manager.add_marker(row["id"], "stall started")
+        await asyncio.to_thread(
+            subprocess.run,
+            ["docker", "exec", name, "mongosh", "--port", str(port), "--quiet", "--eval", "db.fsyncLock(); sleep(3000); db.fsyncUnlock()"],
+            capture_output=True,
+            timeout=60,
+        )
+        manager.add_marker(row["id"], "stall finished")
+        while manager.active is not None:
+            await asyncio.sleep(0.5)
+        with MongoClient(uri) as client:
+            client.drop_database(db)
+        run = store.get_run(row["id"])
+        assert run["status"] == "completed", run["error"]
+        w = [i for i in run["analysis"]["impacts"] if i["source"] == "markers"][0]
+        assert w["longest_write_gap"]["ms"] >= 2500
+        stall_seconds = [r for r in store.seconds(row["id"]) if w["start_ms"] // 1000 <= r.t <= w["end_ms"] // 1000]
+        assert sum(r.pool_wait.total for r in stall_seconds) > 0, "connection checkout waits are measured"
+        store.close()
+        assert w["during"]["max_us"] >= 2_500_000, "open model reports the stall as latency"
+        assert w["before"]["p99_us"] < 500_000
+>       assert w["recovered"] is True and w["recovery_seconds"] is not None
+E       assert (False is True)
+
+tests/integration/test_failover.py:145: AssertionError
+=========================== short test summary info ============================
+FAILED tests/integration/test_failover.py::test_write_stall_measures_gap_latency_and_recovery
+=================== 1 failed, 9 passed in 363.85s (0:06:03) ====================

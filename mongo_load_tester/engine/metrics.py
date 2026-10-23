@@ -8,7 +8,8 @@ import re
 import time
 from collections import OrderedDict, defaultdict
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import datetime, timezone
+UTC = timezone.utc
 from threading import Lock
 
 from mongo_load_tester.models import MetricsSnapshot, OperationResult, TimelinePoint
@@ -42,7 +43,7 @@ def _categorize_error(error_str: str | None) -> str:
         return "cursor"
     if "write concern" in lower:
         return "write_concern"
-    if "authentication" in lower or "auth" in lower:
+    if re.search(r"\bauthentication failed\b|\bunauthorized\b|\bnot authorized\b|\bauth failed\b", lower):
         return "auth"
     return "other"
 

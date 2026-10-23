@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Literal
 
-import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 
@@ -420,6 +419,7 @@ class AppConfig(BaseModel):
 
 def load_config(config_path: str | Path) -> AppConfig:
     """Load and validate YAML config."""
+    import yaml
 
     path = Path(config_path)
     try:

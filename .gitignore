@@ -7,3 +7,12 @@ dist/
 build/
 *.egg-info/
 artifacts/
+/runtime/
+/data/
+/logs/
+/run/
+/certs/
+/config/ballast.yaml
+node_modules/
+/test-results/
+/.cache/

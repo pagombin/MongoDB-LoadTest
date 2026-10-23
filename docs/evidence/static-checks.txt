@@ -1,0 +1,16 @@
+$ make lint
+All checks passed!
+42 files already formatted
+$ mypy ballast
+ballast/server.py:745: note: By default the bodies of untyped functions are not checked, consider using --check-untyped-defs  [annotation-unchecked]
+Success: no issues found in 25 source files
+$ tsc --checkJs (ballast/web/jsconfig.json)
+tsc: 0 errors
+$ sh -n on every shell script
+ok bin/ballast
+ok bin/ballastctl
+ok scripts/dev-replset.sh
+ok scripts/lock.sh
+ok scripts/setup-runtime.sh
+ok scripts/simulate-fresh-host.sh
+ok scripts/verify-host.sh

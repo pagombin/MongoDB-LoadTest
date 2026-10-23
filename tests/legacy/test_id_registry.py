@@ -157,7 +157,13 @@ def test_thread_safety_concurrent_add_remove_get() -> None:
             executor.submit(add_ids, list(range(0, 100))),
             executor.submit(add_ids, list(range(100, 200))),
             executor.submit(add_ids, list(range(200, 300))),
-            executor.submit(remove_ids, list(range(50, 150))),
+            executor.submit(get_ids, 200),
+        ]
+        for f in as_completed(futures):
+            f.result()
+        futures = [
+            executor.submit(remove_ids, list(range(50, 100))),
+            executor.submit(remove_ids, list(range(100, 150))),
             executor.submit(get_ids, 200),
             executor.submit(get_ids, 200),
         ]

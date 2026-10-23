@@ -6,7 +6,7 @@ import math
 import random
 import string
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -14,6 +14,8 @@ from bson import Decimal128, ObjectId
 from faker import Faker
 
 from mongo_load_tester.config import SchemaConfig, SchemaFieldConfig
+
+UTC = timezone.utc
 
 
 class DocumentGenerator:
