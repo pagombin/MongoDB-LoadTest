@@ -79,7 +79,7 @@ Steps: empty runs page; create a target through the form and see the connection 
 
 The resulting report (`docs/design/after/04-report.png`, rerun after the review fixes in commit 6038045) shows the stall exactly as designed: a 4.13 s write gap, p99 rising from 16.2 ms before the window to 3.98 s during it, the open model's catch-up burst to about 1,500 ops/s as its backlog drained, and recovery within the first second after the end marker.
 
-One rerun of this test happened while the release build was compressing bundles on the same 4-CPU host (load average 6). That run showed p99 near 1 s after resume and an extra detected disruption. The next run on an idle host did not, so that was generator CPU starvation rather than a defect. It is also the case that the client-bound check exists to flag.
+One rerun of this test happened while the release build was compressing bundles on the same 4-CPU host (load average 6). That run showed p99 near 1 s after resume and an extra detected disruption. The next run on an idle host did not, so the cause was generator CPU starvation, not a defect in the fixes.
 
 ## 4. Accessibility
 

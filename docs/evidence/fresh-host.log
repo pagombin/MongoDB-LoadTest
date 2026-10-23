@@ -1,13 +1,10 @@
 
 ### Network with no route to the internet, joined by the replica set
 $ docker network create --internal ballast-offline
-Error response from daemon: network with name ballast-offline already exists
-(exit 1)
-Error response from daemon: endpoint with name rs1 already exists in network ballast-offline
-Error response from daemon: endpoint with name rs2 already exists in network ballast-offline
-Error response from daemon: endpoint with name rs3 already exists in network ballast-offline
+830e850b89e1da0f04699c6762bf590574595a59f392c876ed5c931938d54fca
+(exit 0)
 $ docker run -d --name droplet --hostname droplet --network ballast-offline ballast-droplet-sim
-be905d0dc98dfdf0035676fc63ac4518dea69a1673c2e8ed2ebeb7d5f6c8ab23
+5a2236d9bf7ca35bcf0097fae424ca3e5bafc1c80ede05afab319af18a4bca5d
 (exit 0)
 droplet address: 172.19.0.5
 
@@ -58,14 +55,14 @@ tls.redirect_http_listen = "0.0.0.0:8080"  # file
 $ [bench@droplet] cd ballast-1.0.0 && bin/verify-host.sh --uri 'mongodb://rs1:27011,rs2:27012,rs3:27013/?replicaSet=rs0'
 Ballast host check in /home/bench/ballast-1.0.0
 PASS  running as a normal user (bench)
-PASS  bin/ballast runs: Ballast 1.0.0 (commit 47dfa4b, built 2026-10-23T02:42:13Z, PyMongo 4.19.0, Python 3.12.12)
+PASS  bin/ballast runs: Ballast 1.0.0 (commit 6038045, built 2026-10-23T03:28:02Z, PyMongo 4.19.0, Python 3.12.12)
 PASS  configuration is valid
 PASS  data/ is writable
 PASS  logs/ is writable
 PASS  run/ is writable
 PASS  certs/ is writable
-started: https://127.0.0.1:8443 (server pid 133, supervisor pid 132)
-certificate SHA-256: 3B:8E:CA:93:9B:DC:2D:7A:C0:50:0E:F5:E2:0A:EC:26:22:D3:D1:26:62:C8:94:BA:E7:EF:14:DF:BC:1E:F3:87
+started: https://127.0.0.1:8443 (server pid 131, supervisor pid 130)
+certificate SHA-256: 84:5C:74:EB:AB:B4:73:14:86:65:70:9F:74:25:03:AD:32:A2:47:73:FF:8F:92:14:4C:74:B6:F2:C5:EE:F3:1E
 PASS  ballastctl start
 PASS  ballastctl status exits 0 while running
 PASS  a second start does not start a second copy
@@ -75,12 +72,12 @@ PASS  listening on port 8443
 PASS  access gate rejects requests without the token
 PASS  target saved
 PASS  connection test: ok 8.0.34
-PASS  run started (669f003eaf10)
+PASS  run started (bc2557690e4a)
 PASS  ballastctl mark
 PASS  run completed
-PASS  offline HTML report exported (261032 bytes)
-PASS  supervisor restarted the server after kill -9 (pid 133 -> 268)
-stopped (sent SIGTERM to pid 132, exited cleanly)
+PASS  offline HTML report exported (264050 bytes)
+PASS  supervisor restarted the server after kill -9 (pid 131 -> 269)
+stopped (sent SIGTERM to pid 130, exited cleanly)
 PASS  ballastctl stop
 PASS  status exits 3 when stopped
 
@@ -89,8 +86,8 @@ PASS  status exits 3 when stopped
 
 ### Start again and reach it over HTTPS from outside the box
 $ [bench@droplet] cd ballast-1.0.0 && bin/ballastctl start
-started: https://127.0.0.1:8443 (server pid 305, supervisor pid 304)
-certificate SHA-256: 3B:8E:CA:93:9B:DC:2D:7A:C0:50:0E:F5:E2:0A:EC:26:22:D3:D1:26:62:C8:94:BA:E7:EF:14:DF:BC:1E:F3:87
+started: https://127.0.0.1:8443 (server pid 306, supervisor pid 305)
+certificate SHA-256: 84:5C:74:EB:AB:B4:73:14:86:65:70:9F:74:25:03:AD:32:A2:47:73:FF:8F:92:14:4C:74:B6:F2:C5:EE:F3:1E
 (exit 0)
 $ curl -sS --cacert /dev/null -k -o /dev/null -w 'https %{http_code} from host\n' https://172.19.0.5:8443/api/health
 https 200 from host
@@ -107,7 +104,7 @@ $ openssl s_client -connect 172.19.0.5:8443 -tls1_2 -CAfile /tmp/droplet-ballast
 (exit 0)
 
 ### Headless browser from outside the box, through the access gate
-$ BASE=https://172.19.0.5:8443/ TOKEN='****' node /home/user/MongoDB-LoadTest/scripts/gate-check.mjs
+$ BASE=https://172.19.0.5:8443/ TOKEN=**** node scripts/gate-check.mjs
 redirected to /auth
 wrong token shows: That token is not correct.
 runs page loaded; cookie httpOnly true secure true sameSite Strict
@@ -115,12 +112,12 @@ runs listed: 1
 (exit 0)
 
 ### A run interrupted by a crash keeps its data
-run 1c936299b80b started
+run bec62842216e started
 $ [bench@droplet] kill -9 $(cat ballast-1.0.0/run/ballast.pid); sleep 6; cd ballast-1.0.0 && bin/ballastctl health
 healthy: version 1.0.0, up 4 s
 (exit 0)
-$ [bench@droplet] curl -sS --cacert mycerts/ballast.crt -H 'Authorization: Bearer ****' https://127.0.0.1:8443/api/runs/1c936299b80b | ballast-1.0.0/runtime/python/bin/python3 -c 'import json,sys; d=json.load(sys.stdin); print("status:", d["status"], "| measured seconds kept:", d["analysis"]["summary"]["measured_seconds"], "| ops kept:", d["analysis"]["summary"]["ok"], "|", d["error"]["detail"])'
-status: interrupted | measured seconds kept: 13 | ops kept: 2601 | The application stopped while this run was active. Data recorded up to that point is kept.
+$ [bench@droplet] curl -sS --cacert mycerts/ballast.crt -H 'Authorization: Bearer ****' https://127.0.0.1:8443/api/runs/bec62842216e | ballast-1.0.0/runtime/python/bin/python3 -c 'import json,sys; d=json.load(sys.stdin); print("status:", d["status"], "| measured seconds kept:", d["analysis"]["summary"]["measured_seconds"], "| ops kept:", d["analysis"]["summary"]["ok"], "|", d["error"]["detail"])'
+status: interrupted | measured seconds kept: 12 | ops kept: 2400 | The application stopped while this run was active. Data recorded up to that point is kept.
 (exit 0)
 
 ### Autostart without root, then restart the whole box
@@ -136,20 +133,20 @@ droplet
 $ [bench@droplet] cd ballast-1.0.0 && bin/ballastctl status; bin/ballastctl health
 state: running
 url: https://127.0.0.1:8443
-server pid: 21
-supervisor pid: 20
+server pid: 22
+supervisor pid: 21
 restarts: 0
 autostart: crontab @reboot entry
 healthy: version 1.0.0, up 24 s
 (exit 0)
 $ [bench@droplet] cd ballast-1.0.0 && tail -3 logs/supervisor.log
-{"ts": "2026-10-23T02:43:59.436Z", "level": "info", "logger": "ballast.supervisor", "msg": "server started (pid 358)"}
-{"ts": "2026-10-23T02:44:15.708Z", "level": "info", "logger": "ballast.supervisor", "msg": "supervisor started (pid 20)"}
-{"ts": "2026-10-23T02:44:15.718Z", "level": "info", "logger": "ballast.supervisor", "msg": "server started (pid 21)"}
+{"ts": "2026-10-23T03:35:21.735Z", "level": "info", "logger": "ballast.supervisor", "msg": "server started (pid 356)"}
+{"ts": "2026-10-23T03:35:40.507Z", "level": "info", "logger": "ballast.supervisor", "msg": "supervisor started (pid 21)"}
+{"ts": "2026-10-23T03:35:40.516Z", "level": "info", "logger": "ballast.supervisor", "msg": "server started (pid 22)"}
 (exit 0)
 
 ### Clean up
 $ [bench@droplet] cd ballast-1.0.0 && bin/ballastctl autostart disable && bin/ballastctl stop
 Removed the @reboot crontab entry.
-stopped (sent SIGTERM to pid 20, exited cleanly)
+stopped (sent SIGTERM to pid 21, exited cleanly)
 (exit 0)
