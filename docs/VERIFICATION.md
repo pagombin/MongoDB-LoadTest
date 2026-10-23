@@ -106,7 +106,31 @@ bin/ballastctl start
 runtime/python/bin/python3 tests/soak/soak.py --base http://127.0.0.1:9543 --uri 'mongodb://rs1:27011,rs2:27012,rs3:27013/?replicaSet=rs0' --seconds 7500 --pid <server pid> --out soak.csv
 ```
 
-SOAK_RESULTS
+Run `d973c4ad5a6d`: 7,535 s against MongoDB 8.0 (three members), open model at 1,000 ops/s, 2 generator processes, 4 collections of 50,000 documents, release bundle built from commit 6038045. Samples every 30 s are in `docs/evidence/soak.csv`, drawn in `docs/evidence/soak.svg`.
+
+| Process | Start | After 1 h | End (2 h 5 min) |
+|---|---|---|---|
+| Server memory (RSS) | 77.7 MB | 84.3 MB | 84.8 MB |
+| Server open files | 33 | 33 | 33 (34 at most) |
+| Generators memory, 2 processes | 133.5 MB | 133.7 MB | 133.8 MB |
+| Generators open files | 169 | 169 | 169 |
+
+The run completed: 7,498,998 successful operations, 0 failed, 1,000 ops/s mean, not client-bound.
+
+Server memory grew about 0.85 MB per 10 minutes for exactly the first hour, then 0.56 MB in the whole second hour. The first hour is the live-chart buffer filling: the server keeps the last 3,600 seconds of chart points (`LIVE_POINTS`) for the live view. After that, memory is flat; generator memory and every file descriptor count are flat from the start. No leak was found while running.
+
+**Found and fixed after the run.** When the run ended, the server's memory went to 366 MB and stayed there, and a JSON export of the run pushed it to 865 MB. Loading the run for analysis materialised every second with every histogram as Python dicts: 1 GB and 50 s for 7,531 seconds, which a 24-hour run could not survive on a small server. Commit 2f42758 keeps stored histograms packed, streams the summary, series and exports, keeps one histogram per second for analysis, and moves the work off the event loop. Measured again on a copy of this run's database in a separate process (memory is the peak of traced Python allocations per step; the whole process peaked at 160 MB RSS across all four steps):
+
+| On the 2-hour run | Before | After |
+|---|---|---|
+| Analysis | over 1 GB, 50 s just to load the seconds | 106 MB, 14 s |
+| JSON export | server RSS rose to 865 MB | 21 MB, 0.4 s |
+| CSV export | all seconds in memory | 4 MB, 13 s |
+| Chart series | all seconds in memory | 4.5 MB, 12 s, then cached |
+
+The same run also showed 226 "detected disruptions" with no failed operation: one- and two-second p99 spikes while other tests shared the 4-CPU host. Latency-only spikes now need 3 seconds to count, and at most 50 detected windows are analysed, keeping the most severe; the run now has 27.
+
+The soak ran once before this one. The first attempt stopped after 20 minutes because the session's container was restarted; its samples up to then were the same shape.
 
 ## 6. Static checks
 
