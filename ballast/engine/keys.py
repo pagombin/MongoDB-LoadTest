@@ -100,8 +100,8 @@ class KeyChooser:
         return fnv1a64(rank) % n
 
     def upsert_key(self) -> int:
-        n = max(1, int(self.size * 1.1) + 1)
-        return self.rng.randrange(n)
+        extra = self.size // 10 + 1
+        return self.rng.randrange(-extra, max(1, self.size))
 
     def new_key(self) -> int:
         key = self._next_insert

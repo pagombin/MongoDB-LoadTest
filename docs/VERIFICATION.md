@@ -8,7 +8,7 @@ Environment: Linux x86-64, 4 CPUs, 15.7 GB RAM; Docker 29.9.1; MongoDB 8.0.34 an
 
 | Check (brief section) | Result | Evidence |
 |---|---|---|
-| Unit tests (12.1) | 141 passed, also with `-W error` | `docs/evidence/unit-tests.txt` |
+| Unit tests (12.1) | 148 passed, also with `-W error` | `docs/evidence/unit-tests.txt` |
 | Integration on MongoDB 8.0, including failover (12.2) | 5 passed | `docs/evidence/integration-mongo-8.0.txt` |
 | Integration on MongoDB 7.0 (12.2, 16.4) | 5 passed | `docs/evidence/integration-mongo-7.0.txt` |
 | Leak checks (12.3) | passed on both versions | `tests/integration/test_leaks.py` in the two files above |
@@ -29,16 +29,17 @@ Environment: Linux x86-64, 4 CPUs, 15.7 GB RAM; Docker 29.9.1; MongoDB 8.0.34 an
 runtime/python/bin/python3 -m pytest tests -v -W error
 ```
 
-141 tests in `tests/unit` (new code) and `tests/legacy` (the original suite, all still passing). What they cover, by brief item:
+148 tests in `tests/unit` (new code) and `tests/legacy` (the original suite, all still passing). What they cover, by brief item:
 
 | Brief 12.1 item | Tests |
 |---|---|
 | Configuration parsing and precedence | `tests/unit/test_config.py`: flag over env over file over default, typed env values, unknown keys and values name the key, unknown `BALLAST_*` variables, reserved variables, `tls.mode: off` surviving YAML boolean parsing, secrets from inline/env/file with the permission warning, redaction |
 | Path resolution | `test_relative_paths_resolve_against_install_dir_not_cwd`, `test_default_config_file_in_install_dir` |
 | Histogram merging and percentiles | `tests/unit/test_histogram.py`: 200,000 samples from uniform, exponential, lognormal and bimodal distributions, every reported percentile within 0.1% of the exact sample percentile; bucket layout contiguous; merge equals single recording; merging differs from averaging |
-| Coordinated-omission correction | `tests/unit/test_open_model.py`: schedule maths, pause shift, backlog; a simulated 0.5 s stall at 200 ops/s shows in response-time p90 (above 100 ms) but not in service-time p90 (below 50 ms) |
+| Coordinated-omission correction | `tests/unit/test_open_model.py`: schedule maths, pause shift, backlog, rate changes after idle workers ran ahead, during a stall (backlog kept) and while paused; a simulated 0.5 s stall at 200 ops/s shows in response-time p90 (above 100 ms) but not in service-time p90 (below 50 ms) |
 | Error classification | `tests/unit/test_errors.py`: code, code name and labels for NotWritablePrimary, PrimarySteppedDown, DuplicateKey, network classes, bulk write errors, redaction |
-| Impact analysis on synthetic series | `tests/unit/test_analysis.py`: a 300-second series with a known disruption; asserts exact first and last failure times, failed count by class, 6,600 ms write gap, 400 ms read gap, primary change, baseline p99 2 ms, recovery 6 s, disruption detection bounds, client-bound rate and CPU rules, warm-up exclusion |
+| Impact analysis on synthetic series | `tests/unit/test_analysis.py`: a 300-second series with a known disruption; asserts exact first and last failure times, failed count by class, 6,600 ms write gap, 400 ms read gap, primary change, baseline p99 2 ms, recovery 6 s, disruption detection bounds, client-bound rate and CPU rules, warm-up exclusion, ramp steps and lowered levels not flagged as disruptions |
+| Engine keys and merging | `tests/unit/test_keys_runs.py`: upsert keys never collide with insert keys; a generator process's second that arrives after the straggler timeout is merged into the stored second |
 | Storage | `tests/unit/test_store.py`: 0600/0700 permissions, migrations with backup, refusal of a newer schema, interrupted runs keep data, retention, cross-process gap intersection |
 | Server sampling without privileges | `tests/unit/test_monitor.py`: `serverStatus` and `replSetGetStatus` answering `Unauthorized` are recorded once each with the fix, never retried, while `hello` keeps being sampled |
 | HTTP security | `tests/unit/test_server_security.py`: CSP and headers, custom header required, cross-origin requests blocked, schema validation, body size limit, password never returned, access gate and cookie flags, profile CRUD/export/import |

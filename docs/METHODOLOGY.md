@@ -25,7 +25,7 @@ Application-level retries (the profile's `retry.max_attempts`, off by default) a
 
 **Open model** (default). You set a target rate *R*. Operation *i* is scheduled to start at `t0 + i / R`. A fixed pool of in-flight slots (`concurrency`) takes the next scheduled operation, waits until its start time if it is early, sends it, and records the result. If the database slows down, scheduled start times keep advancing regardless, so a backlog of late operations builds up and is sent as soon as slots free up. Only the index of the next operation is stored, so a long stall costs memory proportional to the number of slots, not the backlog.
 
-Pausing shifts `t0` by the length of the pause. Changing the rate during a run rebases the schedule at the next scheduled operation, so operations already late stay late.
+Pausing shifts `t0` by the length of the pause. Changing the rate during a run starts the new rate at the oldest operation not yet sent, or now if none is late, so operations already late stay late and their latency still counts. Idle slots check every 100 ms whether the schedule changed, so a rate increase takes effect within 100 ms.
 
 **Closed model**. You set a number of workers. Each sends one operation, waits for it, optionally sleeps the think time, and repeats. Throughput is whatever the database allows. This model cannot show how late requests would have been, because a slow database simply makes the workers send less.
 
@@ -91,7 +91,7 @@ For each window (a pair of begin and end markers, a range you select in the repo
 - **Recovery time**: the number of seconds from the window end until the first point from which, for `sustain_seconds` (default 5) consecutive seconds, successful throughput is at least the baseline minus `throughput_tolerance` (default 10%) and p99 response time is at most the baseline plus `latency_tolerance` (default 25%). Both are computed from merged histograms over those seconds. If that never happens before the run ends, the report says "not within run".
 - **Primary changes**: driver topology events (a new primary, no primary, the same primary again) from 5 seconds before the window to the end of the span. They come from a dedicated monitoring client with a 500 ms heartbeat, so elections are timestamped to within about half a second.
 
-**Detected disruptions** are runs of measured seconds with any failed operation, successful throughput below half the run's median, or p99 above four times the run's median p99 (and above 10 ms). Seconds less than 3 seconds apart are merged.
+**Detected disruptions** are runs of measured seconds with any failed operation, successful throughput below half the median of the seconds at the same load level (same phase, target rate and workers, so ramp steps and level changes are not disruptions), or p99 above four times the run's median p99 (and above 10 ms). Seconds less than 3 seconds apart are merged.
 
 All thresholds can be changed per profile in `analysis` (see the profile JSON).
 

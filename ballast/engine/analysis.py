@@ -213,18 +213,25 @@ def analyze_window(
     }
 
 
+def _load_level(record: SecondRecord) -> tuple:
+    return (record.phase, record.concurrency, round(record.target_rate or 0))
+
+
 def detect_disruptions(records: list[SecondRecord], settings: AnalysisSettings) -> list[dict]:
     measured = _measured(records)
     if len(measured) < 3:
         return []
-    tputs = [r.ok for r in measured]
     p99s = [r.rt().percentile(99) for r in measured]
-    median_tput = statistics.median(tputs)
     median_p99 = statistics.median([p for p in p99s if p] or [0])
+    segments: dict[tuple, list[int]] = {}
+    for record in measured:
+        segments.setdefault(_load_level(record), []).append(record.ok)
+    segment_median = {key: statistics.median(values) for key, values in segments.items()}
     bad: list[int] = []
     for record, p99 in zip(measured, p99s, strict=True):
         disturbed = record.err > 0
-        if median_tput and record.ok < median_tput * (1 - settings.disruption_throughput_drop):
+        expected = segment_median[_load_level(record)]
+        if expected and record.ok < expected * (1 - settings.disruption_throughput_drop):
             disturbed = True
         if median_p99 and p99 > max(median_p99 * settings.disruption_latency_factor, settings.disruption_latency_floor_us):
             disturbed = True

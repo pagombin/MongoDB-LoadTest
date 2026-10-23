@@ -32,6 +32,7 @@ from ballast.engine.series import READ_OPS, WRITE_OPS, OpSecond, SecondRecord
 
 GAP_MIN_MS = 100
 CLOSE_GRACE_SECONDS = 0.15
+RESCHEDULE_CHECK_SECONDS = 0.1
 RETRYABLE = (pe.AutoReconnect, pe.ConnectionFailure, pe.NotPrimaryError, pe.ServerSelectionTimeoutError, pe.NetworkTimeout)
 
 
@@ -66,7 +67,7 @@ class OpenSchedule:
         return self.t0 + self.next_index / self.rate
 
     def set_rate(self, rate: float, now: float) -> None:
-        self.t0 = max(self.next_intended(), now) if self.next_index else now
+        self.t0 = min(self.next_intended(), now) if self.next_index else now
         self.next_index = 0
         self.rate = rate
         self.epoch += 1
@@ -169,6 +170,7 @@ class Generator:
         self.inbox: asyncio.Queue = asyncio.Queue()
         self._error_samples: dict[str, int] = {}
         self.paused_at = 0.0
+        self.sampled: set[int] = set()
         secrets = [x for x in spec.get("secrets", []) if x]
         self.redact = (lambda text: _redact(text, secrets)) if secrets else None
         self.client: AsyncMongoClient | None = None
@@ -256,6 +258,17 @@ class Generator:
             await asyncio.sleep(0.2)
             self._flush(time.time())
 
+    def _sample_gauges(self, rec: SecondRecord, mono: float) -> None:
+        rec.cpu = self.cpu
+        rec.inflight = self.inflight
+        if self.profile.load.model == "open":
+            rec.target_rate = 0.0 if self.paused or rec.phase == "paused" else self.level
+            rec.concurrency = len(self.tasks)
+            rec.backlog = self.schedule.backlog(mono) if self.schedule and not self.paused else 0
+        else:
+            rec.target_rate = None
+            rec.concurrency = self.target_workers
+
     def _flush(self, now: float, final: bool = False) -> None:
         if not self.running and not final:
             return
@@ -267,18 +280,16 @@ class Generator:
         if elapsed >= 0.5:
             self.cpu = 100.0 * (cpu_total - self.cpu_mark[1]) / elapsed
             self.cpu_mark = (mono, cpu_total)
+        if not final:
+            current = int(now)
+            self._sample_gauges(self._second(current), mono)
+            self.sampled.add(current)
         for t in range(start, limit + 1):
             rec = self.seconds.pop(t, None) or SecondRecord(t=t, phase="paused" if self.paused else self.phase)
-            rec.cpu = self.cpu
-            rec.inflight = self.inflight
+            if t not in self.sampled:
+                self._sample_gauges(rec, mono)
+            self.sampled.discard(t)
             rec.processes = 1
-            if self.profile.load.model == "open":
-                rec.target_rate = 0.0 if self.paused or rec.phase == "paused" else self.level
-                rec.concurrency = len(self.tasks)
-                rec.backlog = self.schedule.backlog(mono) if self.schedule and not self.paused else 0
-            else:
-                rec.target_rate = None
-                rec.concurrency = self.target_workers
             for kind in ("write", "read"):
                 self.kind_rate[kind] = 0.7 * self.kind_rate[kind] + 0.3 * self.kind_count[kind]
                 self.kind_count[kind] = 0
@@ -286,6 +297,7 @@ class Generator:
             self.last_emitted = t
         for t in [t for t in self.seconds if self.last_emitted is not None and t <= self.last_emitted]:
             self.seconds.pop(t, None)
+        self.sampled = {t for t in self.sampled if self.last_emitted is None or t > self.last_emitted}
 
     # ---- operations ----
 
@@ -366,12 +378,14 @@ class Generator:
             assert sched is not None
             epoch = sched.epoch
             intended = sched.take()
-            delay = intended - time.monotonic()
-            if delay > 0:
-                await asyncio.sleep(delay)
+            stale = False
+            while (delay := intended - time.monotonic()) > 0:
+                await asyncio.sleep(min(delay, RESCHEDULE_CHECK_SECONDS))
                 if self.stopping or self.paused or sched.epoch != epoch:
-                    continue
-            await self.execute(intended)
+                    stale = True
+                    break
+            if not stale:
+                await self.execute(intended)
 
     async def closed_worker(self, worker_id: int) -> None:
         think = self.profile.load.think_time_ms / 1000.0
@@ -408,7 +422,7 @@ class Generator:
                 )
                 self.tasks = [asyncio.create_task(self.open_worker()) for _ in range(concurrency)]
             else:
-                self.schedule.set_rate(share, now)
+                self.schedule.set_rate(share, self.paused_at if self.paused else now)
         else:
             target = int(share)
             while len(self.tasks) < target:

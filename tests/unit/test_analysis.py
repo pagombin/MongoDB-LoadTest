@@ -136,3 +136,18 @@ def test_full_analysis_contains_marker_and_detected_windows():
     sources = [i["source"] for i in result["impacts"]]
     assert sources == ["markers", "detected"]
     assert result["impacts"][1]["overlaps_marker_window"] is True
+
+
+def test_ramp_steps_and_lowered_levels_are_not_disruptions():
+    records = [second(t, ok=100, target=100.0, phase="ramp 1") for t in range(0, 60)]
+    records += [second(t, ok=400, target=400.0, phase="ramp 2") for t in range(60, 120)]
+    records += [second(t, ok=1000, target=1000.0) for t in range(120, 240)]
+    records += [second(t, ok=200, target=200.0) for t in range(240, 300)]
+    assert detect_disruptions(records, AnalysisSettings()) == []
+
+
+def test_throughput_drop_within_a_level_is_a_disruption():
+    records = [second(t, ok=1000) for t in range(0, 120)]
+    records[50] = second(50, ok=100)
+    found = detect_disruptions(records, AnalysisSettings())
+    assert [(w["start_ms"], w["end_ms"]) for w in found] == [(50_000, 51_000)]

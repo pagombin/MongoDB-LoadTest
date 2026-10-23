@@ -150,14 +150,16 @@ class RunManager:
             "started_at": run.started_at,
             "elapsed_ms": self._elapsed_ms(run),
             "last": last,
-            "load": {"target": run.load_target_docs, "done": sum(p.loaded for p in run.processes)} if run.status == "loading" else None,
+            "load": {"target": run.load_target_docs * len(run.collections), "done": sum(p.loaded for p in run.processes)}
+            if run.status == "loading"
+            else None,
             "errors": run.errors_live,
         }
 
     def _elapsed_ms(self, run: ActiveRun) -> int | None:
         if run.started_at is None:
             return None
-        paused = run.paused_total + ((time.monotonic() - run.paused_since) if run.paused_since else 0)
+        paused = self._paused_seconds(run)
         return int(now_ms() - run.started_at - paused * 1000)
 
     def _set_status(self, run: ActiveRun, status: str, **fields) -> None:
@@ -429,14 +431,17 @@ class RunManager:
         self._send_all({"cmd": "run" if first else "set", "phase": phase, "level": level})
         self._record_event(run, now_ms(), "phase", {"phase": phase, "level": level, "seconds": seconds})
         end = None if seconds is None else time.monotonic() + seconds
+        paused_before = self._paused_seconds(run)
         while True:
             if run.stop_requested.is_set():
                 return False
-            if end is not None and run.paused_since is None and time.monotonic() >= end:
+            if end is not None and run.paused_since is None and time.monotonic() >= end + self._paused_seconds(run) - paused_before:
                 return True
-            if run.paused_since is not None and end is not None:
-                end += 0.2
             await asyncio.sleep(0.2)
+
+    @staticmethod
+    def _paused_seconds(run: ActiveRun) -> float:
+        return run.paused_total + ((time.monotonic() - run.paused_since) if run.paused_since else 0.0)
 
     async def _schedule(self, run: ActiveRun) -> None:
         sched = run.profile.schedule
@@ -523,6 +528,13 @@ class RunManager:
                 merged.merge(other)
             del run.pending[t]
             if run.last_written is not None and t <= run.last_written:
+                for cls, n in merged.errors.items():
+                    run.errors_live[cls] = run.errors_live.get(cls, 0) + n
+                stored = self.store.seconds(run.id, t, t + 1)
+                if stored:
+                    stored[0].merge(merged)
+                    merged = stored[0]
+                self.store.add_second(run.id, merged)
                 continue
             run.last_written = t
             self.store.add_second(run.id, merged)

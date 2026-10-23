@@ -10,9 +10,42 @@ from ballast.engine.histogram import Histogram
 def test_schedule_is_fixed_interval_and_rate_change_rebases():
     s = OpenSchedule(100.0, 10.0)
     assert [round(s.take(), 6) for _ in range(3)] == [10.0, 10.01, 10.02]
-    s.set_rate(50.0, now=5.0)
+    s.set_rate(50.0, now=20.0)
     assert round(s.take(), 6) == 10.03
     assert round(s.take(), 6) == 10.05
+
+
+def test_rate_increase_after_idle_workers_ran_ahead_starts_now():
+    s = OpenSchedule(10.0, 0.0)
+    for _ in range(64):
+        s.take()
+    s.set_rate(1000.0, now=0.5)
+    assert s.next_intended() == 0.5
+    s = OpenSchedule(0.001, 0.0)
+    for _ in range(64):
+        s.take()
+    s.set_rate(500.0, now=1.0)
+    assert s.next_intended() == 1.0
+
+
+def test_rate_change_during_stall_keeps_backlog():
+    s = OpenSchedule(100.0, 0.0)
+    for _ in range(100):
+        s.take()
+    assert s.backlog(10.0) == 901
+    s.set_rate(200.0, now=10.0)
+    assert s.next_intended() == 1.0
+    assert s.backlog(10.0) > 900
+
+
+def test_rate_change_while_paused_resumes_on_schedule():
+    s = OpenSchedule(10.0, 0.0)
+    for _ in range(80):
+        s.take()
+    paused_at = 5.0
+    s.set_rate(20.0, now=paused_at)
+    s.shift(60.0 - paused_at)
+    assert s.next_intended() == 60.0
 
 
 def test_pause_shifts_schedule_and_backlog_counts_missed_starts():

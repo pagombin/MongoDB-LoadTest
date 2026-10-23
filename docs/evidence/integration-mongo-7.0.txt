@@ -13,4 +13,4 @@ tests/integration/test_failover.py::test_write_stall_measures_gap_latency_and_re
 tests/integration/test_leaks.py::test_repeated_runs_do_not_leak PASSED   [ 80%]
 tests/integration/test_secrets.py::test_password_absent_everywhere PASSED [100%]
 
-======================== 5 passed in 196.08s (0:03:16) =========================
+======================== 5 passed in 195.42s (0:03:15) =========================
