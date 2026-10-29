@@ -56,6 +56,15 @@ sh ballast-1.0.0-offline/scripts/install.sh --wheelhouse ballast-1.0.0-offline/w
 cd ~/ballast
 ```
 
+**If `make build` or a script says "No such file or directory" or `$'\r': command not found`,** the files have Windows line endings. This happens when they are copied from a Windows machine, unpacked from a ZIP made there, or cloned with `core.autocrlf=true`. Check with `file scripts/setup-runtime.sh`; it reports "with CRLF line terminators". Clone again, or convert the copy you have:
+
+```
+grep -rlI "$(printf '\r')" --exclude-dir=.git . | xargs sed -i 's/\r$//'
+chmod +x bin/ballast bin/ballastctl scripts/*.sh
+```
+
+Fresh clones of this repository always get Unix line endings.
+
 ### 2. Check the host
 
 ```

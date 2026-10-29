@@ -4,7 +4,7 @@ TARGETS ?= linux-amd64,linux-arm64,darwin-arm64,darwin-amd64
 .PHONY: build dev test integration e2e lint format typecheck audit release clean
 
 build:
-	scripts/setup-runtime.sh
+	sh scripts/setup-runtime.sh
 
 dev: build
 	$(PY) -m pip install -q -r requirements/dev.txt

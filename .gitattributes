@@ -1,0 +1,13 @@
+# Shell scripts break with Windows line endings ("/bin/sh^M: no such file"), so every text file
+# is checked out with LF, even where git is configured with core.autocrlf=true.
+* text=auto eol=lf
+*.csv -text
+*.png binary
+*.jpg binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.gz binary
+*.whl binary
+*.db binary
