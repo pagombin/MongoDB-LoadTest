@@ -59,11 +59,13 @@ cd ~/ballast
 **If `make build` or a script says "No such file or directory" or `$'\r': command not found`,** the files have Windows line endings. This happens when they are copied from a Windows machine, unpacked from a ZIP made there, or cloned with `core.autocrlf=true`. Check with `file scripts/setup-runtime.sh`; it reports "with CRLF line terminators". Clone again, or convert the copy you have:
 
 ```
-grep -rlI "$(printf '\r')" --exclude-dir=.git . | xargs sed -i 's/\r$//'
+grep -rlIZ "$(printf '\r')" --exclude-dir=.git . | xargs -0 -r sed -i 's/\r$//'
 chmod +x bin/ballast bin/ballastctl scripts/*.sh
+rm -rf .cache runtime/python.new
+make build
 ```
 
-Fresh clones of this repository always get Unix line endings.
+Convert every file, not only `scripts/*.sh`: a carriage return left in `scripts/python-runtime.env` breaks the download URL (`curl: (3) URL using bad/illegal format`). Step-by-step instructions are in `docs/FIX-LINE-ENDINGS.md`. Fresh clones of this repository always get Unix line endings.
 
 ### 2. Check the host
 
@@ -145,6 +147,7 @@ Other commands: `bin/ballastctl status | stop | restart | logs | health | backup
 |---|---|
 | `docs/INSTALL.md` | All install routes in detail, upgrade, uninstall |
 | `docs/CONFIGURATION.md` | Every configuration key, its default, and its environment variable |
+| `docs/FIX-LINE-ENDINGS.md` | Fixing `make build` on a copy with Windows line endings |
 | `docs/OPERATIONS.md` | Start, stop, logs, autostart, certificates, doctor, backup, metrics, webhooks, CI runs, troubleshooting |
 | `docs/SCALE-TESTING.md` | Running a workload around scale operations, including Atlas analytics and read-only nodes, and reading the report |
 | `docs/METHODOLOGY.md` | How latency is measured, percentiles, coordinated omission, members and routes, client-bound runs |
