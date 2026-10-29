@@ -80,35 +80,33 @@ It checks Python, the required and optional packages, that worker processes can 
 
 Ballast connects to your cluster from the server it runs on. Your browser only talks to Ballast, so your laptop never needs to reach the cluster. Choose how your browser reaches Ballast:
 
-**Option A: listen on the server's network address.** Use this when your laptop can reach the server directly, but not the cluster. Create an access token, because anyone who can reach the port can otherwise start load against your clusters:
+**Option A: listen on the server's network address.** Use this when your laptop can reach the server directly, but not the cluster:
 
 ```
-mkdir -p config
-head -c 24 /dev/urandom | base64 > config/token
-chmod 600 config/token
 cat > config/ballast.yaml <<'YAML'
 server:
   listen: 0.0.0.0:8443
-  access_token_file: config/token
 YAML
 bin/ballastctl start
 ```
 
-Startup prints a URL for each of the server's addresses and the certificate's SHA-256 fingerprint:
+Because Ballast now listens on the network, the first start creates an access token in `config/token`, readable only by you. Without it, anyone who can reach the port could start load against your clusters. Startup prints a URL for each of the server's addresses, the certificate's SHA-256 fingerprint and the token:
 
 ```
 started: https://127.0.0.1:8443 (server pid 453, supervisor pid 452)
 also at: https://db-tools-1:8443
 also at: https://10.0.0.5:8443
 certificate SHA-256: 18:D2:E1:57:...
+access token: <32 random characters>
 ```
 
-Open `https://<server address>:8443` from your laptop, check that the fingerprint matches before you accept the certificate, then enter the token from `config/token`. The browser remembers it for the session.
+Open `https://<server address>:8443` from your laptop, check that the fingerprint matches before you accept the certificate, then enter the token. The browser remembers it for the session. `bin/ballastctl token` shows the token again, and `bin/ballastctl token --new` replaces it (restart to apply).
 
 - To listen on one address only, use it instead of `0.0.0.0`, for example `listen: 10.0.0.5:8443`.
 - The self-signed certificate covers the server's host name and the addresses it can see. A public IP that is mapped onto the server (an AWS Elastic IP, for example) or a DNS name is not visible from the server. Add those to `tls.self_signed_hosts`, for example `self_signed_hosts: ["localhost", "127.0.0.1", "203.0.113.10"]`.
 - Open port 8443 in the server's firewall and in any cloud security group. On Ubuntu with ufw, `sudo ufw allow 8443/tcp` needs an administrator.
-- For a one-off test, `bin/ballastctl start --listen 0.0.0.0:8443` does the same without editing the file. It warns that no token is set.
+- For a one-off test, `bin/ballastctl start --listen 0.0.0.0:8443` does the same without editing the file.
+- To use your own token instead, put it in `config/token` (mode 600) before the first start, or set `server.access_token_file`.
 
 **Option B: an SSH tunnel.** Use this when only SSH is open to the server. Start Ballast as installed (`bin/ballastctl start`; it listens on `127.0.0.1:8443`), then run this on your laptop:
 

@@ -201,6 +201,12 @@ Each entry: the question, the options considered, the choice, why, and how hard 
 - Choice: `driver.read_preference` is empty by default and then the connection string decides. Saved profiles that set `primary` explicitly keep doing so.
 - Reverse: easy.
 
+## D-035 An access token is created automatically when listening beyond loopback
+
+- What changed: with `server.listen` set to a non-loopback address and no token configured, the server used to start open to anyone who could reach the port, with only a warning. A user reaching the UI through a jump server had to create the token by hand.
+- Choice: at startup, create `config/token` (32 URL-safe characters, mode 600, kept across restarts) and require it. `ballastctl start` prints it, `ballastctl token` shows it, and `ballastctl token --new` replaces it. The token is never written to the logs. `server.auto_access_token: false` turns this off when something in front of Ballast already controls access. Listening on loopback is unchanged: no token unless one is set.
+- Reverse: easy (set the default of `server.auto_access_token` to false).
+
 ## Blocked
 
 (none yet)

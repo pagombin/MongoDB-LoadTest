@@ -12,7 +12,7 @@ Pick the first route that works for you.
 |---|---|---|
 | A. Tunnel through the jump server | `127.0.0.1:8443` (the default) | SSH port forwarding allowed on the jump server and on the Ballast server |
 | B. Two separate hops | `127.0.0.1:8443` | Same as A; use it when `-J` does not work for you |
-| C. Ballast on the server's network, tunnel to the jump server only | `0.0.0.0:8443`, with an access token | Forwarding allowed on the jump server only, and port 8443 open from the jump server to the Ballast server |
+| C. Ballast on the server's network, tunnel to the jump server only | `0.0.0.0:8443`, with an access token (created automatically) | Forwarding allowed on the jump server only, and port 8443 open from the jump server to the Ballast server |
 
 Throughout, replace:
 - `myuser` with your own username;
@@ -83,6 +83,28 @@ Use this when SSH port forwarding is turned off on the Ballast server. The sympt
 
 ```
 cd /apps/mongod/MongoDB-LoadTest
+cat > config/ballast.yaml <<'EOF'
+server:
+  listen: 0.0.0.0:8443
+EOF
+bin/ballastctl restart
+```
+
+Because Ballast now listens on the network, it creates an access token the first time it starts this way and stores it in `config/token`, readable only by `mongod`. The token is required: without it, anyone who can reach port 8443 could start load against your clusters. `bin/ballastctl restart` prints it:
+
+```
+access token: <32 random characters>
+```
+
+- `bin/ballastctl token` shows it again.
+- `bin/ballastctl token --new` replaces it; run `bin/ballastctl restart` afterwards.
+- If `config/ballast.yaml` already exists, add the `server:` key to it instead of overwriting it.
+- To listen on one address only, use it in place of `0.0.0.0`, for example `listen: 10.20.30.40:8443`.
+
+**Older copies.** A copy taken from `main` up to and including pull request 9 does not create the token itself. `bin/ballastctl restart` then prints no `access token:` line, and `bin/ballastctl token` is an unknown command. Create the token by hand:
+
+```
+cd /apps/mongod/MongoDB-LoadTest
 head -c 24 /dev/urandom | base64 > config/token
 chmod 600 config/token
 cat > config/ballast.yaml <<'EOF'
@@ -93,12 +115,6 @@ EOF
 bin/ballastctl restart
 cat config/token
 ```
-
-The access token is required. Once Ballast listens on the network, anyone who can reach port 8443 could otherwise use it to start load against your clusters.
-
-If `config/ballast.yaml` already exists, add the two `server:` keys to it instead of overwriting it.
-
-To listen on one address only, use it in place of `0.0.0.0`, for example `listen: 10.20.30.40:8443`.
 
 ### 2. On the jump server, check that it can reach Ballast
 
@@ -120,7 +136,7 @@ This is a single hop: the jump server itself connects to `lxv105350:8443`.
 
 ### 4. Open `https://localhost:8443` on your laptop
 
-Accept the certificate, then paste the token from step 1. The browser keeps a session cookie, so you enter the token once per browser session.
+Accept the certificate, then paste the token from step 1 (`bin/ballastctl token` on the server shows it). The browser keeps a session cookie, so you enter the token once per browser session.
 
 ### Going back to route A or B
 
@@ -146,9 +162,9 @@ Remove the `server:` lines from `config/ballast.yaml`, or set `listen: 127.0.0.1
 | `channel N: open failed: administratively prohibited: open failed` | In your session on the machine that refuses | That machine's SSH server does not allow port forwarding. If it appears on the Ballast server, use route C. If it appears on the jump server, ask its administrators to allow forwarding, or open the UI from a browser on the jump server, if it has one, at `https://lxv105350:8443` after route C step 1. |
 | `channel N: open failed: connect failed: Connection refused` | Any hop | The tunnel works, but nothing listens at the destination. Check `bin/ballastctl status` as `mongod`, and that the port in the tunnel matches `server.listen`. |
 | The browser shows a certificate warning | Laptop | Expected for the self-signed certificate. Compare the fingerprint with `bin/ballastctl start` (or `bin/ballastctl status`), then accept it. |
-| The browser asks for an access token | Laptop | `server.access_token_file` is set. Paste the contents of `config/token` from the Ballast server. |
+| The browser asks for an access token | Laptop | `server.access_token_file` is set. Run `bin/ballastctl token` as `mongod` on the Ballast server (or `cat config/token` on older copies) and paste it. |
 
 ## Security notes
 
-- Other users logged in to the Ballast server can also reach `127.0.0.1:8443`. Setting an access token, as in route C, protects against that on routes A and B too.
+- Other users logged in to the Ballast server can also reach `127.0.0.1:8443`. Setting an access token protects against that on routes A and B too: put one in `config/token` (mode 600) and set `server.access_token_file: config/token`.
 - Route C opens a port on the server's network. Agree it with whoever runs the server and the network, especially where port forwarding was disabled on purpose.

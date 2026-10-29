@@ -20,6 +20,7 @@ usage: ballastctl <command> [options]
   logs [-f] [-n N]    show the server log
   health              exit 0 if the server answers
   mark "<label>"      add a marker to the active run (--phase begin|end, --note TEXT)
+  token [--new]       show the access token, or make a new one
   gen-cert            make a new self-signed certificate and reload it
   autostart enable    start after reboot (systemd user unit, else crontab)
   autostart disable   undo autostart
@@ -31,7 +32,7 @@ Options shared by every command: --config FILE, --set section.key=value
 USAGE
 }
 case ${1:-} in
-  start|stop|restart|status|logs|health|mark|gen-cert|autostart|version|config|doctor|backup|restore) exec "$bin_dir/ballast" "$@" ;;
+  start|stop|restart|status|logs|health|mark|token|gen-cert|autostart|version|config|doctor|backup|restore) exec "$bin_dir/ballast" "$@" ;;
   -h|--help|help|"") usage; [ -n "${1:-}" ] && exit 0; exit 2 ;;
   *) echo "ballastctl: unknown command '$1'" >&2; usage >&2; exit 2 ;;
 esac

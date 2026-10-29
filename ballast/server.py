@@ -1259,6 +1259,9 @@ def serve(loaded: Loaded, ready_file: Path | None = None) -> int:
         cfg.logging.max_files,
         console=os.environ.get("BALLAST_FOREGROUND") == "1",
     )
+    created = loaded.ensure_auto_token()
+    if created:
+        log.info("created access token file %s, because the server listens beyond loopback", created)
     for warning in _warnings() + exposure_warnings(loaded):
         log.warning(warning)
         print(f"warning: {warning}", flush=True)

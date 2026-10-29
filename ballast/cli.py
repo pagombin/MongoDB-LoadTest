@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 from ballast import autostart, buildinfo, product
-from ballast.config import ConfigError, Loaded, effective_with_sources, load, split_listen
+from ballast.config import ConfigError, Loaded, effective_with_sources, load, split_listen, write_token_file
 
 EXIT_CONFIG = 2
 
@@ -183,6 +183,7 @@ def cmd_start(args) -> int:
                 print(f"also at: {other}")
             if info.get("fingerprint"):
                 print(f"certificate SHA-256: {info['fingerprint']}")
+            _print_auto_token(loaded)
             for warning in info.get("warnings") or []:
                 print(f"warning: {warning}")
             return 0
@@ -293,6 +294,43 @@ def cmd_logs(args) -> int:
             except KeyboardInterrupt:
                 return 0
     return 0
+
+
+def _print_auto_token(loaded: Loaded) -> None:
+    path = loaded.auto_token_path()
+    if path is not None and path.exists():
+        print(f"access token: {loaded.access_token()}")
+        print(f"  (stored in {path}; the browser asks for it once. Show it again with: ballastctl token)")
+
+
+def cmd_token(args) -> int:
+    loaded = _loaded(args)
+    s = loaded.config.server
+    path = loaded.auto_token_path() or (loaded.resolve(s.access_token_file) if s.access_token_file else None)
+    if args.new:
+        if path is None:
+            where = "inline or from an environment variable" if s.access_token or s.access_token_env else "not used"
+            print(f"error: the access token is {where}; ballastctl token --new only manages token files", file=sys.stderr)
+            return 2
+        print(f"access token: {write_token_file(path)}")
+        print(f"  (stored in {path}; run 'ballastctl restart' to use it. Browsers will ask for it again.)")
+        return 0
+    try:
+        token = loaded.access_token()
+    except ConfigError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    if token:
+        print(token)
+        return 0
+    host, _ = split_listen(s.listen)
+    if loaded.auto_token_path() is not None:
+        print(f"no access token yet; one is created in {loaded.auto_token_path()} when the server starts")
+    elif not s.auto_access_token:
+        print(f"no access token: server.auto_access_token is false and the server listens on {host}")
+    else:
+        print(f"no access token: the server listens on {host} only, so none is needed")
+    return 3
 
 
 def cmd_gen_cert(args) -> int:
@@ -522,6 +560,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--supervisor", action="store_true", help="show the supervisor log")
     p.add_argument("--console", action="store_true", help="show the server console output")
     p.set_defaults(func=cmd_logs)
+
+    p = sub.add_parser("token", help="show the access token; --new replaces it")
+    _common(p)
+    p.add_argument("--new", action="store_true", help="make a new token (takes effect after restart)")
+    p.set_defaults(func=cmd_token)
 
     p = sub.add_parser("gen-cert", help="generate a new self-signed certificate and reload it")
     _common(p)

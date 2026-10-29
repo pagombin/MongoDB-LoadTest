@@ -8,6 +8,7 @@ server:
   public_url: ""
   trust_proxy_headers: false
   access_token_file: ""
+  auto_access_token: true  # create config/token when listening beyond 127.0.0.1 with no token set
 tls:
   mode: self-signed
   cert_file: certs/server.crt

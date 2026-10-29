@@ -9,6 +9,7 @@ from __future__ import annotations
 import ipaddress
 import os
 import re
+import secrets
 import stat
 from collections.abc import Callable, Mapping
 from pathlib import Path
@@ -22,6 +23,7 @@ from ballast import miniyaml, product
 SECRET_KEYS = {"access_token", "password"}
 RESERVED_ENV = {"home", "config", "supervised", "foreground", "site", "launcher"}
 PERMISSION_WARNINGS: list[str] = []
+AUTO_TOKEN_FILE = "config/token"  # noqa: S105 - a path, not a secret
 
 
 def contrast_with_white(hex_color: str) -> float:
@@ -47,6 +49,7 @@ class ServerConfig(Section):
     access_token: str = ""
     access_token_env: str = ""
     access_token_file: str = ""
+    auto_access_token: bool = True
     max_body_kb: int = Field(default=1024, ge=16, le=65536)
     shutdown_timeout_seconds: int = Field(default=30, ge=1, le=600)
 
@@ -335,7 +338,30 @@ class Loaded:
             return value
         if s.access_token_file:
             return read_secret_file(self.resolve(s.access_token_file), "server.access_token_file").strip()
+        auto = self.auto_token_path()
+        if auto is not None and auto.exists():
+            return read_secret_file(auto, "server.auto_access_token").strip()
         return ""
+
+    def auto_token_path(self) -> Path | None:
+        """Where the generated access token lives, when Ballast listens beyond loopback and no token is configured."""
+        s = self.config.server
+        if not s.auto_access_token or s.access_token or s.access_token_env or s.access_token_file:
+            return None
+        host, _ = split_listen(s.listen)
+        if host.startswith("127.") or host in ("localhost", "::1"):
+            return None
+        return self.resolve(AUTO_TOKEN_FILE)
+
+    def ensure_auto_token(self) -> Path | None:
+        """Create the generated access token if it is needed and missing or empty. Returns its path when created."""
+        path = self.auto_token_path()
+        if path is None:
+            return None
+        if path.exists() and path.read_text(encoding="utf-8").strip():
+            return None
+        write_token_file(path)
+        return path
 
     def target_presets(self) -> list[dict]:
         out = []
@@ -381,6 +407,17 @@ class Loaded:
                 preset["password"] = "****"  # noqa: S105
             preset["uri"] = redact_uri(preset["uri"])
         return data
+
+
+def write_token_file(path: Path) -> str:
+    """Replace path with a new random token, readable only by the owner."""
+    token = secrets.token_urlsafe(24)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.unlink(missing_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(token + "\n")
+    return token
 
 
 def read_secret_file(path: Path, key: str) -> str:

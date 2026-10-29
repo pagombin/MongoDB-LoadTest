@@ -46,7 +46,7 @@ Relative paths in the file, environment and flags resolve against the install di
 
 ## Secrets
 
-The access token can be given inline (`server.access_token`), from an environment variable (`server.access_token_env` names the variable), or from a file (`server.access_token_file`). Set only one. Target passwords in the `targets` list work the same way (`password`, `password_env`, `password_file`). A secret file should be readable only by you:
+The access token can be given inline (`server.access_token`), from an environment variable (`server.access_token_env` names the variable), or from a file (`server.access_token_file`). Set only one. If none is set and `server.listen` is not a loopback address, a token is generated in `config/token` (see `server.auto_access_token`). Target passwords in the `targets` list work the same way (`password`, `password_env`, `password_file`). A secret file should be readable only by you:
 
 ```
 chmod 600 config/token
@@ -66,6 +66,7 @@ Ballast warns at startup, in `bin/ballast config validate`, and on the System pa
 | `server.access_token` | `""` | `BALLAST_SERVER_ACCESS_TOKEN` | Inline access token. When any token is set, every request needs it. |
 | `server.access_token_env` | `""` | `BALLAST_SERVER_ACCESS_TOKEN_ENV` | Name of an environment variable holding the token. |
 | `server.access_token_file` | `""` | `BALLAST_SERVER_ACCESS_TOKEN_FILE` | File holding the token (first line). |
+| `server.auto_access_token` | `true` | `BALLAST_SERVER_AUTO_ACCESS_TOKEN` | When the server listens beyond loopback and none of the three settings above is set, create a token in `config/token` (mode 600) at startup and require it. `ballastctl token` shows it. |
 | `server.max_body_kb` | `1024` | `BALLAST_SERVER_MAX_BODY_KB` | Largest request body accepted, in KB. |
 | `server.shutdown_timeout_seconds` | `30` | `BALLAST_SERVER_SHUTDOWN_TIMEOUT_SECONDS` | How long a stop waits for an active run to drain and save. |
 

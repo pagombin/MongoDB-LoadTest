@@ -104,8 +104,9 @@ Or listen on all interfaces. Use this when your laptop can reach the server but 
 ```yaml
 server:
   listen: 0.0.0.0:8443
-  access_token_file: config/token
 ```
+
+When Ballast listens beyond loopback and no token is configured, it creates one at startup in `config/token` (mode 600) and keeps it across restarts. `bin/ballastctl start` prints it, `bin/ballastctl token` shows it again, and `bin/ballastctl token --new` replaces it; restart to apply the new one. To use your own token, put it in `config/token` before the first start, or set `server.access_token`, `server.access_token_env` or `server.access_token_file`. Set `server.auto_access_token: false` only when something in front of Ballast already controls access.
 
 When listening on all interfaces, the self-signed certificate automatically covers the server's host name and every address the server can see, and startup prints a URL for each one. A public IP that is mapped onto the server (an AWS Elastic IP or GCP external IP, for example) or a DNS name is not visible from the server, so add it yourself:
 
@@ -114,15 +115,7 @@ tls:
   self_signed_hosts: ["localhost", "127.0.0.1", "203.0.113.10", "ballast.example.com"]
 ```
 
-Startup warns when Ballast listens beyond loopback with no access token, or with `tls.mode: off`. Open the port (8443 by default) in the host firewall and in any cloud security group.
-
-Create the token and restart:
-
-```
-head -c 24 /dev/urandom | base64 > config/token
-chmod 600 config/token
-bin/ballastctl restart
-```
+Startup warns when Ballast listens beyond loopback with no access token (only possible with `server.auto_access_token: false`), or with `tls.mode: off`. Open the port (8443 by default) in the host firewall and in any cloud security group.
 
 Browsers ask for the token once and then keep a session cookie (HttpOnly, SameSite=Strict, Secure over HTTPS).
 
