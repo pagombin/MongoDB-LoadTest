@@ -97,6 +97,8 @@ ssh -L 8443:127.0.0.1:8443 you@server
 
 Then open `https://localhost:8443`.
 
+Through a jump server, or where SSH port forwarding is disabled, see `docs/REMOTE-ACCESS.md`.
+
 Or listen on all interfaces. Use this when your laptop can reach the server but not the cluster: Ballast connects to the cluster from the server, and your browser only talks to Ballast. Put in `config/ballast.yaml`:
 
 ```yaml

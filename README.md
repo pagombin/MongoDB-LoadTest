@@ -118,6 +118,8 @@ ssh -L 8443:127.0.0.1:8443 you@server
 
 Then open `https://localhost:8443`. Only browser traffic goes through the tunnel; Ballast still connects to the cluster from the server.
 
+**Through a jump server**, or when you log in as yourself and then `sudo su - mongod`, follow `docs/REMOTE-ACCESS.md`. It also covers servers where SSH port forwarding is turned off ("administratively prohibited").
+
 ### 4. Run a test
 
 1. **Targets**: add your connection string and press **Test connection**. It lists every member, with its Atlas node type if it has one.
@@ -147,6 +149,7 @@ Other commands: `bin/ballastctl status | stop | restart | logs | health | backup
 |---|---|
 | `docs/INSTALL.md` | All install routes in detail, upgrade, uninstall |
 | `docs/CONFIGURATION.md` | Every configuration key, its default, and its environment variable |
+| `docs/REMOTE-ACCESS.md` | Opening the UI from your laptop through a jump server, SSH tunnel errors |
 | `docs/FIX-LINE-ENDINGS.md` | Fixing `make build` on a copy with Windows line endings |
 | `docs/OPERATIONS.md` | Start, stop, logs, autostart, certificates, doctor, backup, metrics, webhooks, CI runs, troubleshooting |
 | `docs/SCALE-TESTING.md` | Running a workload around scale operations, including Atlas analytics and read-only nodes, and reading the report |
